@@ -1,0 +1,13 @@
+import { chromium } from 'playwright-core'
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
+const p = await (await b.newContext({ viewport: { width: 1440, height: 900 } })).newPage()
+await p.goto('http://localhost:8081/#/p/PRJ-026/overview'); await p.waitForTimeout(300)
+await p.keyboard.press('Control+k')
+await p.keyboard.type('material traceab')
+await p.waitForTimeout(200)
+console.log('hits:', await p.locator('.phit').allTextContents())
+await p.locator('.phit').first().click()
+await p.waitForTimeout(300)
+console.log('drawer count:', await p.locator('.drawer').count(), '| palette:', await p.locator('.palette').count())
+console.log('h2:', await p.locator('.drawer h2').allTextContents())
+await b.close()
