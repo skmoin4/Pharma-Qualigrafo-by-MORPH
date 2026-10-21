@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
-import { Activity as ActivityIcon, Archive, Bell as BellIcon, BellRing, Boxes, Briefcase, CalendarRange, ChevronRight, CircleHelp, ClipboardCheck, ClipboardList, FilePlus2, FileText, FileUp, GitBranch, History, Inbox, LayoutDashboard, ListChecks, Menu, MessageSquare, Network, PackageCheck, PenLine, Radar, ScanSearch, Search, Settings2, TriangleAlert, Users, X, Flame, ShieldAlert, Store, Swords } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { coverage, useStore } from './store'
-import { projectIndex } from './data/seed'
-import type { Role } from './types'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { Activity as ActivityIcon, Archive, Bell as BellIcon, BellRing, Boxes, Briefcase, CalendarRange, ChevronRight, CircleHelp, ClipboardCheck, ClipboardList, FilePlus2, FileText, FileUp, GitBranch, History, Inbox, LayoutDashboard, ListChecks, Menu, MessageSquare, Network, PackageCheck, PenLine, Radar, ScanSearch, Search, Settings2, TriangleAlert, Users, Flame, ShieldAlert, Store, Swords, UserCog, Building2, BookOpen } from 'lucide-react'
+import type { ComponentType, ReactNode } from 'react'
+import { coverage, useProjectList, useStore, VENDOR_PAGES } from './store'
+import { Loading, Login } from './components/Login'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { ForcedPasswordChange, PasswordDialog } from './components/Account'
+// Rarely used screens load on demand to keep the main bundle small.
+const Admin = lazy(() => import('./pages/Admin'))
+const NewProject = lazy(() => import('./pages/NewProject'))
 import { Toast } from './components/Toast'
 import { DocDrawer, ReqDrawer } from './components/Drawers'
 import { Palette } from './components/Palette'
@@ -12,6 +16,8 @@ import type { HomeKey, PageKey } from './components/ui'
 import Portfolio, { MyWork, Watch, useAll } from './pages/Portfolio'
 import Overview from './pages/Overview'
 import Setup from './pages/Setup'
+const Registers = lazy(() => import('./pages/Registers'))
+const Library = lazy(() => import('./pages/Library'))
 import Requirements from './pages/Requirements'
 import { EvidenceMap, Inspector } from './pages/Evidence'
 import { Documents, Reviews } from './pages/Documents'
@@ -24,14 +30,14 @@ import { Ncrs, Risks } from './pages/Quality'
 import { Rehearsal, Vendor } from './pages/Vendor'
 
 const LABEL: Record<PageKey, string> = {
-  overview: 'Overview', setup: 'Setup & baseline', schedule: 'Schedule', requirements: 'Requirements', evidence: 'Evidence map', inspector: 'Inspector view',
-  updates: 'Regulatory changes', actions: 'Corrective actions', documents: 'Document register', sources: 'Sources (Revit / file)', reviews: 'Reviews & approvals',
+  overview: 'Overview', setup: 'Setup & baseline', registers: 'Companies & systems', schedule: 'Schedule', requirements: 'Requirements', evidence: 'Evidence map', inspector: 'Inspector view',
+  updates: 'Regulatory changes', actions: 'Corrective actions', documents: 'Document register', sources: 'Source files', reviews: 'Reviews & approvals',
   activity: 'Updates & automation', comments: 'Technical comments', rfis: 'RFIs', inspections: 'Inspections', findings: 'Consistency findings', changes: 'Change impact',
   handover: 'Handover readiness', packages: 'Audit packages', audit: 'Audit trail', templates: 'Templates & vendors', team: 'Team & responsibilities',
   risks: 'Risk register', ncrs: 'Non-conformances', vendor: 'Vendor portal view', rehearsal: 'Audit rehearsal',
 }
 const ICON: Record<PageKey, ReactNode> = {
-  overview: <LayoutDashboard size={15} />, setup: <Settings2 size={15} />, schedule: <CalendarRange size={15} />, requirements: <ListChecks size={15} />, evidence: <Network size={15} />,
+  overview: <LayoutDashboard size={15} />, setup: <Settings2 size={15} />, registers: <Building2 size={15} />, schedule: <CalendarRange size={15} />, requirements: <ListChecks size={15} />, evidence: <Network size={15} />,
   inspector: <ScanSearch size={15} />, updates: <BellRing size={15} />, actions: <ClipboardCheck size={15} />, documents: <FileText size={15} />, sources: <FileUp size={15} />,
   reviews: <PenLine size={15} />, activity: <ActivityIcon size={15} />, comments: <MessageSquare size={15} />, rfis: <CircleHelp size={15} />, inspections: <ClipboardList size={15} />,
   findings: <TriangleAlert size={15} />, changes: <GitBranch size={15} />, handover: <PackageCheck size={15} />, packages: <Archive size={15} />, audit: <History size={15} />,
@@ -39,57 +45,19 @@ const ICON: Record<PageKey, ReactNode> = {
   risks: <Flame size={15} />, ncrs: <ShieldAlert size={15} />, vendor: <Store size={15} />, rehearsal: <Swords size={15} />,
 }
 const GROUPS: { title: string; keys: PageKey[] }[] = [
-  { title: 'Project', keys: ['overview', 'setup', 'schedule', 'team'] },
+  { title: 'Project', keys: ['overview', 'setup', 'registers', 'schedule', 'team'] },
   { title: 'Compliance & evidence', keys: ['requirements', 'evidence', 'inspector', 'rehearsal', 'updates', 'actions'] },
   { title: 'Documents', keys: ['documents', 'sources', 'vendor', 'reviews', 'activity', 'comments', 'templates'] },
   { title: 'Site & change', keys: ['rfis', 'inspections', 'ncrs', 'findings', 'risks', 'changes'] },
   { title: 'Handover', keys: ['handover', 'packages', 'audit'] },
 ]
-const PAGES: Record<PageKey, () => ReactNode> = {
-  overview: Overview, setup: Setup, schedule: Schedule, team: Team, requirements: Requirements, evidence: EvidenceMap, inspector: Inspector, updates: Updates, actions: Actions,
+const PAGES: Record<PageKey, ComponentType> = {
+  overview: Overview, setup: Setup, registers: Registers, schedule: Schedule, team: Team, requirements: Requirements, evidence: EvidenceMap, inspector: Inspector, updates: Updates, actions: Actions,
   documents: Documents, sources: Sources, reviews: Reviews, activity: Activity, comments: Comments, templates: Templates, rfis: Rfis, inspections: Inspections, findings: Findings,
   changes: Changes, handover: Handover, packages: Packages, audit: Audit,
   risks: Risks, ncrs: Ncrs, vendor: Vendor, rehearsal: Rehearsal,
 }
-const HOME_LABEL: Record<HomeKey, string> = { portfolio: 'Portfolio', work: 'My work', watch: 'Regulatory watch' }
-
-const TOUR: { page: PageKey; role: Role; text: string }[] = [
-  { page: 'overview', role: 'Owner / QA', text: 'Start at the project overview: evidence by market and discipline, plus handover gates. Nothing here is a compliance score.' },
-  { page: 'requirements', role: 'Owner / QA', text: 'Open a requirement. Applicability, evidence status and document approval are separate. Check the “Cross-market evidence reuse” tab too.' },
-  { page: 'documents', role: 'Contractor', text: 'As Contractor, open “Reactor vendor datasheet” (changes requested), add a note and submit it.' },
-  { page: 'reviews', role: 'Consultant', text: 'Open a document under review, tick the confirmation and sign as Consultant: it is routed to Owner / QA automatically. Then switch role for stage 2 and a controlled issue manifest is generated.' },
-  { page: 'sources', role: 'Contractor', text: 'Switch between Without Revit and Revit connector. Preview a source update and import it: a new draft revision is created and any pending approval route is cancelled.' },
-  { page: 'activity', role: 'Consultant', text: 'Every routing step, reminder, revision change and issue is in one feed. Try “Simulate reminder cycle”.' },
-  { page: 'evidence', role: 'Contractor', text: 'Open the Purified-water P&ID and start a new revision. Return here: every link to it is now stale until reassessed.' },
-  { page: 'comments', role: 'Consultant', text: 'Select a comment to zoom to its anchor. Switch to “Revit connector” to see the navigation request and its failure outcomes (simulated).' },
-  { page: 'inspector', role: 'Owner / QA', text: 'Pick “Material traceability for utility piping”. The trail shows what is proven and what is missing.' },
-  { page: 'updates', role: 'Owner / QA', text: 'Assess the fictional update as applicable: a new baseline is created and only the affected evidence reopens.' },
-  { page: 'ncrs', role: 'Contractor', text: 'Open the Critical NCR and submit a response with root cause, containment and corrective action. Then switch to Owner / QA to verify and close it: a Consultant cannot close a Critical NCR.' },
-  { page: 'risks', role: 'Owner / QA', text: 'The heat map plots open risks by likelihood and impact. Select one, add a note and change its status.' },
-  { page: 'rehearsal', role: 'Owner / QA', text: 'Audit rehearsal: for each market, see which inspector questions you could answer today and why the others cannot be answered yet.' },
-  { page: 'vendor', role: 'Contractor', text: 'Vendor portal view: pick a company and see only its deliverables and the items waiting on it. Submit from here.' },
-  { page: 'handover', role: 'Owner / QA', text: 'Every document-gate condition is reported separately. Then freeze an audit package under “Audit packages”.' },
-]
-
-function Tour({ onClose }: { onClose: () => void }) {
-  const [i, setI] = useState(0)
-  const setRole = useStore((s) => s.setRole)
-  useEffect(() => { go(TOUR[i].page); setRole(TOUR[i].role) }, [i, setRole])
-  return (
-    <div className="tour" role="dialog" aria-label="Walkthrough">
-      <div className="th"><span>Walkthrough · step {i + 1} of {TOUR.length}</span><button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 0, color: '#fff' }}><X size={14} /></button></div>
-      <div className="tb">
-        <b>{LABEL[TOUR[i].page]}</b>
-        <p className="muted" style={{ margin: '6px 0' }}>{TOUR[i].text}</p>
-        <p className="small muted">Role preview set to {TOUR[i].role}.</p>
-        <div className="row sb" style={{ marginTop: 10 }}>
-          <button className="btn sm" disabled={i === 0} onClick={() => setI(i - 1)}>Back</button>
-          {i < TOUR.length - 1 ? <button className="btn sm pri" onClick={() => setI(i + 1)}>Next</button> : <button className="btn sm pri" onClick={onClose}>Finish</button>}
-        </div>
-      </div>
-    </div>
-  )
-}
+const HOME_LABEL: Record<HomeKey, string> = { portfolio: 'Portfolio', work: 'My work', watch: 'Regulatory watch', admin: 'Users & access', new: 'New project', library: 'Requirement library' }
 
 function Notifications() {
   const { events, role, markAllRead } = useStore()
@@ -117,11 +85,22 @@ function Notifications() {
 export default function App() {
   const route = useRoute()
   const { drawer, menu, setMenu, setPalette } = useUI()
-  const { role, setRole, current, openProject, profile, docs, reqs, markets, updates, rfis, revitMode, reset, events, ncrs, risks } = useStore()
-  const [tour, setTour] = useState(false)
+  const { role, current, openProject, profile, docs, reqs, markets, updates, rfis, revitMode, events, ncrs, risks, session, status, loadError, restore, refresh, logout, scope } = useStore()
+  const [pwOpen, setPwOpen] = useState(false)
+  // Stable callback: the dialog's Escape listener must not be re-registered on every App render.
+  const closePw = useCallback(() => setPwOpen(false), [])
   const all = useAll()
+  const projectList = useProjectList()
 
-  useEffect(() => { if (route.project !== current) openProject(route.project) }, [route.project, current, openProject])
+  useEffect(() => { void restore() }, [restore])
+  // Other people change the same project; pull a fresh copy whenever the tab regains focus.
+  useEffect(() => {
+    const f = () => { void refresh() }
+    window.addEventListener('focus', f)
+    return () => window.removeEventListener('focus', f)
+  }, [refresh])
+
+  useEffect(() => { if (status === 'ready' && route.project !== current) openProject(route.project) }, [route.project, current, openProject, status])
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (e.key === 'Escape') useUI.getState().close()
@@ -147,6 +126,10 @@ export default function App() {
     return () => mo.disconnect()
   }, [])
 
+  if (!session) return status === 'loading' ? <Loading text="Loading…" /> : <><Login /><Toast /></>
+  if (session.mustChangePassword) return <><ForcedPasswordChange /><Toast /></>
+  if (status !== 'ready') return <Loading text="Loading projects…" />
+
   const inProject = route.project !== null && current === route.project
   const c = coverage(reqs.filter((r) => markets.includes(r.market)), docs)
   const badge: Partial<Record<PageKey, { n: number; hot?: boolean }>> = {
@@ -158,7 +141,10 @@ export default function App() {
     ncrs: { n: ncrs.filter((n) => n.status !== 'Closed').length, hot: ncrs.some((n) => n.severity === 'Critical' && n.status !== 'Closed') },
     risks: { n: risks.filter((r) => r.status !== 'Closed' && r.likelihood * r.impact >= 15).length, hot: true },
   }
-  const Page = PAGES[route.page]
+  // Vendor-scoped accounts only get the pages whose data the server returns to them.
+  const allowed = (k: PageKey) => !scope || (VENDOR_PAGES as readonly string[]).includes(k)
+  const page: PageKey = allowed(route.page) ? route.page : 'vendor'
+  const Page = PAGES[page]
   const workN = all.reduce((n, a) => n + a.work.length, 0)
   const regN = all.reduce((n, a) => n + a.p.updates.filter((u) => u.status === 'Awaiting assessment').length, 0)
   const nav = (on: boolean, onClick: () => void, icon: ReactNode, label: string, n?: number, hot?: boolean) => (
@@ -176,14 +162,14 @@ export default function App() {
           <>
             <div className="projbox">
               <small>Project · {profile.id}</small>
-              <select aria-label="Switch project" value={profile.id} onChange={(e) => openProjectRoute(e.target.value, route.page)}>{projectIndex.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              <select aria-label="Switch project" value={profile.id} onChange={(e) => openProjectRoute(e.target.value, route.page)}>{projectList.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
               <span>{profile.facility} · {profile.scope}</span>
             </div>
             <nav className="nav">
-              {GROUPS.map((g) => (
+              {GROUPS.filter((g) => g.keys.some(allowed)).map((g) => (
                 <div key={g.title}>
                   <h6>{g.title}</h6>
-                  {g.keys.map((k) => nav(route.page === k, () => go(k), ICON[k], LABEL[k], badge[k]?.n, badge[k]?.hot))}
+                  {g.keys.filter(allowed).map((k) => nav(page === k, () => go(k), ICON[k], LABEL[k], badge[k]?.n, badge[k]?.hot))}
                 </div>
               ))}
             </nav>
@@ -194,6 +180,8 @@ export default function App() {
             {nav(route.home === 'portfolio', () => home('portfolio'), <Briefcase size={15} />, 'Portfolio')}
             {nav(route.home === 'work', () => home('work'), <Inbox size={15} />, 'My work', workN)}
             {nav(route.home === 'watch', () => home('watch'), <Radar size={15} />, 'Regulatory watch', regN, true)}
+            {nav(route.home === 'library', () => home('library'), <BookOpen size={15} />, 'Requirement library')}
+            {session.isAdmin && nav(route.home === 'admin', () => home('admin'), <UserCog size={15} />, 'Users & access')}
             <h6>Projects</h6>
             {all.map(({ meta, st }) => (
               <button key={meta.id} onClick={() => openProjectRoute(meta.id)}>
@@ -204,8 +192,11 @@ export default function App() {
           </nav>
         )}
         <div className="sidefoot">
-          <div className="row" style={{ gap: 9 }}><span className="avatar">{role[0]}</span><div><b style={{ color: '#e6eef3', fontSize: 12.5 }}>{role}</b><div>Role preview</div></div></div>
-          <button className="link small" style={{ color: '#8fb4c4', fontWeight: 400, marginTop: 8 }} onClick={() => { if (confirm('Reset all prototype data to its starting state?')) reset() }}>Reset prototype data</button>
+          <div className="row" style={{ gap: 9 }}><span className="avatar">{session.name[0]}</span><div><b style={{ color: '#e6eef3', fontSize: 12.5 }}>{session.name}</b><div>{role}{session.company ? ` · ${session.company}` : ''}</div></div></div>
+          <div className="row" style={{ gap: 14, marginTop: 8 }}>
+            <button className="link small" style={{ color: '#8fb4c4', fontWeight: 400 }} onClick={() => setPwOpen(true)}>Change password</button>
+            <button className="link small" style={{ color: '#8fb4c4', fontWeight: 400 }} onClick={() => { logout(); window.location.hash = '#/' }}>Sign out</button>
+          </div>
         </div>
       </aside>
 
@@ -214,24 +205,23 @@ export default function App() {
           <button className="btn menu-btn" onClick={() => setMenu(!menu)} aria-label="Menu"><Menu size={15} /></button>
           <div className="crumb">
             <button onClick={() => home()}>Portfolio</button>
-            {inProject ? <><ChevronRight size={13} /><button className="hide-sm" onClick={() => go('overview')}>{profile.name}</button><ChevronRight size={13} className="hide-sm" /><b>{LABEL[route.page]}</b></> : route.home !== 'portfolio' && <><ChevronRight size={13} /><b>{HOME_LABEL[route.home]}</b></>}
+            {inProject ? <><ChevronRight size={13} /><button className="hide-sm" onClick={() => go('overview')}>{profile.name}</button><ChevronRight size={13} className="hide-sm" /><b>{LABEL[page]}</b></> : route.home !== 'portfolio' && <><ChevronRight size={13} /><b>{HOME_LABEL[route.home]}</b></>}
           </div>
           <button className="searchbtn" onClick={() => setPalette(true)} aria-label="Search"><Search size={14} /><span>Search</span><kbd>Ctrl K</kbd></button>
-          {inProject && <span className="badge" title="Project input mode">{revitMode ? 'Revit (simulated)' : 'Standalone'}</span>}
+          {inProject && scope && <span className="badge amber" title="Your access is limited to this company's records">Vendor · {scope}</span>}
           {inProject && <Notifications />}
-          <button className="btn sm ghost" onClick={() => setTour(!tour)}>Walkthrough</button>
-          <label className="role"><span>Preview as</span>
-            <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)} aria-label="Preview role"><option>Consultant</option><option>Contractor</option><option>Owner / QA</option></select>
-          </label>
+          {inProject && !scope && <span className="badge" title="Project input mode">{revitMode ? 'Revit connector' : 'Standalone'}</span>}
+          {inProject && <span className="badge" title="Your role on this project">{role}</span>}
         </header>
-        <div className="cert">Prototype · fictional data · role preview is not authentication. This platform records evidence status; it does not issue regulatory approval or valid electronic signatures.</div>
-        <main className="page">{inProject ? <Page /> : route.home === 'work' ? <MyWork /> : route.home === 'watch' ? <Watch /> : <Portfolio />}</main>
+        {loadError && <div className="notice err" style={{ margin: '12px 24px 0' }}>{loadError}</div>}
+        {inProject && profile.status === 'Archived' && <div className="notice" style={{ margin: '12px 24px 0' }}><b>Archived · read-only.</b> {profile.archivedReason}{role === 'Owner / QA' && <> <button className="link small" onClick={() => go('setup')}>Restore under Setup →</button></>}</div>}
+        <main className="page"><ErrorBoundary resetKey={`${route.project}/${page}/${route.home}`}><Suspense fallback={<div className="empty"><b>Loading…</b></div>}>{inProject ? <Page /> : route.home === 'work' ? <MyWork /> : route.home === 'watch' ? <Watch /> : route.home === 'admin' && session.isAdmin ? <Admin /> : route.home === 'new' && session.canCreateProjects ? <NewProject /> : route.home === 'library' ? <Library /> : <Portfolio />}</Suspense></ErrorBoundary></main>
       </div>
 
       {inProject && drawer?.kind === 'doc' && <DocDrawer key={drawer.id} id={drawer.id} />}
       {inProject && drawer?.kind === 'req' && <ReqDrawer key={drawer.id} id={drawer.id} />}
-      <Palette labels={LABEL} inProject={inProject} />
-      {tour && <Tour onClose={() => setTour(false)} />}
+      <Palette labels={scope ? (Object.fromEntries(Object.entries(LABEL).filter(([k]) => allowed(k as PageKey))) as Record<PageKey, string>) : LABEL} inProject={inProject} />
+      {pwOpen && <PasswordDialog onClose={closePw} />}
       <Toast />
     </div>
   )

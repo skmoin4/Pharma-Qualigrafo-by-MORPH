@@ -1,0 +1,762 @@
+// Qualigrafo backend schema.
+// Status / role / market values are plain strings validated in src/domain/enums.ts
+// (kept as strings, not native DB enums, so the schema stays portable to MySQL).
+// Every project-scoped record has an internal `id` (cuid) and a human `code`
+// (DOC-001, REQ-014 ...) that is unique per project and is what the API exposes as `id`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// ---------------------------------------------------------------- identity
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  company      String?
+  passwordHash String
+  active       Boolean      @default(true)
+  /// Platform administrator: manages users and memberships (not a project role).
+  isAdmin      Boolean      @default(false)
+  /// Embedded in every token; bumping it signs the user out everywhere (password change, reset, deactivation).
+  tokenVersion Int          @default(0)
+  mustChangePassword Boolean @default(false)
+  passwordChangedAt  DateTime?
+  lastLoginAt  DateTime?
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+  noticeReads  NoticeRead[]
+}
+
+/// A user's role is per project (the same person can be Consultant on one project, Owner / QA on another).
+model Membership {
+  userId    String
+  projectId String
+  role      String
+  /// Contractor accounts limited to one company's records (vendor / subcontractor). Null = whole project.
+  companyScope String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+  @@index([projectId])
+}
+
+/// Append-only security log: sign-ins, lockouts, password changes, user and membership administration.
+model SecurityEvent {
+  id        BigInt   @id @default(autoincrement())
+  at        DateTime @default(now())
+  type      String
+  email     String?
+  userId    String?
+  actorId   String?
+  actorName String?
+  ip        String?
+  detail    String   @default("")
+
+  @@index([at])
+}
+
+/// ---------------------------------------------------------------- project
+
+model Project {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  client         String
+  site           String
+  facility       String
+  scope          String
+  phase          String
+  plantCountry   String
+  ownerStandards String
+  markets        Json // MarketKey[]
+  baseline       Int      @default(1)
+  revitMode      Boolean  @default(false)
+  autoRouting    Boolean  @default(true)
+  autoReminders  Boolean  @default(true)
+  autoIssue      Boolean  @default(true)
+  /// Active | Archived. Archived projects are read-only; nothing is deleted.
+  status         String   @default("Active")
+  archivedAt     DateTime?
+  archivedReason String?
+  createdByUserId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships  Membership[]
+  baselines    Baseline[]
+  documents    Document[]
+  requirements Requirement[]
+  pins         Pin[]
+  updates      RegUpdate[]
+  actions      GapAction[]
+  rfis         Rfi[]
+  inspections  Inspection[]
+  findings     Finding[]
+  changes      Change[]
+  snapshots    Snapshot[]
+  audit        AuditEvent[]
+  notices      Notice[]
+  imports      ImportBatch[]
+  issued       IssuedPackage[]
+  risks        Risk[]
+  ncrs         Ncr[]
+  files        StoredFile[]
+  companies    Company[]
+  systems      System[]
+  disciplines  Discipline[]
+  connectorTokens ConnectorToken[]
+  revitModels  RevitModel[]
+  snapshotsRevit ModelSnapshot[]
+  navigation   NavigationRequest[]
+}
+
+/// ---------------------------------------------------------------- Revit connector
+
+/// API credential for the Revit add-in of one project. Only the SHA-256 of the token is stored.
+model ConnectorToken {
+  id              String    @id @default(cuid())
+  projectId       String
+  name            String
+  prefix          String
+  tokenHash       String    @unique
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model RevitModel {
+  id             String          @id @default(cuid())
+  projectId      String
+  guid           String
+  name           String
+  createdAt      DateTime        @default(now())
+  lastSnapshotAt DateTime?
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  snapshots      ModelSnapshot[]
+
+  @@unique([projectId, guid])
+}
+
+/// A published state of a Revit model, sent by the add-in. Imported into documents by a person (Sources page).
+model ModelSnapshot {
+  id           String     @id @default(cuid())
+  projectId    String
+  modelId      String
+  version      String
+  publishedAt  DateTime   @default(now())
+  publishedBy  String
+  elementCount Int        @default(0)
+  changes      Json
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  model        RevitModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, version])
+}
+
+/// "Open in Revit" request for a comment; the add-in picks it up and reports the outcome.
+model NavigationRequest {
+  id                String    @id @default(cuid())
+  projectId         String
+  pinId             String
+  modelGuid         String
+  elementId         String
+  rev               Int
+  status            String    @default("Pending")
+  detail            String?
+  requestedByUserId String?
+  requestedByName   String
+  createdAt         DateTime  @default(now())
+  deliveredAt       DateTime?
+  completedAt       DateTime?
+  expiresAt         DateTime
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pin               Pin       @relation(fields: [pinId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+}
+
+/// ---------------------------------------------------------------- project registers
+
+/// A party on the project. Document `owner`, vendor scopes and pickers use the company name.
+model Company {
+  id           String   @id @default(cuid())
+  projectId    String
+  name         String
+  kind         String
+  contactName  String?
+  contactEmail String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+}
+
+/// System / equipment register. The tag is the identifier used by documents, requirements, RFIs, NCRs ...
+model System {
+  id          String   @id @default(cuid())
+  projectId   String
+  tag         String
+  name        String
+  discipline  String?
+  area        String?
+  gmpCritical Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tag])
+}
+
+model Discipline {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  position  Int
+  active    Boolean  @default(true)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+}
+
+model Baseline {
+  id        String   @id @default(cuid())
+  projectId String
+  v         Int
+  at        DateTime @default(now())
+  byRole    String
+  byUserId  String?
+  reason    String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, v])
+}
+
+/// ---------------------------------------------------------------- documents
+
+model Document {
+  id         String   @id @default(cuid())
+  projectId  String
+  code       String
+  title      String
+  discipline String
+  system     String
+  rev        Int      @default(0)
+  status     String
+  owner      String
+  due        DateTime @db.Date
+  critical   Boolean  @default(false)
+  signStage  Int      @default(0)
+  source     String?
+  checksum   String?
+  /// Revision the current source (file or Revit snapshot) belongs to. Source is "current" only when sourceRev == rev.
+  sourceRev  Int?
+  fileId     String?
+  /// Client / MDR document number (e.g. NPL-HVAC-DS-0001); unique per project when set. Used to match register imports.
+  number     String   @default("")
+  /// Void / Superseded: status kept before, who and why. supersededBy holds the replacing document's code.
+  statusBeforeVoid String?
+  voidReason String?
+  voidedAt   DateTime?
+  voidedBy   String?
+  supersededBy String?
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file       StoredFile? @relation("DocumentCurrentFile", fields: [fileId], references: [id], onDelete: SetNull)
+
+  signatures DocSignature[]
+  history    DocHistory[]
+  evidence   EvidenceLink[]
+  pins       Pin[]
+  findings   Finding[]
+  imports    ImportBatch[]
+  issued     IssuedPackage[]
+  ncrs       Ncr[]
+
+  @@unique([projectId, code])
+}
+
+model DocSignature {
+  id         String   @id @default(cuid())
+  documentId String
+  role       String
+  name       String
+  userId     String?
+  at         DateTime @default(now())
+  rev        Int
+  reason     String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model DocHistory {
+  id         String   @id @default(cuid())
+  documentId String
+  rev        Int
+  status     String
+  at         DateTime @default(now())
+  byRole     String
+  byUserId   String?
+  note       String?
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+/// ---------------------------------------------------------------- requirements & evidence
+
+model Requirement {
+  id             String   @id @default(cuid())
+  projectId      String
+  code           String
+  title          String
+  market         String
+  topic          String
+  discipline     String
+  system         String
+  applicability  String
+  rationale      String   @default("")
+  owner          String
+  due            DateTime @db.Date
+  critical       Boolean  @default(false)
+  clause         String   @default("")
+  sourceVersion  String   @default("")
+  effective      String   @default("")
+  sourceAttested Boolean  @default(false)
+  /// Where the requirement came from: library item key + the library version it was taken from; null = project-specific.
+  libraryKey       String?
+  libraryVersionId String?
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  evidence EvidenceLink[]
+  actions  GapAction[]
+  ncrs     Ncr[]
+
+  @@unique([projectId, code])
+}
+
+model EvidenceLink {
+  id               String      @id @default(cuid())
+  requirementId    String
+  documentId       String
+  position         Int
+  rev              Int
+  decision         String      @default("Pending")
+  note             String
+  byRole           String
+  byUserId         String?
+  at               DateTime    @default(now())
+  reviewedBy       String?
+  reviewedByUserId String?
+  reason           String?
+  requirement      Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  document         Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([requirementId, documentId, rev])
+  @@index([documentId])
+}
+
+/// ---------------------------------------------------------------- comments (anchored pins)
+
+model Pin {
+  id         String     @id @default(cuid())
+  projectId  String
+  code       String
+  text       String
+  documentId String
+  rev        Int
+  room       String
+  /// Position on the drawing of revision `rev`: page (1-based) and normalised x / y (0..1). Only meaningful when anchored.
+  anchored   Boolean    @default(false)
+  page       Int        @default(1)
+  x          Float
+  y          Float
+  /// Revit model GUID and element UniqueId the comment refers to (optional).
+  model      String?
+  element    String?
+  status     String     @default("Open")
+  byRole     String
+  byUserId   String?
+  createdAt  DateTime   @default(now())
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document   Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  replies    PinReply[]
+  navigation NavigationRequest[]
+
+  @@unique([projectId, code])
+}
+
+model PinReply {
+  id       String   @id @default(cuid())
+  pinId    String
+  byRole   String
+  byUserId String?
+  text     String
+  at       DateTime @default(now())
+  pin      Pin      @relation(fields: [pinId], references: [id], onDelete: Cascade)
+
+  @@index([pinId])
+}
+
+/// ---------------------------------------------------------------- regulatory updates & gap actions
+
+model RegUpdate {
+  id        String  @id @default(cuid())
+  projectId String
+  code      String
+  market    String
+  title     String
+  summary   String
+  reqs      Json // requirement codes
+  /// Regulatory (entered by a reviewer) or Library (a newly approved library pack version to apply).
+  kind      String  @default("Regulatory")
+  libraryVersionId String?
+  status    String  @default("Awaiting assessment")
+  reason    String?
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+model GapAction {
+  id            String      @id @default(cuid())
+  projectId     String
+  code          String
+  requirementId String
+  title         String
+  owner         String
+  due           DateTime    @db.Date
+  priority      String
+  status        String      @default("Open")
+  submittedBy   String?
+  createdAt     DateTime    @default(now())
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+/// ---------------------------------------------------------------- site
+
+model Rfi {
+  id             String   @id @default(cuid())
+  projectId      String
+  code           String
+  title          String
+  discipline     String
+  system         String
+  status         String   @default("Awaiting response")
+  raisedBy       String
+  raisedByUserId String?
+  due            DateTime @db.Date
+  response       String   @default("")
+  createdAt      DateTime @default(now())
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+model Inspection {
+  id         String   @id @default(cuid())
+  projectId  String
+  code       String
+  title      String
+  system     String
+  status     String   @default("Requested")
+  evidence   String   @default("Not yet submitted")
+  drawingRev String   @default("—")
+  decision   String?
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+model Finding {
+  id          String   @id @default(cuid())
+  projectId   String
+  code        String
+  title       String
+  documentId  String
+  severity    String
+  status      String   @default("Open")
+  source      String
+  rule        String
+  disposition String?
+  /// Who raised it: null for system-generated findings, the role for manual ones.
+  raisedBy       String?
+  raisedByUserId String?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+model Change {
+  id        String       @id @default(cuid())
+  projectId String
+  code      String
+  title     String
+  system    String
+  status    String       @default("Impact review")
+  decision  String?
+  createdAt DateTime     @default(now())
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items     ChangeItem[]
+
+  @@unique([projectId, code])
+}
+
+/// One linked document or requirement of a change, with its impact assessment.
+model ChangeItem {
+  id       String @id @default(cuid())
+  changeId String
+  kind     String // 'doc' | 'req'
+  ref      String // DOC-xxx / REQ-xxx code
+  position Int
+  impact   String @default("Unassessed")
+  change   Change @relation(fields: [changeId], references: [id], onDelete: Cascade)
+
+  @@unique([changeId, ref])
+}
+
+/// ---------------------------------------------------------------- quality
+
+model Risk {
+  id         String   @id @default(cuid())
+  projectId  String
+  code       String
+  title      String
+  detail     String   @default("")
+  system     String
+  likelihood Int
+  impact     Int
+  owner      String
+  mitigation String
+  due        DateTime @db.Date
+  status     String   @default("Open")
+  decision   String?
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+model Ncr {
+  id               String       @id @default(cuid())
+  projectId        String
+  code             String
+  title            String
+  description      String
+  system           String
+  severity         String
+  documentId       String?
+  requirementId    String?
+  raisedBy         String
+  raisedByUserId   String?
+  raisedAt         DateTime     @default(now())
+  due              DateTime     @db.Date
+  status           String       @default("Open")
+  rootCause        String?
+  containment      String?
+  correctiveAction String?
+  respondedBy      String?
+  closedBy         String?
+  closeReason      String?
+  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document         Document?    @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  requirement      Requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, code])
+}
+
+/// ---------------------------------------------------------------- sources, issue, snapshots
+
+model ImportBatch {
+  id             String   @id @default(cuid())
+  projectId      String
+  code           String
+  at             DateTime @default(now())
+  mode           String
+  documentId     String
+  fromRev        Int
+  toRev          Int
+  checksum       String
+  label          String
+  cancelledRoute Boolean
+  byUserId       String?
+  fileId         String?
+  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document       Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file           StoredFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, code])
+  @@unique([documentId, checksum])
+}
+
+/// An uploaded file. Bytes live in content-addressed storage (STORAGE_DIR/objects/<sha256>); the row is the project-scoped record.
+model StoredFile {
+  id               String        @id @default(cuid())
+  projectId        String
+  sha256           String
+  size             Int
+  mimeType         String
+  originalName     String
+  uploadedByUserId String?
+  uploadedByName   String?
+  uploadedByRole   String?
+  uploadedAt       DateTime      @default(now())
+  project          Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documents        Document[]    @relation("DocumentCurrentFile")
+  imports          ImportBatch[]
+
+  @@unique([projectId, sha256])
+}
+
+model IssuedPackage {
+  id         String   @id @default(cuid())
+  projectId  String
+  code       String
+  at         DateTime @default(now())
+  documentId String
+  title      String
+  rev        Int
+  signers    Json // { role, name, at }[]
+  checksum   String?
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+/// Frozen audit package. Immutable once written: rows/blockers are stored as JSON exactly as frozen.
+model Snapshot {
+  id        String   @id @default(cuid())
+  projectId String
+  code      String
+  at        DateTime @default(now())
+  byRole    String
+  byUserId  String?
+  baseline  Int
+  markets   Json
+  required  Int
+  accepted  Int
+  blockers  Json
+  rows      Json
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}
+
+/// ---------------------------------------------------------------- audit & notifications
+
+/// Append-only. The application never updates or deletes rows here.
+model AuditEvent {
+  id        BigInt   @id @default(autoincrement())
+  projectId String
+  at        DateTime @default(now())
+  role      String
+  userId    String?
+  userName  String?
+  text      String
+  requestId String?
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, at])
+}
+
+model Notice {
+  id        String       @id @default(cuid())
+  projectId String
+  seq       Int
+  at        DateTime     @default(now())
+  category  String
+  text      String
+  docCode   String?
+  forRole   String?
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reads     NoticeRead[]
+
+  @@unique([projectId, seq])
+}
+
+/// Read state is per user, not global.
+model NoticeRead {
+  noticeId String
+  userId   String
+  at       DateTime @default(now())
+  notice   Notice   @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([noticeId, userId])
+}
+
+/// ---------------------------------------------------------------- requirement library (installation-wide)
+
+/// One pack per market. Content is maintained and approved by the customer's own reviewers.
+model LibraryPack {
+  id        String           @id @default(cuid())
+  market    String           @unique
+  name      String
+  createdAt DateTime         @default(now())
+  versions  LibraryVersion[]
+}
+
+/// Draft -> Approved -> Superseded. Only one draft and one approved version per pack at a time.
+model LibraryVersion {
+  id               String        @id @default(cuid())
+  packId           String
+  version          Int
+  status           String        @default("Draft")
+  note             String        @default("")
+  /// Created from the unverified starter template.
+  starter          Boolean       @default(false)
+  createdByUserId  String?
+  createdByName    String
+  createdAt        DateTime      @default(now())
+  updatedByUserId  String?
+  updatedAt        DateTime      @default(now())
+  approvedByUserId String?
+  approvedByName   String?
+  approvedAt       DateTime?
+  approvalReason   String?
+  pack             LibraryPack   @relation(fields: [packId], references: [id], onDelete: Cascade)
+  items            LibraryItem[]
+
+  @@unique([packId, version])
+}
+
+model LibraryItem {
+  id            String         @id @default(cuid())
+  versionId     String
+  /// Stable identifier across versions (e.g. PREMISES-01); used to compare versions and update projects.
+  key           String
+  position      Int
+  title         String
+  topic         String         @default("")
+  discipline    String
+  /// Facility types the item applies to; empty = all.
+  facilities    Json
+  critical      Boolean        @default(false)
+  clause        String         @default("")
+  sourceVersion String         @default("")
+  effective     String         @default("")
+  guidance      String         @default("")
+  version       LibraryVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, key])
+}
+

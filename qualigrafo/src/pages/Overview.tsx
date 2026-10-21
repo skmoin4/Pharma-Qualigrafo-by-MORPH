@@ -1,10 +1,11 @@
-import { disciplines, markets } from '../data/seed'
-import { coverage, evidenceState, handoverGates, isOverdue, TODAY, useStore } from '../store'
+import { markets } from '../data/reference'
+import { coverage, evidenceState, handoverGates, isOverdue, TODAY, useRegisters, useStore } from '../store'
 import { ballInCourt } from '../work'
 import type { Holder } from '../work'
 import { Applic, Badge, DocBadge, MarketChip, PageHead, Stat, StateBadge, fmtDate, go, useUI } from '../components/ui'
 
 export default function Overview() {
+  const { allDisciplines } = useRegisters()
   const s = useStore()
   const { docs, reqs, markets: sel, audit, role, baseline, profile } = s
   const open = useUI((u) => u.open)
@@ -24,7 +25,7 @@ export default function Overview() {
         <Stat label="Evidence accepted" value={c.pct === null ? 'N/A' : `${c.accepted.length}/${c.required.length}`} sub="Required topics with accepted, current evidence" />
         <Stat label="Applicability pending" value={c.pending.length} sub="Reviewer decision outstanding" />
         <Stat label="Open evidence gaps" value={c.gaps.length} sub="Required topics not yet evidenced" warn={c.gaps.length > 0} />
-        <Stat label="Overdue records" value={overdue.length} sub={`Against demo date ${TODAY}`} warn={overdue.length > 0} />
+        <Stat label="Overdue records" value={overdue.length} sub={`As of ${TODAY}`} warn={overdue.length > 0} />
       </div>
 
       <div className="grid g21 mt">
@@ -34,7 +35,7 @@ export default function Overview() {
             <table>
               <thead><tr><th>Discipline</th>{sel.map((m) => <th key={m}>{markets[m].short}</th>)}</tr></thead>
               <tbody>
-                {disciplines.map((d) => (
+                {allDisciplines.map((d) => (
                   <tr key={d}>
                     <td>{d}</td>
                     {sel.map((m) => {

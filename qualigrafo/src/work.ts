@@ -1,4 +1,4 @@
-import { coverage, evidenceState, handoverGates, isOverdue, TODAY } from './store'
+import { activeDocs, coverage, evidenceState, handoverGates, isActiveDoc, isOverdue, TODAY } from './store'
 import type { ProjectData } from './store'
 import type { Role } from './types'
 import type { PageKey } from './components/ui'
@@ -60,7 +60,7 @@ export function stats(p: ProjectData) {
   const gates = handoverGates(p)
   const overdue = p.docs.filter(isOverdue)
   const critGaps = cov.gaps.filter((r) => r.critical).length
-  const upcoming = p.docs.filter((d) => d.status !== 'Accepted').map((d) => d.due).sort()[0]
+  const upcoming = activeDocs(p.docs).filter((d) => d.status !== 'Accepted').map((d) => d.due).sort()[0]
   const flags: string[] = []
   if (overdue.length) flags.push(`${overdue.length} overdue`)
   if (critGaps) flags.push(`${critGaps} critical gap${critGaps > 1 ? 's' : ''}`)
@@ -79,7 +79,7 @@ export interface Ball { holder: Holder; kind: string; title: string; ref: string
 export function ballInCourt(p: ProjectData): Ball[] {
   const b: Ball[] = []
   p.docs.forEach((d) => {
-    if (d.status === 'Accepted') return
+    if (d.status === 'Accepted' || !isActiveDoc(d)) return
     if (d.status === 'Under review') b.push({ holder: d.signStage === 0 ? 'Consultant' : 'Owner / QA', kind: 'Sign-off', title: d.title, ref: d.id, due: d.due, page: 'reviews' })
     else b.push({ holder: 'Contractor', kind: d.status === 'Changes requested' ? 'Resubmit' : d.status === 'Missing' ? 'Provide' : 'Complete draft', title: d.title, ref: d.id, due: d.due, page: 'documents' })
   })

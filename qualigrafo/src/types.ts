@@ -1,8 +1,8 @@
 export type Role = 'Consultant' | 'Contractor' | 'Owner / QA'
 export type MarketKey = 'SA' | 'IN' | 'EU' | 'US' | 'UK'
-export type DocStatus = 'Missing' | 'Draft' | 'Under review' | 'Changes requested' | 'Accepted'
+export type DocStatus = 'Missing' | 'Draft' | 'Under review' | 'Changes requested' | 'Accepted' | 'Void' | 'Superseded'
 export type Applicability = 'Assessment pending' | 'Required' | 'Not applicable'
-export type EvidenceDecision = 'Pending' | 'Accepted' | 'Rejected'
+export type EvidenceDecision = 'Pending' | 'Accepted' | 'Rejected' | 'Withdrawn'
 
 export interface Signature {
   role: Role
@@ -10,6 +10,17 @@ export interface Signature {
   at: string
   rev: number
   reason: string
+}
+
+/** Metadata of an uploaded file; bytes are downloaded from /api/projects/:code/files/:id. */
+export interface FileMeta {
+  id: string
+  name: string
+  size: number
+  mimeType: string
+  sha256: string
+  at: string
+  by: string | null
 }
 
 export interface Doc {
@@ -25,11 +36,19 @@ export interface Doc {
   signStage: 0 | 1 | 2 // 0 consultant, 1 owner/QA, 2 complete
   source?: 'Standalone' | 'Revit'
   checksum?: string
+  /** Revision the current source belongs to; the source is current only when sourceRev === rev. */
+  sourceRev?: number
+  file?: FileMeta
+  /** Client / MDR document number ('' when not assigned). */
+  number: string
+  /** Set when the document is Void or Superseded. */
+  voided?: { reason: string; at: string; by: string; supersededBy?: string }
   signatures: Signature[]
   history: { rev: number; status: DocStatus; at: string; by: Role; note?: string }[]
 }
 
 export interface EvidenceLink {
+  id?: string
   doc: string
   rev: number
   decision: EvidenceDecision
@@ -57,6 +76,9 @@ export interface Requirement {
   sourceVersion: string
   effective: string
   sourceAttested: boolean
+  /** Library origin (item key + pack version number); null for project-specific requirements. */
+  libraryKey?: string | null
+  libraryVersion?: number | null
 }
 
 export interface Pin {
@@ -67,8 +89,13 @@ export interface Pin {
   room: string
   x: number
   y: number
+  /** Placed on the drawing of revision `rev` (page, normalised x / y). */
+  anchored: boolean
+  page: number
   model: string | null
   element: string | null
+  /** Latest "Open in Revit" request for this comment. */
+  nav: NavStatus | null
   status: 'Open' | 'Closed'
   by: Role
   replies: { by: Role; text: string; at: string }[]
@@ -82,6 +109,7 @@ export interface RegUpdate {
   reqs: string[]
   status: 'Awaiting assessment' | 'Applied to draft baseline' | 'Not applicable'
   reason?: string
+  kind?: 'Regulatory' | 'Library'
 }
 
 export interface GapAction {
@@ -99,6 +127,17 @@ export interface AuditEvent {
   at: string
   role: Role
   text: string
+  user?: string
+}
+
+export interface SessionUser {
+  id: string
+  email: string
+  name: string
+  company: string | null
+  isAdmin: boolean
+  mustChangePassword: boolean
+  canCreateProjects: boolean
 }
 
 export interface ToastMsg {
@@ -129,6 +168,9 @@ export interface Profile {
   phase: string
   plantCountry: MarketKey
   ownerStandards: string
+  status: 'Active' | 'Archived'
+  archivedAt?: string
+  archivedReason?: string
 }
 
 export interface Rfi {
@@ -161,6 +203,9 @@ export interface Finding {
   source: string
   rule: string
   disposition?: string
+  /** Set for findings raised manually by a reviewer. */
+  raisedBy?: Role
+  raisedAt?: string
 }
 
 export interface Change {
@@ -214,6 +259,7 @@ export interface ImportBatch {
   checksum: string
   label: string
   cancelledRoute: boolean
+  file?: FileMeta
 }
 export interface IssuedPackage {
   id: string
@@ -260,3 +306,44 @@ export interface Ncr {
   closedBy?: Role
   closeReason?: string
 }
+
+export interface Company {
+  id: string
+  name: string
+  kind: string
+  contactName: string | null
+  contactEmail: string | null
+  active: boolean
+}
+export interface SystemRec {
+  id: string
+  tag: string
+  name: string
+  discipline: string | null
+  area: string | null
+  gmpCritical: boolean
+  active: boolean
+}
+export interface DisciplineRec {
+  id: string
+  name: string
+  position: number
+  active: boolean
+}
+/** A person on the project team (project role, optional vendor company scope). */
+export interface Member {
+  userId: string
+  name: string
+  email: string
+  company: string | null
+  role: Role
+  scope: string | null
+  active: boolean
+}
+export interface NavStatus { id: string; status: string; detail: string | null; at: string; by: string }
+export interface ConnectorTokenRec { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null }
+export interface ElementChange { elementId: string; kind: string; detail: string }
+export interface SnapshotRec { id: string; version: string; publishedAt: string; publishedBy: string; elementCount: number; changes: ElementChange[] }
+export interface RevitModelRec { id: string; guid: string; name: string; lastSnapshotAt: string | null; snapshots: SnapshotRec[] }
+/** Revit connector state of a project. Tokens are listed only for Owner / QA. */
+export interface ConnectorState { tokens: ConnectorTokenRec[]; models: RevitModelRec[] }

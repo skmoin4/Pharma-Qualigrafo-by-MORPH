@@ -1,39 +1,49 @@
 import { useState } from 'react'
 import { ExternalLink } from 'lucide-react'
-import { markets } from '../data/seed'
-import { evidenceState, useStore } from '../store'
+import { markets } from '../data/reference'
+import { evidenceState, hasCurrentSource, isActiveDoc, plusDays, useStore } from '../store'
+import { SourceSection } from './Files'
+import { CompanySelect, DisciplineSelect, SystemSelect } from './Pickers'
 import type { Applicability } from '../types'
 import { Applic, Badge, DocBadge, Drawer, MarketChip, R, StateBadge, fmtDate, go, useUI } from './ui'
 
 function useAct() {
   const toast = useStore((s) => s.toast)
-  return (err: string | null, ok: string) => (err ? toast(err, 'warn') : toast(ok))
+  return async (err: string | null | Promise<string | null>, ok: string) => { const e = await err; if (e) toast(e, 'warn'); else if (ok) toast(ok); return e }
 }
 
 export function DocDrawer({ id }: { id: string }) {
   const { docs, role, submitDoc, signDoc, returnDoc, newRevision, reqs } = useStore()
   const open = useUI((s) => s.open)
   const act = useAct()
+  const signer = useStore((s) => s.session?.name ?? role)
   const [note, setNote] = useState('')
-  const [name, setName] = useState(`Demo ${role}`)
   const [intent, setIntent] = useState(false)
   const doc = docs.find((d) => d.id === id)!
   const expected = doc.signStage === 0 ? 'Consultant' : 'Owner / QA'
-  const linked = reqs.filter((r) => r.evidence.some((e) => e.doc === id))
+  const linked = reqs.filter((r) => r.evidence.some((e) => e.doc === id && e.decision !== 'Withdrawn'))
+  const sourced = hasCurrentSource(doc)
   const at = doc.status === 'Accepted' ? 4 : doc.status === 'Under review' ? 1 + doc.signStage : doc.status === 'Draft' || doc.status === 'Missing' ? 0 : 1
 
   return (
     <Drawer kicker={`${doc.id} · Controlled document`} title={doc.title} right={<DocBadge s={doc.status} />}>
+      {doc.voided && <div className="notice small" style={{ marginBottom: 10 }}><b>{doc.status === 'Void' ? 'Void' : `Superseded by ${doc.voided.supersededBy}`}</b> · {doc.voided.by} · {fmtDate(doc.voided.at)}<br />{doc.voided.reason}{doc.voided.supersededBy && <> · <button className="link small" onClick={() => open('doc', doc.voided!.supersededBy!)}>Open {doc.voided.supersededBy}</button></>}</div>}
       <div className="kv">
+        <div><small>Document number</small>{doc.number || <span className="muted">Not assigned</span>}</div>
         <div><small>Revision</small><span className="rev">{R(doc.rev)}</span></div>
         <div><small>Discipline</small>{doc.discipline}</div>
-        <div><small>System / asset</small>{doc.system}</div>
+        <div><small>System / asset</small>{doc.system || <span className="muted">—</span>}</div>
         <div><small>Responsible party</small>{doc.owner}</div>
         <div><small>Due</small>{doc.due}</div>
         <div><small>Criticality</small>{doc.critical ? 'Critical record' : 'Standard'}</div>
       </div>
-      <div className="notice info small">Prototype record: no source file is attached. In production a submission requires an uploaded file, checksum and mandatory metadata.</div>
 
+      <h3>Source file</h3>
+      <SourceSection doc={doc} />
+
+      <DocRegister key={`${doc.id}-${doc.status}`} id={id} />
+
+      {isActiveDoc(doc) && <>
       <h3>Review workflow</h3>
       <div className="steps">
         {['Draft', 'Submitted', 'Consultant sign-off', 'Owner / QA sign-off', 'Accepted'].map((s, i) => <span key={s} className={`step ${i < at ? 'on' : i === at ? 'cur' : ''}`}>{s}</span>)}
@@ -41,23 +51,25 @@ export function DocDrawer({ id }: { id: string }) {
 
       <label className="lab">Note / decision reason (required for every action)</label>
       <textarea className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Record the submission note or decision reason…" />
-      {doc.status === 'Under review' && (<><label className="lab">Signer display name (prototype — production derives identity from authentication)</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} /><label className="row" style={{ marginTop: 10, alignItems: 'flex-start' }}><input type="checkbox" checked={intent} onChange={(e) => setIntent(e.target.checked)} style={{ marginTop: 3 }} /><span className="small">I have reviewed <b>{doc.id} {R(doc.rev)}</b> and explicitly confirm this decision. (Prototype confirmation. Production uses verified identity and a signing challenge bound to the revision checksum.)</span></label></>)}
+      {doc.status === 'Under review' && (<><label className="lab">Signing as</label><input className="input" value={signer} disabled /><label className="row" style={{ marginTop: 10, alignItems: 'flex-start' }}><input type="checkbox" checked={intent} onChange={(e) => setIntent(e.target.checked)} style={{ marginTop: 3 }} /><span className="small">I have reviewed <b>{doc.id} {R(doc.rev)}</b> and explicitly confirm this decision.</span></label></>)}
       <div className="row wrap" style={{ marginTop: 12 }}>
-        {role === 'Contractor' && ['Missing', 'Draft', 'Changes requested'].includes(doc.status) && <button className="btn pri" onClick={() => act(submitDoc(id, note), 'Submitted for review')}>Submit for review</button>}
-        {role === 'Contractor' && doc.status === 'Accepted' && <button className="btn" onClick={() => { newRevision(id); act(null, 'New revision started. Linked evidence now needs reassessment.') }}>Start new revision</button>}
+        {role === 'Contractor' && ['Missing', 'Draft', 'Changes requested'].includes(doc.status) && <button className="btn pri" disabled={!sourced} title={sourced ? undefined : `Attach the source file for ${R(doc.rev)} first`} onClick={() => act(submitDoc(id, note), 'Submitted for review')}>Submit {R(doc.rev)} for review</button>}
+        {role === 'Contractor' && doc.status === 'Accepted' && <button className="btn" onClick={() => act(newRevision(id), 'New revision started. Linked evidence now needs reassessment.')}>Start new revision</button>}
         {doc.status === 'Under review' && (
           <>
-            <button className="btn pri" disabled={role !== expected} onClick={() => { const er = signDoc(id, name, note, intent); act(er, expected === 'Consultant' ? 'Consultant sign-off recorded. Automatically routed to Owner / QA.' : 'Final sign-off recorded. Revision accepted.'); if (!er) setIntent(false) }}>Record sign-off as {expected}</button>
+            <button className="btn pri" disabled={role !== expected} onClick={async () => { const er = await act(signDoc(id, note, intent), expected === 'Consultant' ? 'Consultant sign-off recorded. Automatically routed to Owner / QA.' : 'Final sign-off recorded. Revision accepted.'); if (!er) setIntent(false) }}>Record sign-off as {expected}</button>
             <button className="btn" disabled={role === 'Contractor'} onClick={() => act(returnDoc(id, note), 'Returned for changes')}>Return for changes</button>
           </>
         )}
       </div>
-      {doc.status === 'Under review' && role !== expected && <p className="muted small" style={{ marginTop: 6 }}>Awaiting {expected}. Use the role preview in the top bar to act as that role.</p>}
+      {role === 'Contractor' && ['Missing', 'Draft', 'Changes requested'].includes(doc.status) && !sourced && <p className="muted small" style={{ marginTop: 6 }}>Attach the source file for {R(doc.rev)} above{doc.status === 'Changes requested' ? ' (it becomes a new draft revision)' : ''}, then submit.</p>}
+      {doc.status === 'Under review' && role !== expected && <p className="muted small" style={{ marginTop: 6 }}>Awaiting {expected}.</p>}
       {role !== 'Contractor' && ['Missing', 'Draft'].includes(doc.status) && <p className="muted small" style={{ marginTop: 6 }}>Submission is performed by the responsible contractor / vendor.</p>}
+      </>}
 
       {doc.signatures.length > 0 && (
         <>
-          <h3>Sign-off record (prototype, not a valid electronic signature)</h3>
+          <h3>Sign-off record</h3>
           <div className="tablewrap"><table><tbody>{doc.signatures.map((s, i) => <tr key={i}><td><b>{s.name}</b><small>{s.role}</small></td><td>{s.reason}</td><td>{fmtDate(s.at)}<small>bound to {R(s.rev)}</small></td></tr>)}</tbody></table></div>
         </>
       )}
@@ -75,14 +87,81 @@ export function DocDrawer({ id }: { id: string }) {
   )
 }
 
+/** Register details (Consultant / Owner / QA) and void / supersede / reinstate (Owner / QA) of one document. */
+function DocRegister({ id }: { id: string }) {
+  const { docs, role, updateDocDetails, voidDoc, reinstateDoc } = useStore()
+  const act = useAct()
+  const doc = docs.find((d) => d.id === id)!
+  const init = { title: doc.title, number: doc.number, discipline: doc.discipline, system: doc.system, owner: doc.owner, due: doc.due, critical: doc.critical }
+  const [f, setF] = useState(init)
+  const [why, setWhy] = useState('')
+  const [mode, setMode] = useState<'edit' | 'void' | null>(null)
+  const [by, setBy] = useState('')
+  const set = (k: keyof typeof f, v: unknown) => setF({ ...f, [k]: v })
+  const inactive = !isActiveDoc(doc)
+  const changed = (Object.keys(init) as (keyof typeof init)[]).some((k) => f[k] !== init[k])
+  if (role === 'Contractor') return null
+  if (inactive) {
+    return role === 'Owner / QA' ? (
+      <>
+        <h3>Reinstate</h3>
+        <textarea className="input" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why is the document reinstated? (e.g. voided by mistake)" aria-label="Reinstate reason" />
+        <button className="btn" style={{ marginTop: 6 }} onClick={async () => { const er = await act(reinstateDoc(id, why), 'Document reinstated'); if (!er) setWhy('') }}>Reinstate {doc.id}</button>
+        <p className="muted small" style={{ marginTop: 4 }}>Evidence links withdrawn when it was voided stay withdrawn; link the document again where it applies.</p>
+      </>
+    ) : null
+  }
+  const candidates = docs.filter((d) => d.id !== id && isActiveDoc(d))
+  return (
+    <>
+      <h3>Register</h3>
+      <div className="row wrap">
+        <button className={`btn sm ${mode === 'edit' ? 'pri' : ''}`} onClick={() => { setMode(mode === 'edit' ? null : 'edit'); setF(init); setWhy('') }}>Edit details</button>
+        {role === 'Owner / QA' && <button className={`btn sm ${mode === 'void' ? 'danger' : ''}`} onClick={() => { setMode(mode === 'void' ? null : 'void'); setWhy('') }}>Void / supersede</button>}
+      </div>
+      {mode === 'edit' && (
+        <div style={{ marginTop: 8 }}>
+          {doc.status === 'Under review' && <div className="notice small">{R(doc.rev)} is under review: title, number and discipline cannot change until the review is finished or the document is returned.</div>}
+          <div className="grid g2">
+            <div style={{ gridColumn: '1 / -1' }}><label className="lab">Title</label><input className="input" value={f.title} onChange={(e) => set('title', e.target.value)} aria-label="Edit title" /></div>
+            <div><label className="lab">Document number</label><input className="input" value={f.number} onChange={(e) => set('number', e.target.value)} aria-label="Edit document number" /></div>
+            <div><label className="lab">Due</label><input className="input" type="date" value={f.due} onChange={(e) => set('due', e.target.value)} aria-label="Edit due" /></div>
+            <div><label className="lab">Discipline</label><DisciplineSelect value={f.discipline} onChange={(v) => set('discipline', v)} label="Edit discipline" /></div>
+            <div><label className="lab">System</label><SystemSelect value={f.system} onChange={(v) => set('system', v)} label="Edit system" /></div>
+            <div><label className="lab">Responsible company</label><CompanySelect value={f.owner} onChange={(v) => set('owner', v)} label="Edit responsible company" /></div>
+            <div><label className="lab">Criticality</label><label className="row" style={{ height: 30 }}><input type="checkbox" checked={f.critical} onChange={(e) => set('critical', e.target.checked)} /><span className="small">Critical record</span></label></div>
+          </div>
+          <label className="lab">Reason for the change (audit trail)</label>
+          <input className="input" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. Due date moved per vendor schedule rev 3" aria-label="Change reason" />
+          <button className="btn pri" style={{ marginTop: 8 }} disabled={!changed} onClick={async () => { const er = await act(updateDocDetails(id, { ...f, reason: why }), 'Register details saved'); if (!er) { setMode(null); setWhy('') } }}>Save details</button>
+        </div>
+      )}
+      {mode === 'void' && (
+        <div style={{ marginTop: 8 }}>
+          <p className="muted small" style={{ margin: 0 }}>A void or superseded document stays in the register as read-only history. Its evidence links are withdrawn; when superseded, the replacement is linked to the same requirements for fresh assessment.</p>
+          <label className="lab">Superseded by (optional)</label>
+          <select className="input" value={by} onChange={(e) => setBy(e.target.value)} aria-label="Superseded by"><option value="">— not replaced (void) —</option>{candidates.map((d) => <option key={d.id} value={d.id}>{d.id}{d.number ? ` · ${d.number}` : ''} · {d.title}</option>)}</select>
+          <label className="lab">Reason</label>
+          <textarea className="input" value={why} onChange={(e) => setWhy(e.target.value)} placeholder={by ? 'Why does the new document replace this one?' : 'Why is this document no longer required?'} aria-label="Void reason" />
+          <button className="btn danger" style={{ marginTop: 8 }} disabled={doc.status === 'Under review'} onClick={async () => { const er = await act(voidDoc(id, why, by || undefined), by ? `${doc.id} superseded by ${by}` : `${doc.id} voided`); if (!er) { setMode(null); setWhy(''); setBy('') } }}>{by ? `Supersede by ${by}` : `Void ${doc.id}`}</button>
+          {doc.status === 'Under review' && <span className="muted small"> Return the document first: its approval route is open.</span>}
+        </div>
+      )}
+    </>
+  )
+}
+
 export function ReqDrawer({ id }: { id: string }) {
-  const { reqs, docs, role, decideApplicability, linkEvidence, assessEvidence, addAction } = useStore()
+  const { reqs, docs, role, decideApplicability, linkEvidence, assessEvidence, addAction, withdrawEvidence } = useStore()
   const open = useUI((s) => s.open)
   const act = useAct()
   const r = reqs.find((x) => x.id === id)!
   const [app, setApp] = useState<Applicability>(r.applicability)
   const [why, setWhy] = useState(r.rationale)
-  const [docId, setDocId] = useState(docs.find((d) => d.status !== 'Missing')!.id)
+  const linkable = docs.filter((d) => d.status !== 'Missing' && isActiveDoc(d))
+  const [docId, setDocId] = useState(linkable[0]?.id ?? '')
+  const [withdraw, setWithdraw] = useState<number | null>(null)
+  const [wreason, setWreason] = useState('')
   const [note, setNote] = useState('')
   const [assess, setAssess] = useState<number | null>(null)
   const [areason, setAreason] = useState('')
@@ -91,7 +170,10 @@ export function ReqDrawer({ id }: { id: string }) {
   const [ver, setVer] = useState(r.sourceVersion)
   const [eff, setEff] = useState(r.effective)
   const [attest, setAttest] = useState(r.sourceAttested)
-  const { setSourceRef } = useStore()
+  const { setSourceRef, updateRequirement } = useStore()
+  const [sys, setSys] = useState(r.system)
+  const [owner, setOwner] = useState(r.owner)
+  const [due, setDue] = useState(r.due)
   const m = markets[r.market]
   const reviewer = role !== 'Contractor'
 
@@ -99,18 +181,29 @@ export function ReqDrawer({ id }: { id: string }) {
     <Drawer kicker={`${r.id} · Requirement · ${m.name}`} title={r.title} right={<StateBadge s={evidenceState(r, docs)} />}>
       <div className="kv">
         <div><small>Authority</small>{m.authority}</div>
-        <div><small>System / discipline</small>{r.system} · {r.discipline}</div>
+        <div><small>System / discipline</small>{r.system || 'System not assigned'} · {r.discipline}</div>
         <div><small>Applicability</small><Applic a={r.applicability} /></div>
         <div><small>Owner / due</small>{r.owner} · {r.due}</div>
+        <div><small>Origin</small>{r.libraryKey ? `Requirement library ${r.market} v${r.libraryVersion} · ${r.libraryKey}` : 'Project-specific requirement'}</div>
         <div style={{ gridColumn: '1 / -1' }}><small>Source reference</small>{r.topic}<br /><span className="muted">{m.base}</span> · <a href={m.url} target="_blank" rel="noopener noreferrer">Official source <ExternalLink size={11} /></a></div>
       </div>
-      <div className="notice small">Illustrative mapping. Exact clause, version and effective date are <b>not verified</b>. A qualified regulatory reviewer must confirm them before this requirement is relied on.</div>
+      {!r.clause && <div className="notice small">Clause, source version and effective date are <b>not recorded</b>. A qualified regulatory reviewer must confirm them against the official text before this requirement is relied on.</div>}
+
+      {reviewer && <>
+        <h3>System, owner and due date</h3>
+        <div className="grid g3">
+          <div><label className="lab" style={{ marginTop: 0 }}>System</label><SystemSelect value={sys} onChange={setSys} /></div>
+          <div><label className="lab" style={{ marginTop: 0 }}>Owner</label><input className="input" value={owner} onChange={(e) => setOwner(e.target.value)} aria-label="Requirement owner" /></div>
+          <div><label className="lab" style={{ marginTop: 0 }}>Due</label><input className="input" type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label="Requirement due" /></div>
+        </div>
+        <button className="btn" style={{ marginTop: 8 }} disabled={sys === r.system && owner === r.owner && due === r.due} onClick={() => act(updateRequirement(id, { system: sys, owner, due }), 'Requirement details saved')}>Save details</button>
+      </>}
 
       <h3>Clause, source version and effective date</h3>
       <div className="grid g3">
         <div><label className="lab" style={{ marginTop: 0 }}>Clause / section</label><input className="input" disabled={!reviewer} value={clause} onChange={(e) => setClause(e.target.value)} placeholder="Enter from the official text" /></div>
         <div><label className="lab" style={{ marginTop: 0 }}>Source version</label><input className="input" disabled={!reviewer} value={ver} onChange={(e) => setVer(e.target.value)} placeholder="Edition / amendment" /></div>
-        <div><label className="lab" style={{ marginTop: 0 }}>Effective date</label><input className="input" type="date" disabled={!reviewer} value={eff} onChange={(e) => setEff(e.target.value)} /></div>
+        <div><label className="lab" style={{ marginTop: 0 }}>Effective date</label><input className="input" type="date" disabled={!reviewer} value={eff} aria-label="Source effective date" onChange={(e) => setEff(e.target.value)} /></div>
       </div>
       <label className="row" style={{ marginTop: 8, alignItems: 'flex-start' }}><input type="checkbox" disabled={!reviewer} checked={attest} onChange={(e) => setAttest(e.target.checked)} style={{ marginTop: 3 }} /><span className="small">I checked these against the official source. (Reviewer attestation only: this does not release a validated rule pack.)</span></label>
       <div className="row" style={{ marginTop: 8 }}><button className="btn" disabled={!reviewer} onClick={() => act(setSourceRef(id, clause, ver, eff, attest), 'Source reference saved')}>Save source reference</button>{r.sourceAttested ? <Badge tone="blue">Reviewer-attested, not expert-verified</Badge> : <Badge tone="amber">Clause verification pending</Badge>}</div>
@@ -130,6 +223,12 @@ export function ReqDrawer({ id }: { id: string }) {
           <tbody>
             {r.evidence.map((e, i) => {
               const d = docs.find((x) => x.id === e.doc)!
+              if (e.decision === 'Withdrawn') return (
+                <tr key={i} style={{ opacity: 0.65 }}>
+                  <td style={{ width: '58%' }}><button className="link" style={{ textDecoration: 'line-through' }} onClick={() => open('doc', e.doc)}>{d.title}</button> <span className="rev">{R(e.rev)}</span><small>{e.note}</small>{e.reason && <small>Withdrawn ({e.reviewedBy}): {e.reason}</small>}</td>
+                  <td><Badge dot={false}>Withdrawn</Badge></td><td />
+                </tr>
+              )
               return (
                 <tr key={i}>
                   <td style={{ width: '58%' }}>
@@ -141,30 +240,39 @@ export function ReqDrawer({ id }: { id: string }) {
                       <div style={{ marginTop: 8 }}>
                         <textarea className="input" placeholder="Assessment rationale…" value={areason} onChange={(x) => setAreason(x.target.value)} />
                         <div className="row" style={{ marginTop: 6 }}>
-                          <button className="btn pri sm" onClick={() => { const er = assessEvidence(id, i, true, areason); act(er, 'Evidence accepted'); if (!er) setAssess(null) }}>Accept as fit</button>
-                          <button className="btn sm" onClick={() => { const er = assessEvidence(id, i, false, areason); act(er, 'Evidence rejected'); if (!er) setAssess(null) }}>Reject</button>
+                          <button className="btn pri sm" onClick={async () => { const er = await act(assessEvidence(id, i, true, areason), 'Evidence accepted'); if (!er) setAssess(null) }}>Accept as fit</button>
+                          <button className="btn sm" onClick={async () => { const er = await act(assessEvidence(id, i, false, areason), 'Evidence rejected'); if (!er) setAssess(null) }}>Reject</button>
+                        </div>
+                      </div>
+                    )}
+                    {withdraw === i && (
+                      <div style={{ marginTop: 8 }}>
+                        <input className="input" placeholder="Why is this link withdrawn?" value={wreason} onChange={(x) => setWreason(x.target.value)} aria-label="Withdraw reason" />
+                        <div className="row" style={{ marginTop: 6 }}>
+                          <button className="btn sm danger" onClick={async () => { const er = await act(withdrawEvidence(id, i, wreason), 'Evidence link withdrawn'); if (!er) { setWithdraw(null); setWreason('') } }}>Withdraw link</button>
+                          <button className="btn sm" onClick={() => setWithdraw(null)}>Cancel</button>
                         </div>
                       </div>
                     )}
                   </td>
                   <td><Badge tone={e.decision === 'Accepted' ? 'green' : e.decision === 'Rejected' ? 'red' : 'amber'}>{e.decision}</Badge></td>
-                  <td>{reviewer && assess !== i && <button className="btn sm" onClick={() => setAssess(i)}>Assess</button>}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{reviewer && assess !== i && withdraw !== i && <><button className="btn sm" onClick={() => setAssess(i)}>Assess</button> <button className="btn sm ghost" onClick={() => { setWithdraw(i); setAssess(null) }} aria-label={`Withdraw ${e.doc} link`}>Withdraw</button></>}</td>
                 </tr>
               )
             })}
-            {!r.evidence.length && <tr><td className="muted">No evidence linked. This requirement cannot currently be evidenced.</td></tr>}
+            {!r.evidence.some((e) => e.decision !== 'Withdrawn') && <tr><td className="muted" colSpan={3}>No evidence linked. This requirement cannot currently be evidenced.</td></tr>}
           </tbody>
         </table>
       </div>
 
       <h3>Link a document revision</h3>
-      <select className="input" value={docId} onChange={(e) => setDocId(e.target.value)}>{docs.map((d) => <option key={d.id} value={d.id}>{d.id} · {d.title} · {R(d.rev)} [{d.status}]</option>)}</select>
+      <select className="input" value={docId} onChange={(e) => setDocId(e.target.value)} aria-label="Document to link">{linkable.map((d) => <option key={d.id} value={d.id}>{d.id} · {d.title} · {R(d.rev)} [{d.status}]</option>)}</select>
       <textarea className="input" style={{ marginTop: 6 }} placeholder="Which part of this requirement does the record support? (page / section)" value={note} onChange={(e) => setNote(e.target.value)} />
-      <button className="btn" style={{ marginTop: 6 }} onClick={() => act(linkEvidence(id, docId, note), 'Evidence linked to current revision')}>Link current revision</button>
+      <button className="btn" style={{ marginTop: 6 }} disabled={!docId} onClick={() => act(linkEvidence(id, docId, note), 'Evidence linked to current revision')}>Link current revision</button>
 
       <h3>Corrective action</h3>
       <textarea className="input" placeholder="Describe the gap and the evidence that will close it…" value={gap} onChange={(e) => setGap(e.target.value)} />
-      <button className="btn" style={{ marginTop: 6 }} onClick={() => { if (!gap.trim()) return act('Describe the action first.', ''); addAction({ req: id, title: gap, owner: 'Contractor', due: '2026-10-30', priority: 'High' }); setGap(''); act(null, 'Corrective action assigned') }}>Assign action</button>
+      <button className="btn" style={{ marginTop: 6 }} onClick={async () => { const er = await act(addAction({ req: id, title: gap, owner: 'Contractor', due: plusDays(14), priority: 'High' }), 'Corrective action assigned'); if (!er) setGap('') }}>Assign action</button>
     </Drawer>
   )
 }

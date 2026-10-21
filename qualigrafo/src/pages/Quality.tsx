@@ -1,26 +1,28 @@
 import { useState } from 'react'
-import { useStore } from '../store'
+import { EditRecord } from '../components/EditRecord'
+import { activeDocs, plusDays, useStore } from '../store'
+import { SystemSelect } from '../components/Pickers'
 import type { NcrSeverity, Rating, Risk } from '../types'
 import { Badge, Empty, PageHead, Stat, fmtDate, useUI } from '../components/ui'
 
 function useAct() {
   const toast = useStore((s) => s.toast)
-  return (err: string | null, ok: string) => (err ? toast(err, 'warn') : toast(ok))
+  return async (err: string | null | Promise<string | null>, ok: string) => { const e = await err; if (e) toast(e, 'warn'); else if (ok) toast(ok); return e }
 }
 
-/** Rating convention used by this prototype: likelihood x impact. */
+/** Rating convention: likelihood x impact (1-25). */
 export const band = (n: number) => (n >= 15 ? 'High' : n >= 8 ? 'Medium' : 'Low')
 const bandTone = (n: number) => (n >= 15 ? 'red' : n >= 8 ? 'amber' : 'green')
 
 /* ------------------------------------------------------------------- risks */
 export function Risks() {
-  const { risks, addRisk, updateRisk, role, docs } = useStore()
+  const { risks, addRisk, updateRisk, role, editRisk } = useStore()
+  const [editing, setEditing] = useState(false)
   const act = useAct()
   const [form, setForm] = useState(false)
   const [sel, setSel] = useState<string | null>(null)
   const [note, setNote] = useState('')
-  const [f, setF] = useState({ title: '', detail: '', system: 'PW-001', likelihood: 3 as Rating, impact: 3 as Rating, owner: '', mitigation: '', due: '2026-11-06' })
-  const systems = [...new Set(docs.map((d) => d.system))]
+  const [f, setF] = useState({ title: '', detail: '', system: '', likelihood: 3 as Rating, impact: 3 as Rating, owner: '', mitigation: '', due: plusDays(14) })
   const live = risks.filter((r) => r.status !== 'Closed')
   const cell = (l: number, i: number) => live.filter((r) => r.likelihood === l && r.impact === i)
   const selected = risks.find((r) => r.id === sel)
@@ -41,7 +43,7 @@ export function Risks() {
           <h2>New risk</h2>
           <div className="grid g2">
             <div><label className="lab" style={{ marginTop: 0 }}>Title</label><input className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-            <div><label className="lab" style={{ marginTop: 0 }}>Related system</label><select className="input" value={f.system} onChange={(e) => setF({ ...f, system: e.target.value })}>{systems.map((s) => <option key={s}>{s}</option>)}</select></div>
+            <div><label className="lab" style={{ marginTop: 0 }}>Related system</label><SystemSelect value={f.system} onChange={(v) => setF({ ...f, system: v })} /></div>
           </div>
           <label className="lab">What could happen, and why</label>
           <textarea className="input" style={{ minHeight: 56 }} value={f.detail} onChange={(e) => setF({ ...f, detail: e.target.value })} />
@@ -53,7 +55,7 @@ export function Risks() {
           </div>
           <label className="lab">Mitigation</label>
           <textarea className="input" style={{ minHeight: 56 }} value={f.mitigation} onChange={(e) => setF({ ...f, mitigation: e.target.value })} />
-          <div className="row" style={{ marginTop: 10 }}><button className="btn pri" onClick={() => { const er = addRisk(f); act(er, `Risk raised · rating ${f.likelihood * f.impact} (${band(f.likelihood * f.impact)})`); if (!er) { setForm(false); setF({ ...f, title: '', detail: '', mitigation: '' }) } }}>Add to register</button><span className="muted small">Rating {f.likelihood * f.impact} · {band(f.likelihood * f.impact)}</span></div>
+          <div className="row" style={{ marginTop: 10 }}><button className="btn pri" onClick={async () => { const er = await act(addRisk(f), `Risk raised · rating ${f.likelihood * f.impact} (${band(f.likelihood * f.impact)})`); if (!er) { setForm(false); setF({ ...f, title: '', detail: '', mitigation: '' }) } }}>Add to register</button><span className="muted small">Rating {f.likelihood * f.impact} · {band(f.likelihood * f.impact)}</span></div>
         </section>
       )}
 
@@ -64,7 +66,7 @@ export function Risks() {
             <thead><tr><th>Risk</th><th>Rating</th><th>Owner · due</th><th>Status</th></tr></thead>
             <tbody>
               {[...risks].sort((a, b) => b.likelihood * b.impact - a.likelihood * a.impact).map((r) => (
-                <tr key={r.id} className="clickrow" onClick={() => { setSel(r.id); setNote('') }} style={r.id === sel ? { background: '#f0f8f8' } : undefined}>
+                <tr key={r.id} className="clickrow" onClick={() => { setSel(r.id); setNote(''); setEditing(false) }} style={r.id === sel ? { background: '#f0f8f8' } : undefined}>
                   <td><b>{r.title}</b><small>{r.id} · {r.system}</small></td>
                   <td><Badge tone={bandTone(r.likelihood * r.impact)}>{band(r.likelihood * r.impact)} · {r.likelihood * r.impact}</Badge><small>L{r.likelihood} × I{r.impact}</small></td>
                   <td>{r.owner}<small>{r.due}</small></td>
@@ -92,6 +94,11 @@ export function Risks() {
           </section>
 
           {selected && <RiskDetail r={selected} note={note} setNote={setNote} role={role} onUpdate={(s) => act(updateRisk(selected.id, s, note), `${selected.id} → ${s}`)} />}
+          {selected && role !== 'Contractor' && selected.status !== 'Closed' && (editing
+            ? <EditRecord name={selected.id} onClose={() => setEditing(false)} initial={{ title: selected.title, detail: selected.detail, system: selected.system, likelihood: selected.likelihood, impact: selected.impact, owner: selected.owner, mitigation: selected.mitigation, due: selected.due }}
+                fields={[{ key: 'title', label: 'Title', wide: true }, { key: 'detail', label: 'What could happen', type: 'textarea', wide: true }, { key: 'likelihood', label: 'Likelihood', type: 'select', options: [1, 2, 3, 4, 5] }, { key: 'impact', label: 'Impact', type: 'select', options: [1, 2, 3, 4, 5] }, { key: 'owner', label: 'Owner' }, { key: 'due', label: 'Mitigation due', type: 'date' }, { key: 'system', label: 'System', type: 'system' }, { key: 'mitigation', label: 'Mitigation', type: 'textarea', wide: true }]}
+                onSave={(v, reason) => editRisk(selected.id, { title: String(v.title), detail: String(v.detail), system: String(v.system), likelihood: Number(v.likelihood) as Rating, impact: Number(v.impact) as Rating, owner: String(v.owner), mitigation: String(v.mitigation), due: String(v.due), reason })} />
+            : <div><button className="btn sm" onClick={() => setEditing(true)}>Edit {selected.id}</button></div>)}
         </div>
       </div>
     </>
@@ -120,21 +127,21 @@ function RiskDetail({ r, note, setNote, role, onUpdate }: { r: Risk; note: strin
 
 /* -------------------------------------------------------------------- NCRs */
 export function Ncrs() {
-  const { ncrs, raiseNcr, respondNcr, closeNcr, reopenNcr, role, docs } = useStore()
+  const { ncrs, raiseNcr, respondNcr, closeNcr, reopenNcr, role, docs, scope, editNcr } = useStore()
+  const [edit, setEdit] = useState<string | null>(null)
   const open = useUI((s) => s.open)
   const act = useAct()
   const [form, setForm] = useState(false)
-  const [f, setF] = useState({ title: '', description: '', system: 'PW-001', severity: 'Major' as NcrSeverity, doc: '', due: '2026-10-30' })
+  const [f, setF] = useState({ title: '', description: '', system: '', severity: 'Major' as NcrSeverity, doc: '', due: plusDays(7) })
   const [txt, setTxt] = useState<Record<string, { a: string; b: string; c: string; d: string }>>({})
   const T = (id: string) => txt[id] ?? { a: '', b: '', c: '', d: '' }
   const set = (id: string, k: 'a' | 'b' | 'c' | 'd', v: string) => setTxt({ ...txt, [id]: { ...T(id), [k]: v } })
-  const systems = [...new Set(docs.map((d) => d.system))]
   const sev = (s: string) => (s === 'Critical' ? 'red' : s === 'Major' ? 'amber' : 'blue')
   const count = (s: NcrSeverity) => ncrs.filter((n) => n.severity === s && n.status !== 'Closed').length
 
   return (
     <>
-      <PageHead title="Non-conformances (NCR)" sub="Site and documentation deviations from the approved design or specification. The contractor responds with root cause, containment and corrective action; an independent reviewer verifies before closure." actions={<button className="btn pri" onClick={() => setForm(!form)}>Raise NCR</button>} />
+      <PageHead title="Non-conformances (NCR)" sub="Site and documentation deviations from the approved design or specification. The contractor responds with root cause, containment and corrective action; an independent reviewer verifies before closure." actions={scope ? undefined : <button className="btn pri" onClick={() => setForm(!form)}>Raise NCR</button>} />
       <div className="grid g4">
         <Stat label="Critical open" value={count('Critical')} sub="Only Owner / QA can close" warn={count('Critical') > 0} />
         <Stat label="Major open" value={count('Major')} sub="Reviewer verification required" warn={count('Major') > 0} />
@@ -146,19 +153,23 @@ export function Ncrs() {
           <h2>Raise NCR</h2>
           <div className="grid g3">
             <div><label className="lab" style={{ marginTop: 0 }}>Title</label><input className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
-            <div><label className="lab" style={{ marginTop: 0 }}>System</label><select className="input" value={f.system} onChange={(e) => setF({ ...f, system: e.target.value })}>{systems.map((s) => <option key={s}>{s}</option>)}</select></div>
+            <div><label className="lab" style={{ marginTop: 0 }}>System</label><SystemSelect value={f.system} onChange={(v) => setF({ ...f, system: v })} /></div>
             <div><label className="lab" style={{ marginTop: 0 }}>Severity</label><select className="input" value={f.severity} onChange={(e) => setF({ ...f, severity: e.target.value as NcrSeverity })}>{['Critical', 'Major', 'Minor'].map((s) => <option key={s}>{s}</option>)}</select></div>
           </div>
           <label className="lab">What was found (reference the drawing revision and location)</label>
           <textarea className="input" style={{ minHeight: 56 }} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
-          <div className="grid g2"><div><label className="lab">Related document (optional)</label><select className="input" value={f.doc} onChange={(e) => setF({ ...f, doc: e.target.value })}><option value="">None</option>{docs.map((d) => <option key={d.id} value={d.id}>{d.id} · {d.title}</option>)}</select></div><div><label className="lab">Response due</label><input className="input" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} /></div></div>
-          <button className="btn pri" style={{ marginTop: 10 }} onClick={() => { const er = raiseNcr({ ...f, doc: f.doc || undefined }); act(er, 'NCR raised and routed to the contractor'); if (!er) { setForm(false); setF({ ...f, title: '', description: '' }) } }}>Raise NCR</button>
+          <div className="grid g2"><div><label className="lab">Related document (optional)</label><select className="input" value={f.doc} onChange={(e) => setF({ ...f, doc: e.target.value })}><option value="">None</option>{activeDocs(docs).map((d) => <option key={d.id} value={d.id}>{d.id} · {d.title}</option>)}</select></div><div><label className="lab">Response due</label><input className="input" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} /></div></div>
+          <button className="btn pri" style={{ marginTop: 10 }} onClick={async () => { const er = await act(raiseNcr({ ...f, doc: f.doc || undefined }), 'NCR raised and routed to the contractor'); if (!er) { setForm(false); setF({ ...f, title: '', description: '' }) } }}>Raise NCR</button>
         </section>
       )}
 
       {[...ncrs].sort((a, b) => Number(a.status === 'Closed') - Number(b.status === 'Closed')).map((n) => (
         <section className="card mt" key={n.id}>
           <div className="row sb wrap"><h2 style={{ margin: 0 }}>{n.id} · {n.title}</h2><div className="row"><Badge tone={sev(n.severity)}>{n.severity}</Badge><Badge tone={n.status === 'Closed' ? 'green' : n.status === 'Open' ? 'red' : 'amber'}>{n.status}</Badge></div></div>
+          {role !== 'Contractor' && n.status !== 'Closed' && edit !== n.id && <button className="link small" onClick={() => setEdit(n.id)}>Edit {n.id}</button>}
+          {edit === n.id && <EditRecord name={n.id} onClose={() => setEdit(null)} initial={{ title: n.title, description: n.description, system: n.system, severity: n.severity, doc: n.doc ?? '', due: n.due }}
+            fields={[{ key: 'title', label: 'Title', wide: true }, { key: 'description', label: 'Description', type: 'textarea', wide: true }, { key: 'severity', label: 'Severity', type: 'select', options: ['Critical', 'Major', 'Minor'], disabled: n.severity === 'Critical' && role !== 'Owner / QA', hint: n.severity === 'Critical' && role !== 'Owner / QA' ? 'Only Owner / QA can downgrade a Critical NCR.' : undefined }, { key: 'due', label: 'Response due', type: 'date' }, { key: 'system', label: 'System', type: 'system' }, { key: 'doc', label: 'Related document', type: 'select', options: ['', ...activeDocs(docs).map((d) => d.id)] }]}
+            onSave={(v, reason) => editNcr(n.id, { title: String(v.title), description: String(v.description), system: String(v.system), severity: v.severity as NcrSeverity, doc: String(v.doc), due: String(v.due), reason })} />}
           <p className="muted" style={{ margin: '8px 0' }}>{n.description}</p>
           <div className="kv"><div><small>System</small>{n.system}{n.doc && <> · <button className="link" onClick={() => open('doc', n.doc!)}>{n.doc}</button></>}</div><div><small>Raised · response due</small>{n.raisedBy} · {fmtDate(n.raisedAt)} · due {n.due}{n.status !== 'Closed' && n.due < '2026-10-16' && <> <Badge tone="red">Overdue</Badge></>}</div></div>
           {n.rootCause && <div className="kv"><div><small>Root cause</small>{n.rootCause}</div><div><small>Containment</small>{n.containment}</div><div style={{ gridColumn: '1 / -1' }}><small>Corrective action</small>{n.correctiveAction}</div></div>}

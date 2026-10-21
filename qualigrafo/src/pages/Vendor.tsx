@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react'
-import { Download, Printer } from 'lucide-react'
-import { markets } from '../data/seed'
-import { TODAY, evidenceState, isOverdue, useStore } from '../store'
+import { Download, Paperclip, Printer } from 'lucide-react'
+import { markets } from '../data/reference'
+import { TODAY, activeDocs, evidenceState, hasCurrentSource, isOverdue, sourcePlan, useStore } from '../store'
 import type { EvidenceState, MarketKey } from '../types'
 import { Applic, Badge, DocBadge, Empty, MarketChip, PageHead, R, Stat, go, useUI } from '../components/ui'
 
 /* ------------------------------------------------------------ vendor portal */
 export function Vendor() {
-  const { docs, ncrs, actions, rfis, role, submitDoc, toast, setRole } = useStore()
+  const { docs, ncrs, actions, rfis, role, submitDoc, toast, scope } = useStore()
   const open = useUI((s) => s.open)
-  const companies = [...new Set(docs.map((d) => d.owner))].sort()
-  const [co, setCo] = useState(companies[0])
+  const companies = [...new Set(activeDocs(docs).map((d) => d.owner))].sort()
+  const [pick, setCo] = useState(companies[0])
+  const co = scope ?? pick
   const [note, setNote] = useState<Record<string, string>>({})
-  const mine = docs.filter((d) => d.owner === co)
+  const mine = activeDocs(docs).filter((d) => d.owner === co)
   const systems = new Set(mine.map((d) => d.system))
   const myNcrs = ncrs.filter((n) => systems.has(n.system) && n.status !== 'Closed')
   const myActions = actions.filter((a) => a.owner.includes(co) && a.status !== 'Closed')
@@ -20,8 +21,8 @@ export function Vendor() {
   const todo = mine.filter((d) => ['Missing', 'Draft', 'Changes requested'].includes(d.status))
   return (
     <>
-      <PageHead title="Vendor portal view" sub="What a contractor or vendor sees: only its own deliverables and the items waiting on it. In this prototype it is a filter; production enforces the scope on the server." actions={<select className="input" style={{ width: 200 }} value={co} onChange={(e) => setCo(e.target.value)} aria-label="Company">{companies.map((c) => <option key={c}>{c}</option>)}</select>} />
-      {role !== 'Contractor' && <div className="notice info" style={{ marginBottom: 14 }}>You are previewing as {role}. Submissions are made by the contractor role. <button className="link" onClick={() => setRole('Contractor')}>Switch to Contractor</button></div>}
+      <PageHead title={scope ? `${scope}: my deliverables` : 'Vendor portal view'} sub={scope ? `Your account is limited to ${scope} records. Other companies' documents, files and comments are not visible to you.` : "What a vendor sees: only its own deliverables and the items waiting on it. Vendor accounts (company-scoped Contractors) get exactly this view, enforced by the server."} actions={scope ? undefined : <select className="input" style={{ width: 200 }} value={co} onChange={(e) => setCo(e.target.value)} aria-label="Company">{companies.map((c) => <option key={c}>{c}</option>)}</select>} />
+      {role !== 'Contractor' && !scope && <div className="notice info" style={{ marginBottom: 14 }}>You are signed in as {role}. Deliverables are submitted by the responsible contractor; this view shows their position.</div>}
       <div className="grid g4">
         <Stat label="To submit" value={todo.length} sub="Missing, draft or returned" warn={todo.some(isOverdue)} />
         <Stat label="Under review" value={mine.filter((d) => d.status === 'Under review').length} sub="With consultant or Owner / QA" />
@@ -41,7 +42,7 @@ export function Vendor() {
                   <td>{d.system}</td><td><span className="rev">{R(d.rev)}</span></td>
                   <td>{d.due} {isOverdue(d) && <Badge tone="red">Overdue</Badge>}</td>
                   <td><DocBadge s={d.status} />{d.status === 'Changes requested' && <small>{d.history[d.history.length - 1]?.note ?? 'See review comments'}</small>}</td>
-                  <td>{can ? <div className="row"><input className="input" placeholder="Submission note" value={note[d.id] ?? ''} onChange={(e) => setNote({ ...note, [d.id]: e.target.value })} /><button className="btn sm pri" onClick={() => { const er = submitDoc(d.id, note[d.id] ?? ''); toast(er ?? `${d.id} submitted: routed to Consultant`, er ? 'warn' : 'ok') }}>Submit</button></div> : d.status === 'Under review' ? <span className="muted small">Awaiting {d.signStage === 0 ? 'Consultant' : 'Owner / QA'}</span> : <span className="muted small">Accepted</span>}</td>
+                  <td>{can && !hasCurrentSource(d) ? <button className="btn sm" onClick={() => open('doc', d.id)}><Paperclip size={12} /> Attach file for {R(sourcePlan(d).toRev)}</button> : can ? <div className="row"><input className="input" placeholder="Submission note" value={note[d.id] ?? ''} onChange={(e) => setNote({ ...note, [d.id]: e.target.value })} /><button className="btn sm pri" onClick={async () => { const er = await submitDoc(d.id, note[d.id] ?? ''); toast(er ?? `${d.id} submitted: routed to Consultant`, er ? 'warn' : 'ok') }}>Submit</button></div> : d.status === 'Under review' ? <span className="muted small">Awaiting {d.signStage === 0 ? 'Consultant' : 'Owner / QA'}</span> : <span className="muted small">Accepted</span>}</td>
                 </tr>
               )
             })}
@@ -117,7 +118,7 @@ export function Rehearsal() {
           </table></div>
         </>
       )}
-      <p className="muted small" style={{ marginTop: 10 }}>Demo date {TODAY}. This view derives from record state only. It does not predict an inspection outcome or certify compliance.</p>
+      <p className="muted small" style={{ marginTop: 10 }}>As of {TODAY}. This view derives from record state only. It does not predict an inspection outcome or certify compliance.</p>
     </>
   )
 }

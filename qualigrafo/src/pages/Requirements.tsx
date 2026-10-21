@@ -1,12 +1,37 @@
 import { useMemo, useState } from 'react'
-import { Download } from 'lucide-react'
-import { markets } from '../data/seed'
-import { evidenceState, useStore } from '../store'
+import { Download, Plus } from 'lucide-react'
+import { markets } from '../data/reference'
+import { evidenceState, plusDays, useStore } from '../store'
 import type { MarketKey } from '../types'
 import { Applic, Badge, Empty, MarketChip, PageHead, R, StateBadge, useUI } from '../components/ui'
+import { DisciplineSelect, SystemSelect } from '../components/Pickers'
+
+function AddRequirement({ onClose }: { onClose: () => void }) {
+  const { markets: sel, addRequirement, toast } = useStore()
+  const [f, setF] = useState({ title: '', market: sel[0], discipline: '', system: '', topic: '', critical: false, owner: 'Consultant', due: plusDays(30) })
+  const set = (k: keyof typeof f, v: unknown) => setF({ ...f, [k]: v })
+  const save = async () => { const er = await addRequirement(f); if (er) toast(er, 'warn'); else { toast('Project-specific requirement added'); onClose() } }
+  return (
+    <section className="card" style={{ marginBottom: 12 }}>
+      <h2 style={{ marginTop: 0 }}>Add a project-specific requirement</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>For owner standards, URS items or commitments that are not in the approved library. It is recorded as Required. Market requirements come from the Requirement library.</p>
+      <label className="lab">Requirement</label><input className="input" value={f.title} onChange={(e) => set('title', e.target.value)} aria-label="New requirement title" />
+      <div className="grid g4">
+        <div><label className="lab">Market</label><select className="input" value={f.market} onChange={(e) => set('market', e.target.value)} aria-label="New requirement market">{sel.map((m) => <option key={m} value={m}>{markets[m].name}</option>)}</select></div>
+        <div><label className="lab">Discipline</label><DisciplineSelect value={f.discipline} onChange={(v) => set('discipline', v)} /></div>
+        <div><label className="lab">System (optional)</label><SystemSelect value={f.system} onChange={(v) => set('system', v)} /></div>
+        <div><label className="lab">Owner · due</label><div className="row"><input className="input" value={f.owner} onChange={(e) => set('owner', e.target.value)} aria-label="New requirement owner" /><input className="input" type="date" value={f.due} onChange={(e) => set('due', e.target.value)} aria-label="New requirement due" /></div></div>
+      </div>
+      <label className="lab">Source / basis (e.g. URS section, owner standard)</label><input className="input" value={f.topic} onChange={(e) => set('topic', e.target.value)} aria-label="New requirement basis" />
+      <label className="row" style={{ marginTop: 8 }}><input type="checkbox" checked={f.critical} onChange={(e) => set('critical', e.target.checked)} /><span className="small">Critical requirement</span></label>
+      <div className="row" style={{ marginTop: 10 }}><button className="btn pri" onClick={save}>Add requirement</button><button className="btn" onClick={onClose}>Cancel</button></div>
+    </section>
+  )
+}
 
 export default function Requirements() {
-  const { reqs, docs, markets: sel, pins } = useStore()
+  const { reqs, docs, markets: sel, pins, role } = useStore()
+  const [adding, setAdding] = useState(false)
   const open = useUI((s) => s.open)
   const [tab, setTab] = useState<'register' | 'reuse'>('register')
   const [q, setQ] = useState('')
@@ -29,7 +54,7 @@ export default function Requirements() {
   const scoped = reqs.filter((r) => sel.includes(r.market))
   const reqd = scoped.filter((r) => r.applicability === 'Required')
   const count = (s: string) => reqd.filter((r) => evidenceState(r, docs) === s).length
-  const evDocs = new Set(reqd.flatMap((r) => r.evidence.map((e) => e.doc)))
+  const evDocs = new Set(reqd.flatMap((r) => r.evidence.filter((e) => e.decision !== 'Withdrawn').map((e) => e.doc)))
   const openCmts = pins.filter((p) => p.status === 'Open' && evDocs.has(p.doc)).length
   const gaps: { label: string; n: number; tone: string; st?: string; ap?: string }[] = [
     { label: 'Missing evidence', n: count('Evidence missing'), tone: 'red', st: 'Evidence missing' },
@@ -39,11 +64,11 @@ export default function Requirements() {
     { label: 'Applicability pending', n: scoped.filter((r) => r.applicability === 'Assessment pending').length, tone: 'violet', ap: 'Assessment pending' },
     { label: 'Open comments on evidence', n: openCmts, tone: 'amber' },
   ]
-  const reuse = docs.map((d) => ({ d, links: reqs.filter((r) => sel.includes(r.market) && r.evidence.some((e) => e.doc === d.id)) })).filter((x) => x.links.length).sort((a, b) => b.links.length - a.links.length)
+  const reuse = docs.map((d) => ({ d, links: reqs.filter((r) => sel.includes(r.market) && r.evidence.some((e) => e.doc === d.id && e.decision !== 'Withdrawn')) })).filter((x) => x.links.length).sort((a, b) => b.links.length - a.links.length)
 
   return (
     <>
-      <PageHead title="Requirements & evidence" sub="Clause-wise requirements per market. Applicability, evidence status and document approval are tracked as three separate things." actions={<button className="btn" onClick={csv}><Download size={14} /> Export register</button>} />
+      <PageHead title="Requirements & evidence" sub="Clause-wise requirements per market. Applicability, evidence status and document approval are tracked as three separate things." actions={<>{role !== 'Contractor' && tab === 'register' && <button className="btn" onClick={() => setAdding(!adding)}><Plus size={14} /> Add requirement</button>}<button className="btn" onClick={csv}><Download size={14} /> Export register</button></>} />
       <div className="tabs">
         <button className={tab === 'register' ? 'on' : ''} onClick={() => setTab('register')}>Requirement register</button>
         <button className={tab === 'reuse' ? 'on' : ''} onClick={() => setTab('reuse')}>Cross-market evidence reuse</button>
@@ -51,6 +76,7 @@ export default function Requirements() {
 
       {tab === 'register' ? (
         <>
+          {adding && <AddRequirement onClose={() => setAdding(false)} />}
           <div className="row wrap" style={{ marginBottom: 12 }} aria-label="Gap breakdown">{gaps.map((g) => g.st || g.ap ? <button key={g.label} className="btn sm" onClick={() => { if (g.st) setSt(st === g.st ? 'all' : g.st); if (g.ap) setAp(ap === g.ap ? 'all' : g.ap) }} style={st === g.st || ap === g.ap ? { borderColor: 'var(--teal)', background: '#e8f5f5' } : undefined}><span className={`badge ${g.tone}`} style={{ padding: '0 6px' }}>{g.n}</span> {g.label}</button> : <span key={g.label} className="small muted" style={{ padding: '0 6px' }}><span className={`badge ${g.tone}`} style={{ padding: '0 6px' }}>{g.n}</span> {g.label}</span>)}<span className="muted small">Click a gap type to filter.</span></div>
           <div className="filters">
             <input className="input grow" placeholder="Search requirement, system or discipline…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search requirements" />
@@ -65,13 +91,13 @@ export default function Requirements() {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    <td><button className="link" onClick={() => open('req', r.id)}>{r.title}</button><small>{r.id}{r.critical ? ' · Critical' : ''}</small></td>
+                    <td><button className="link" onClick={() => open('req', r.id)}>{r.title}</button><small>{r.id}{r.critical ? ' · Critical' : ''} · {r.libraryKey ? `Library v${r.libraryVersion} · ${r.libraryKey}` : 'Project-specific'}</small></td>
                     <td><MarketChip m={r.market} /></td>
-                    <td>{r.system}<small>{r.discipline}</small></td>
+                    <td>{r.system || <span className="muted">System not assigned</span>}<small>{r.discipline}</small></td>
                     <td>{r.clause ? <>{r.clause}<small>{r.sourceVersion} · eff. {r.effective}{r.sourceAttested ? ' · attested' : ' · draft'}</small></> : <Badge tone="amber" dot={false}>Clause pending</Badge>}</td>
                     <td><Applic a={r.applicability} /></td>
                     <td><StateBadge s={evidenceState(r, docs)} /></td>
-                    <td>{r.evidence.length ? r.evidence.map((e) => `${e.doc} ${R(e.rev)}`).join(', ') : <span className="muted">—</span>}</td>
+                    <td>{r.evidence.some((e) => e.decision !== 'Withdrawn') ? r.evidence.filter((e) => e.decision !== 'Withdrawn').map((e) => `${e.doc} ${R(e.rev)}`).join(', ') : <span className="muted">—</span>}</td>
                     <td>{r.owner}<small>{r.due}</small></td>
                   </tr>
                 ))}
@@ -93,7 +119,7 @@ export default function Requirements() {
                     {sel.map((m) => {
                       const l = links.filter((r) => r.market === m)
                       if (!l.length) return <td key={m}><span className="dot no">–</span></td>
-                      const ok = l.every((r) => r.evidence.find((e) => e.doc === d.id)?.decision === 'Accepted')
+                      const ok = l.every((r) => r.evidence.find((e) => e.doc === d.id && e.decision !== 'Withdrawn')?.decision === 'Accepted')
                       return <td key={m}><span className={`dot ${ok ? 'ok' : 'wait'}`} title={ok ? 'Accepted for this market' : 'Assessment pending'}>{l.length}</span></td>
                     })}
                     <td style={{ textAlign: 'left' }}>{new Set(links.map((r) => r.market)).size > 1 ? <Badge tone="teal">Shared by {new Set(links.map((r) => r.market)).size} markets</Badge> : <Badge dot={false}>Single market</Badge>}</td>

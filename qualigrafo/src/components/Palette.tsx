@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FileText, ListChecks, LayoutGrid, CornerDownLeft, Briefcase } from 'lucide-react'
-import { projectIndex } from '../data/seed'
-import { useStore } from '../store'
+import { useProjectList, useStore } from '../store'
 import { go, home, openProjectRoute, useUI } from './ui'
 import type { PageKey } from './ui'
 
@@ -10,6 +9,7 @@ interface Hit { id: string; group: string; label: string; sub: string; icon: 'pa
 export function Palette({ labels, inProject }: { labels: Record<PageKey, string>; inProject: boolean }) {
   const { palette, setPalette, open } = useUI()
   const { docs, reqs, markets } = useStore()
+  const projectIndex = useProjectList()
   const [q, setQ] = useState('')
   const [i, setI] = useState(0)
   const ref = useRef<HTMLInputElement>(null)
@@ -28,7 +28,7 @@ export function Palette({ labels, inProject }: { labels: Record<PageKey, string>
     const s = q.trim().toLowerCase()
     const m = s ? all.filter((h) => `${h.label} ${h.sub}`.toLowerCase().includes(s)) : all.filter((h) => h.group === 'Pages' || h.group === 'Projects' || h.group === 'Workspace')
     return m.slice(0, 12)
-  }, [q, docs, reqs, markets, labels, inProject, open])
+  }, [q, docs, reqs, markets, labels, inProject, open, projectIndex])
 
   if (!palette) return null
   const choose = (h?: Hit) => { if (!h) return; setPalette(false); h.run() }

@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Finding" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "raisedBy" TEXT,
+ADD COLUMN     "raisedByUserId" TEXT;

@@ -1,16 +1,19 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
+import { EditRecord } from '../components/EditRecord'
+import type { GapAction } from '../types'
 import { CheckCircle2, CircleAlert, Download } from 'lucide-react'
 import { handoverGates, useStore } from '../store'
-import { Badge, Empty, MarketChip, PageHead, fmtDate, go, useUI } from '../components/ui'
+import { Badge, Empty, MarketChip, PageHead, fmtDate, go, home, useUI } from '../components/ui'
 import type { PageKey } from '../components/ui'
 
 function useAct() {
   const toast = useStore((s) => s.toast)
-  return (err: string | null, ok: string) => (err ? toast(err, 'warn') : toast(ok))
+  return async (err: string | null | Promise<string | null>, ok: string) => { const e = await err; if (e) toast(e, 'warn'); else if (ok) toast(ok); return e }
 }
 
 export function Actions() {
-  const { actions, role, progressAction } = useStore()
+  const { actions, role, progressAction, editAction } = useStore()
+  const [edit, setEdit] = useState<string | null>(null)
   const open = useUI((s) => s.open)
   const act = useAct()
   const cols = ['Open', 'Ready for verification', 'Closed'] as const
@@ -21,8 +24,8 @@ export function Actions() {
         <table>
           <thead><tr><th>Action</th><th>Requirement</th><th>Owner</th><th>Due</th><th>Priority</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {cols.flatMap((c) => actions.filter((a) => a.status === c)).map((a) => (
-              <tr key={a.id}>
+            {cols.flatMap((c) => actions.filter((a) => a.status === c)).map((a) => (<Fragment key={a.id}>
+              <tr>
                 <td><b>{a.title}</b><small>{a.id}</small></td>
                 <td><button className="link" onClick={() => open('req', a.req)}>{a.req}</button></td>
                 <td>{a.owner}</td><td>{a.due}</td>
@@ -31,9 +34,13 @@ export function Actions() {
                 <td>
                   {a.status === 'Open' && <button className="btn sm pri" onClick={() => act(progressAction(a.id, 'Ready for verification'), 'Submitted for verification')}>Submit for verification</button>}
                   {a.status === 'Ready for verification' && <button className="btn sm pri" disabled={role === 'Contractor'} onClick={() => act(progressAction(a.id, 'Closed'), 'Verified and closed')}>Verify &amp; close</button>}
+                  {role !== 'Contractor' && a.status !== 'Closed' && <> <button className="btn sm ghost" onClick={() => setEdit(edit === a.id ? null : a.id)} aria-label={`Edit ${a.id}`}>Edit</button></>}
                 </td>
               </tr>
-            ))}
+              {edit === a.id && <tr><td colSpan={7}><EditRecord name={a.id} onClose={() => setEdit(null)} initial={{ title: a.title, owner: a.owner, due: a.due, priority: a.priority }}
+                fields={[{ key: 'title', label: 'Action', type: 'textarea', wide: true }, { key: 'owner', label: 'Owner' }, { key: 'due', label: 'Due', type: 'date' }, { key: 'priority', label: 'Priority', type: 'select', options: ['High', 'Medium', 'Low'] }]}
+                onSave={(v, reason) => editAction(a.id, { title: String(v.title), owner: String(v.owner), due: String(v.due), priority: v.priority as GapAction['priority'], reason })} /></td></tr>}
+            </Fragment>))}
             {!actions.length && <tr><td colSpan={7}><Empty title="No corrective actions">Assign one from a requirement&apos;s detail panel when evidence is missing.</Empty></td></tr>}
           </tbody>
         </table>
@@ -76,7 +83,7 @@ export function Packages() {
   const exportHtml = (id: string) => {
     const sn = snapshots.find((x) => x.id === id)!
     const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!)
-    const html = `<!doctype html><meta charset="utf-8"><title>${sn.id} evidence package</title><style>body{font:13px Arial;margin:36px;color:#15262f}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd;padding:6px 8px;text-align:left}h1{font-size:20px}</style><h1>Qualigrafo — evidence package ${sn.id} (prototype)</h1><p><b>Not a compliance certificate and not an approval by any authority.</b> Baseline B${sn.baseline} · Markets ${sn.markets.join(', ')} · ${sn.at} · frozen by ${sn.by}</p><p>${sn.accepted} of ${sn.required} required topics have accepted evidence. ${sn.blockers.length} unresolved item(s). Original evidence files are not included.</p><table><tr><th>ID</th><th>Requirement</th><th>Market</th><th>Applicability</th><th>Evidence state</th><th>Linked revisions</th></tr>${sn.rows.map((r) => `<tr><td>${r.id}</td><td>${esc(r.title)}</td><td>${r.market}</td><td>${r.applicability}</td><td>${r.state}</td><td>${esc(r.links)}</td></tr>`).join('')}</table>`
+    const html = `<!doctype html><meta charset="utf-8"><title>${sn.id} evidence package</title><style>body{font:13px Arial;margin:36px;color:#15262f}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccd;padding:6px 8px;text-align:left}h1{font-size:20px}</style><h1>Qualigrafo — evidence package ${sn.id}</h1><p><b>Not a compliance certificate and not an approval by any authority.</b> Baseline B${sn.baseline} · Markets ${sn.markets.join(', ')} · ${sn.at} · frozen by ${sn.by}</p><p>${sn.accepted} of ${sn.required} required topics have accepted evidence. ${sn.blockers.length} unresolved item(s). Original evidence files are not included.</p><table><tr><th>ID</th><th>Requirement</th><th>Market</th><th>Applicability</th><th>Evidence state</th><th>Linked revisions</th></tr>${sn.rows.map((r) => `<tr><td>${r.id}</td><td>${esc(r.title)}</td><td>${r.market}</td><td>${r.applicability}</td><td>${r.state}</td><td>${esc(r.links)}</td></tr>`).join('')}</table>`
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
     a.download = `Qualigrafo_${sn.id}_B${sn.baseline}.html`
@@ -90,7 +97,7 @@ export function Packages() {
   }
   return (
     <>
-      <PageHead title="Audit evidence packages" sub="Freeze the current baseline and evidence state. A package always lists every gap; it can never present an incomplete state as certified." actions={<button className="btn pri" onClick={() => { const id = createSnapshot(); toast(`${id} frozen with all outstanding items disclosed`) }}>Freeze package at B{baseline}</button>} />
+      <PageHead title="Audit evidence packages" sub="Freeze the current baseline and evidence state. A package always lists every gap; it can never present an incomplete state as certified." actions={<button className="btn pri" onClick={async () => { const er = await createSnapshot(); toast(er ?? `${useStore.getState().snapshots[0]?.id} frozen with all outstanding items disclosed`, er ? 'warn' : 'ok') }}>Freeze package at B{baseline}</button>} />
       <div className="tablewrap">
         <table>
           <thead><tr><th>Package</th><th>Baseline · markets</th><th>Frozen</th><th>Evidence accepted</th><th>Outstanding</th><th>Export</th></tr></thead>
@@ -120,18 +127,18 @@ export function Updates() {
   return (
     <>
       <PageHead title="Regulatory change review" sub="A new publication never silently replaces the live checklist. A qualified reviewer decides applicability; an applicable change creates a new baseline and reopens only the affected evidence." actions={<Badge tone="blue">Current baseline B{baseline}</Badge>} />
-      <div className="notice" style={{ marginBottom: 14 }}>The updates below are fictional workflow exercises. No live monitoring is connected, and no claim is made about any actual regulation.</div>
+      <div className="notice info" style={{ marginBottom: 14 }}>Owner / QA assesses each regulatory update. Applying it creates a new requirement baseline and reopens only the evidence of the affected requirements; judging it not applicable is recorded with the rationale.</div>
       <div className="steps" style={{ marginBottom: 14 }}>{['Update detected', 'Qualified review', 'Approved rule pack', 'Projects flagged', 'Actions assigned', 'Evidence re-reviewed'].map((x, i) => <span key={x} className={`step ${i < 2 ? 'on' : ''}`}>{x}</span>)}</div>
       {updates.map((u) => (
         <section className="card" key={u.id} style={{ marginBottom: 12 }}>
-          <div className="row sb"><h2 style={{ margin: 0 }}><MarketChip m={u.market} /> {u.title}</h2><Badge tone={u.status === 'Awaiting assessment' ? 'amber' : u.status === 'Not applicable' ? '' : 'green'}>{u.status}</Badge></div>
+          <div className="row sb"><h2 style={{ margin: 0 }}><MarketChip m={u.market} /> {u.title} {u.kind === 'Library' && <Badge tone="violet" dot={false}>Library update</Badge>}</h2><Badge tone={u.status === 'Awaiting assessment' ? 'amber' : u.status === 'Not applicable' ? '' : 'green'}>{u.status}</Badge></div>
           <p className="muted" style={{ margin: '8px 0' }}>{u.summary}</p>
-          <p className="small">Potentially affected requirements: {u.reqs.join(', ')}</p>
+          <p className="small">{u.kind === 'Library' ? <>Changed or removed requirements: {u.reqs.length ? u.reqs.join(', ') : 'none (additions only)'}. Applying adds the new items as Assessment pending, reopens changed ones and marks removed ones Not applicable. <button className="link small" onClick={() => home('library')}>Open library</button></> : <>Potentially affected requirements: {u.reqs.join(', ')}</>}</p>
           {u.status === 'Awaiting assessment' ? (
             <>
               <textarea className="input" style={{ marginTop: 8 }} placeholder="Qualified-reviewer rationale…" value={reasons[u.id] ?? ''} onChange={(e) => setReasons({ ...reasons, [u.id]: e.target.value })} />
               <div className="row" style={{ marginTop: 8 }}>
-                <button className="btn pri" disabled={role !== 'Owner / QA'} onClick={() => act(assessUpdate(u.id, true, reasons[u.id] ?? ''), 'New baseline created; affected evidence reopened')}>Applicable: create new baseline</button>
+                <button className="btn pri" disabled={role !== 'Owner / QA'} onClick={() => act(assessUpdate(u.id, true, reasons[u.id] ?? ''), u.kind === 'Library' ? 'Library version applied; new baseline created' : 'New baseline created; affected evidence reopened')}>{u.kind === 'Library' ? 'Apply to project: new baseline' : 'Applicable: create new baseline'}</button>
                 <button className="btn" disabled={role !== 'Owner / QA'} onClick={() => act(assessUpdate(u.id, false, reasons[u.id] ?? ''), 'Recorded as not applicable')}>Not applicable</button>
                 {role !== 'Owner / QA' && <span className="muted small">Owner / QA role required</span>}
               </div>
@@ -139,7 +146,7 @@ export function Updates() {
           ) : <p className="small" style={{ marginTop: 8 }}><b>Decision:</b> {u.reason}</p>}
         </section>
       ))}
-      {!updates.length && <div className="card"><Empty title="No pending updates">No regulatory changes await assessment for this project.</Empty></div>}
+      {!updates.length && <div className="card"><Empty title="No pending updates">No regulatory or library updates await assessment for this project.</Empty></div>}
       <section className="card flush mt">
         <h2>Baseline history</h2>
         <div className="tablewrap" style={{ border: 0 }}><table><tbody>{[...baselines].reverse().map((b) => <tr key={b.v}><td><Badge tone={b.v === baseline ? 'teal' : ''}>B{b.v}</Badge></td><td>{b.reason}</td><td className="muted">{b.by} · {fmtDate(b.at)}</td></tr>)}</tbody></table></div>

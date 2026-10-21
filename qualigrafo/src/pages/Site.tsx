@@ -1,18 +1,21 @@
-import { useState } from 'react'
-import { disciplines } from '../data/seed'
-import { useStore } from '../store'
-import { Badge, Empty, PageHead, R, useUI } from '../components/ui'
+import { Fragment, useState } from 'react'
+import { EditRecord } from '../components/EditRecord'
+import type { Finding } from '../types'
+import { DisciplineSelect, SystemSelect } from '../components/Pickers'
+import { activeDocs, plusDays, useStore } from '../store'
+import { Badge, Empty, PageHead, R, fmtDate, useUI } from '../components/ui'
 
 function useAct() {
   const toast = useStore((s) => s.toast)
-  return (err: string | null, ok: string) => (err ? toast(err, 'warn') : toast(ok))
+  return async (err: string | null | Promise<string | null>, ok: string) => { const e = await err; if (e) toast(e, 'warn'); else if (ok) toast(ok); return e }
 }
 
 export function Rfis() {
-  const { rfis, raiseRfi, answerRfi, closeRfi, role, docs } = useStore()
+  const { rfis, raiseRfi, answerRfi, closeRfi, role, docs, editRfi } = useStore()
+  const [edit, setEdit] = useState<string | null>(null)
   const act = useAct()
   const [form, setForm] = useState(false)
-  const [f, setF] = useState({ title: '', discipline: disciplines[0], system: '', due: '2026-10-24' })
+  const [f, setF] = useState({ title: '', discipline: '', system: '', due: plusDays(7) })
   const [ans, setAns] = useState<Record<string, string>>({})
   const tone = (s: string) => (s === 'Closed' ? 'green' : s === 'Answered' ? 'blue' : 'amber')
   void docs
@@ -24,20 +27,20 @@ export function Rfis() {
           <h2>New RFI</h2>
           <textarea className="input" placeholder="Question — include drawing / revision reference" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
           <div className="grid g3" style={{ marginTop: 8 }}>
-            <select className="input" value={f.discipline} onChange={(e) => setF({ ...f, discipline: e.target.value })}>{disciplines.map((d) => <option key={d}>{d}</option>)}</select>
-            <input className="input" placeholder="System / asset, e.g. PW-001" value={f.system} onChange={(e) => setF({ ...f, system: e.target.value })} />
+            <DisciplineSelect value={f.discipline} onChange={(v) => setF({ ...f, discipline: v })} />
+            <SystemSelect value={f.system} onChange={(v) => setF({ ...f, system: v })} />
             <input className="input" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
           </div>
-          <button className="btn pri" style={{ marginTop: 10 }} onClick={() => { const er = raiseRfi(f); act(er, 'RFI raised'); if (!er) { setForm(false); setF({ ...f, title: '', system: '' }) } }}>Submit RFI</button>
+          <button className="btn pri" style={{ marginTop: 10 }} onClick={async () => { const er = await act(raiseRfi(f), 'RFI raised'); if (!er) { setForm(false); setF({ ...f, title: '', system: '' }) } }}>Submit RFI</button>
         </section>
       )}
       <div className="tablewrap">
         <table>
           <thead><tr><th>RFI</th><th>Discipline / system</th><th>Raised by</th><th>Due</th><th>Status</th><th style={{ width: '34%' }}>Response</th></tr></thead>
           <tbody>
-            {rfis.map((r) => (
-              <tr key={r.id}>
-                <td><b>{r.title}</b><small>{r.id}</small></td>
+            {rfis.map((r) => (<Fragment key={r.id}>
+              <tr>
+                <td><b>{r.title}</b><small>{r.id}{r.status !== 'Closed' && (role !== 'Contractor' || r.raisedBy === 'Contractor') && <> · <button className="link small" onClick={() => setEdit(edit === r.id ? null : r.id)}>Edit</button></>}</small></td>
                 <td>{r.discipline}<small>{r.system}</small></td>
                 <td>{r.raisedBy}</td><td>{r.due}</td>
                 <td><Badge tone={tone(r.status)}>{r.status}</Badge></td>
@@ -48,7 +51,10 @@ export function Rfis() {
                   {r.status === 'Answered' && <button className="btn sm" onClick={() => act(closeRfi(r.id), 'RFI closed')}>Acknowledge &amp; close</button>}
                 </td>
               </tr>
-            ))}
+              {edit === r.id && <tr><td colSpan={6}><EditRecord name={r.id} initial={{ title: r.title, discipline: r.discipline, system: r.system, due: r.due }} onClose={() => setEdit(null)}
+                fields={[{ key: 'title', label: 'Question', type: 'textarea', wide: true, disabled: r.status !== 'Awaiting response', hint: r.status !== 'Awaiting response' ? 'Answered: the question is locked. Raise a new RFI for a different question.' : undefined }, { key: 'discipline', label: 'Discipline', type: 'discipline' }, { key: 'system', label: 'System', type: 'system' }, { key: 'due', label: 'Due', type: 'date' }]}
+                onSave={(v, reason) => editRfi(r.id, { title: String(v.title), discipline: String(v.discipline), system: String(v.system), due: String(v.due), reason })} /></td></tr>}
+            </Fragment>))}
             {!rfis.length && <tr><td colSpan={6}><Empty title="No RFIs raised">Raise a question when a drawing or specification needs clarification.</Empty></td></tr>}
           </tbody>
         </table>
@@ -66,12 +72,12 @@ export function Inspections() {
   const tone = (s: string) => (s === 'Accepted' ? 'green' : s === 'Correction required' ? 'red' : s === 'Submitted' ? 'amber' : 'blue')
   return (
     <>
-      <PageHead title="Inspections" sub="Installation inspections with the drawing revision, checklist and site evidence referenced. Sample references are never treated as executed evidence." actions={<button className="btn pri" onClick={() => setForm(!form)}>Request inspection</button>} />
+      <PageHead title="Inspections" sub="Installation inspections with the drawing revision, checklist and site evidence referenced." actions={<button className="btn pri" onClick={() => setForm(!form)}>Request inspection</button>} />
       {form && (
         <section className="card" style={{ marginBottom: 14 }}>
           <h2>Request inspection</h2>
-          <div className="grid g2"><input className="input" placeholder="Inspection title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /><input className="input" placeholder="System / asset" value={f.system} onChange={(e) => setF({ ...f, system: e.target.value })} /></div>
-          <button className="btn pri" style={{ marginTop: 10 }} onClick={() => { const er = requestInspection(f); act(er, 'Inspection requested'); if (!er) { setForm(false); setF({ title: '', system: '' }) } }}>Submit request</button>
+          <div className="grid g2"><input className="input" placeholder="Inspection title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /><SystemSelect value={f.system} onChange={(v) => setF({ ...f, system: v })} /></div>
+          <button className="btn pri" style={{ marginTop: 10 }} onClick={async () => { const er = await act(requestInspection(f), 'Inspection requested'); if (!er) { setForm(false); setF({ title: '', system: '' }) } }}>Submit request</button>
         </section>
       )}
       <div className="tablewrap">
@@ -97,18 +103,37 @@ export function Inspections() {
 }
 
 export function Findings() {
-  const { findings, disposeFinding, role } = useStore()
+  const { findings, disposeFinding, role, docs, raiseFinding } = useStore()
   const open = useUI((s) => s.open)
   const act = useAct()
   const [txt, setTxt] = useState<Record<string, string>>({})
+  const [form, setForm] = useState(false)
+  const [f, setF] = useState({ title: '', doc: '', severity: 'Medium' as Finding['severity'], source: '', rule: '' })
+  const reviewer = role !== 'Contractor'
   return (
     <>
-      <PageHead title="Consistency findings" sub="Rule-based checks with the source values shown. A finding is a prompt for review — not a verdict. Every disposition needs a recorded rationale." />
-      <div className="notice" style={{ marginBottom: 14 }}>These are seeded examples, not analysis of uploaded files. A production check stores the rule version, source revision, file checksum, compared values and conditions; an unreadable source is “unknown”, never a pass.</div>
+      <PageHead title="Consistency findings" sub="Inconsistencies between records, with the compared values shown. A finding is a prompt for review — not a verdict. Every disposition needs a recorded rationale." actions={reviewer ? <button className="btn pri" onClick={() => setForm(!form)}>Raise finding</button> : undefined} />
+      <div className="notice" style={{ marginBottom: 14 }}>Findings are raised by reviewers from manual checks (e.g. a tag or duty point that differs between a datasheet and a P&amp;ID). Automated rule checks over uploaded files are not part of this version; when added, they will record the rule version, source revision and checksum, and treat an unreadable source as “unknown”, never a pass.</div>
+      {form && (
+        <section className="card" style={{ marginBottom: 12 }}>
+          <h2 style={{ marginTop: 0 }}>Raise a finding</h2>
+          <div className="grid g3">
+            <div style={{ gridColumn: 'span 2' }}><label className="lab" style={{ marginTop: 0 }}>What is inconsistent</label><input className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} aria-label="Finding title" /></div>
+            <div><label className="lab" style={{ marginTop: 0 }}>Severity</label><select className="input" value={f.severity} onChange={(e) => setF({ ...f, severity: e.target.value as Finding['severity'] })} aria-label="Finding severity">{['High', 'Medium', 'Low'].map((s) => <option key={s}>{s}</option>)}</select></div>
+          </div>
+          <label className="lab">Record concerned</label>
+          <select className="input" value={f.doc} onChange={(e) => setF({ ...f, doc: e.target.value })} aria-label="Finding document"><option value="">Choose a document…</option>{activeDocs(docs).map((d) => <option key={d.id} value={d.id}>{d.id} · {d.title} · {R(d.rev)}</option>)}</select>
+          <label className="lab">Compared values / observation</label>
+          <textarea className="input" style={{ minHeight: 52 }} value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} placeholder="e.g. Datasheet: 12 m3/h @ 40 m · P&ID R03: 15 m3/h @ 40 m" aria-label="Finding compared values" />
+          <label className="lab">Basis / check reference (optional)</label>
+          <input className="input" value={f.rule} onChange={(e) => setF({ ...f, rule: e.target.value })} placeholder="e.g. Vendor data vs P&ID review, checklist item 4.2" aria-label="Finding basis" />
+          <div className="row" style={{ marginTop: 10 }}><button className="btn pri" onClick={async () => { const er = await act(raiseFinding(f), 'Finding raised'); if (!er) { setForm(false); setF({ title: '', doc: '', severity: 'Medium', source: '', rule: '' }) } }}>Raise finding</button><button className="btn" onClick={() => setForm(false)}>Cancel</button></div>
+        </section>
+      )}
       {findings.map((f) => (
         <section className="card" key={f.id} style={{ marginBottom: 12 }}>
           <div className="row sb"><h2 style={{ margin: 0 }}>{f.id} · {f.title}</h2><div className="row"><Badge tone={f.severity === 'High' ? 'red' : 'amber'}>{f.severity}</Badge><Badge tone={f.status === 'Open' ? 'red' : 'green'}>{f.status}</Badge></div></div>
-          <div className="kv"><div><small>Source values</small>{f.source}</div><div><small>Rule</small>{f.rule}</div></div>
+          <div className="kv"><div><small>Compared values</small>{f.source}</div><div><small>{f.raisedBy ? 'Basis' : 'Rule'}</small>{f.rule}</div>{f.raisedBy && <div style={{ gridColumn: '1 / -1' }}><small>Raised by</small>{f.raisedBy}{f.raisedAt ? ` · ${fmtDate(f.raisedAt)}` : ''}</div>}</div>
           <div className="row wrap"><button className="btn sm" onClick={() => open('doc', f.doc)}>Open linked record {f.doc}</button></div>
           {f.status === 'Open' ? (role !== 'Contractor' ? (<><textarea className="input" style={{ marginTop: 10 }} placeholder="Disposition rationale…" value={txt[f.id] ?? ''} onChange={(e) => setTxt({ ...txt, [f.id]: e.target.value })} /><div className="row" style={{ marginTop: 8 }}><button className="btn pri sm" onClick={() => act(disposeFinding(f.id, 'Resolved', txt[f.id] ?? ''), 'Finding resolved')}>Resolve</button><button className="btn sm" onClick={() => act(disposeFinding(f.id, 'Accepted exception', txt[f.id] ?? ''), 'Exception recorded')}>Accept as exception</button></div></>) : <p className="muted small" style={{ marginTop: 8 }}>A reviewer must disposition this finding.</p>) : <p className="small" style={{ marginTop: 10 }}><b>Disposition:</b> {f.disposition}</p>}
         </section>
@@ -123,14 +148,12 @@ export function Changes() {
   const open = useUI((s) => s.open)
   const act = useAct()
   const [form, setForm] = useState(false)
-  const [f, setF] = useState({ title: '', system: 'PW-001' })
+  const [f, setF] = useState({ title: '', system: '' })
   const [txt, setTxt] = useState<Record<string, string>>({})
-  const systems = [...new Set(docs.map((d) => d.system))]
-  const propose = () => {
-    const ds = docs.filter((d) => d.system === f.system).map((d) => d.id)
+  const propose = async () => {
+    const ds = activeDocs(docs).filter((d) => d.system === f.system).map((d) => d.id)
     const rs = reqs.filter((r) => r.system === f.system).map((r) => r.id)
-    const er = addChange({ title: f.title, system: f.system, docs: ds, reqs: rs })
-    act(er, 'Change proposed — linked records need impact assessment')
+    const er = await act(addChange({ title: f.title, system: f.system, docs: ds, reqs: rs }), 'Change proposed — linked records need impact assessment')
     if (!er) { setForm(false); setF({ ...f, title: '' }) }
   }
   return (
@@ -139,7 +162,7 @@ export function Changes() {
       {form && (
         <section className="card" style={{ marginBottom: 14 }}>
           <h2>Propose change</h2>
-          <div className="grid g2"><input className="input" placeholder="Describe the change" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /><select className="input" value={f.system} onChange={(e) => setF({ ...f, system: e.target.value })}>{systems.map((s) => <option key={s}>{s}</option>)}</select></div>
+          <div className="grid g2"><input className="input" placeholder="Describe the change" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /><SystemSelect value={f.system} onChange={(v) => setF({ ...f, system: v })} /></div>
           <p className="muted small" style={{ margin: '6px 0' }}>Records linked to the chosen system are listed for assessment automatically; add others through the register.</p>
           <button className="btn pri" onClick={propose}>Create change</button>
         </section>

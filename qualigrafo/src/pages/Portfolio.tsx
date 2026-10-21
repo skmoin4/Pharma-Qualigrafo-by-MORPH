@@ -1,15 +1,18 @@
 import { useState } from 'react'
-import { ArrowRight, ExternalLink } from 'lucide-react'
-import { markets, projectIndex } from '../data/seed'
-import { TODAY, useStore } from '../store'
+import { ArrowRight, ExternalLink, Plus } from 'lucide-react'
+import { markets } from '../data/reference'
+import { TODAY, isActiveDoc, useProjectList, useStore } from '../store'
 import { stats, workFor } from '../work'
 import type { WorkItem } from '../work'
 import { Badge, Empty, MarketChip, PageHead, Stat, fmtDate, openProjectRoute } from '../components/ui'
 import type { MarketKey } from '../types'
 
-export function useAll() {
+/** Every project the user belongs to (archived ones only on request). Work is derived with the user's role in *that* project. */
+export function useAll(includeArchived = false) {
   const store = useStore() // subscribe to everything so every project card stays live
-  return projectIndex.map((m) => { const p = store.snapshotOf(m.id); return { meta: m, p, st: stats(p), work: workFor(m.id, p, store.role) } })
+  return useProjectList()
+    .filter((m) => includeArchived || m.status !== 'Archived')
+    .map((m) => { const p = store.snapshotOf(m.id); return { meta: m, p, st: stats(p), work: workFor(m.id, p, store.projects[m.id]?.role ?? store.role) } })
 }
 
 function WorkRow({ w, name }: { w: WorkItem; name: string }) {
@@ -23,19 +26,41 @@ function WorkRow({ w, name }: { w: WorkItem; name: string }) {
 }
 
 export default function Portfolio() {
-  const all = useAll()
+  const everything = useAll(true)
+  const all = everything.filter((a) => a.meta.status !== 'Archived')
+  const archived = everything.filter((a) => a.meta.status === 'Archived')
+  const [showArchived, setShowArchived] = useState(false)
+  const rows = showArchived ? archived : all
   const role = useStore((s) => s.role)
+  const session = useStore((s) => s.session)
+  const canCreate = !!session?.canCreateProjects
   const events = all.flatMap((a) => a.p.events.map((e) => ({ ...e, project: a.meta.id, name: a.meta.name })))
   const work = all.flatMap((a) => a.work.map((w) => ({ w, name: a.meta.name })))
   const overdue = all.reduce((n, a) => n + a.st.overdue.length, 0)
   const regs = all.flatMap((a) => a.p.updates.filter((u) => u.status === 'Awaiting assessment').map((u) => ({ u, a })))
   const open = all.reduce((n, a) => n + a.st.cov.gaps.length, 0)
-  const deadlines = all.flatMap((a) => a.p.docs.filter((d) => d.status !== 'Accepted').map((d) => ({ d, a }))).sort((x, y) => x.d.due.localeCompare(y.d.due)).slice(0, 7)
+  const deadlines = all.flatMap((a) => a.p.docs.filter((d) => d.status !== 'Accepted' && isActiveDoc(d)).map((d) => ({ d, a }))).sort((x, y) => x.d.due.localeCompare(y.d.due)).slice(0, 7)
   const recent = all.flatMap((a) => a.p.audit.slice(0, 4).map((e) => ({ ...e, name: a.meta.name }))).sort((x, y) => y.at.localeCompare(x.at)).slice(0, 7)
 
   return (
     <>
-      <PageHead title="Portfolio" sub={`Engineering evidence across ${all.length} projects · viewing as ${role} · demo date ${TODAY}`} actions={<span className="muted small">All data is fictional</span>} />
+      <PageHead
+        title="Portfolio"
+        sub={`Engineering evidence across ${all.length} active project${all.length === 1 ? '' : 's'} · as of ${TODAY}`}
+        actions={<>
+          {archived.length > 0 && <div className="seg"><button className={!showArchived ? 'on' : ''} onClick={() => setShowArchived(false)}>Active ({all.length})</button><button className={showArchived ? 'on' : ''} onClick={() => setShowArchived(true)}>Archived ({archived.length})</button></div>}
+          {canCreate && <button className="btn pri" onClick={() => { window.location.hash = '#/new-project' }}><Plus size={14} /> New project</button>}
+        </>}
+      />
+      {!everything.length && (
+        <section className="card" style={{ marginBottom: 14 }}>
+          <Empty title="No projects yet">
+            {canCreate
+              ? <>Create the first project: profile, markets, registers and team in five steps.<br /><button className="btn pri" style={{ marginTop: 10 }} onClick={() => { window.location.hash = '#/new-project' }}><Plus size={14} /> New project</button></>
+              : 'You are not on any project team yet. Ask your Owner / QA or administrator to add you.'}
+          </Empty>
+        </section>
+      )}
 
       <div className="grid g4">
         <Stat label="Active projects" value={all.length} sub={`${all.filter((a) => a.st.attention).length} need attention`} />
@@ -50,12 +75,12 @@ export default function Portfolio() {
           <table>
             <thead><tr><th>Project</th><th>Phase</th><th style={{ width: 200 }}>Evidence accepted</th><th>Handover gates</th><th>Next due</th><th>Attention</th><th /></tr></thead>
             <tbody>
-              {all.map(({ meta, p, st }) => {
+              {rows.map(({ meta, p, st }) => {
                 const pct = st.cov.required.length ? (100 * st.cov.accepted.length) / st.cov.required.length : 0
                 return (
                   <tr key={meta.id} className="clickrow" onClick={() => openProjectRoute(meta.id)}>
                     <td>
-                      <b style={{ color: 'var(--teal-d)', fontSize: 14 }}>{meta.name}</b>
+                      <b style={{ color: 'var(--teal-d)', fontSize: 14 }}>{meta.name}</b>{meta.status === 'Archived' && <> <Badge dot={false}>Archived</Badge></>}
                       <small>{meta.id} · {meta.client} · {meta.site}</small>
                       <div className="row wrap" style={{ gap: 5, marginTop: 5 }}><Badge tone="blue" dot={false}>{meta.facility}</Badge><Badge dot={false}>{meta.scope}</Badge>{p.markets.map((m) => <span key={m} title={markets[m].name}><MarketChip m={m} /></span>)}</div>
                     </td>
@@ -108,7 +133,6 @@ export default function Portfolio() {
           {!events.length && <tr><td><Empty title="No activity yet" /></td></tr>}
         </tbody></table></div>
       </section>
-      <p className="muted small" style={{ marginTop: 12 }}>Prototype: creating projects, users and file storage need the backend (see README).</p>
     </>
   )
 }
@@ -124,7 +148,7 @@ export function MyWork() {
     <>
       <PageHead title="My work" sub={`Everything currently waiting for the ${role} role across all projects, derived from the state of each record. Switch the role in the top bar to see another role's queue.`} />
       <div className="filters">
-        <select className="input" value={proj} onChange={(e) => setProj(e.target.value)} aria-label="Project"><option value="all">All projects</option>{projectIndex.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+        <select className="input" value={proj} onChange={(e) => setProj(e.target.value)} aria-label="Project"><option value="all">All projects</option>{all.map(({ meta: m }) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
         <select className="input" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Type"><option value="all">All types</option>{kinds.map((k) => <option key={k}>{k}</option>)}</select>
         <span className="muted small">{items.length} item(s) · overdue first</span>
       </div>
@@ -142,7 +166,7 @@ export function Watch() {
   return (
     <>
       <PageHead title="Regulatory watch" sub="Source inventory and change inbox across projects. No live monitoring is connected: an update is only ever a prompt for a qualified reviewer, never an automatic change to a project baseline." />
-      <div className="notice" style={{ marginBottom: 14 }}>Production flow: official update detected → qualified reviewer assesses → approved rule-pack version → affected projects flagged → actions assigned → evidence re-reviewed. Items below are fictional exercises.</div>
+      <div className="notice" style={{ marginBottom: 14 }}>Production flow: official update detected → qualified reviewer assesses → approved rule-pack version → affected projects flagged → actions assigned → evidence re-reviewed.</div>
       <div className="grid g21">
         <section className="card flush">
           <h2>Change inbox</h2>

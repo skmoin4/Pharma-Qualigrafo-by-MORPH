@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AlertOctagon, CheckCircle2, Printer } from 'lucide-react'
-import { markets } from '../data/seed'
+import { markets } from '../data/reference'
 import { evidenceState, useStore } from '../store'
 import { Applic, Badge, Empty, MarketChip, PageHead, R, StateBadge, fmtDate, useUI } from '../components/ui'
 
@@ -13,10 +13,10 @@ export function EvidenceMap() {
   const [sys, setSys] = useState(systems.includes('PW-001') ? 'PW-001' : systems[0])
   const [hover, setHover] = useState<string | null>(null)
   const rs = reqs.filter((r) => r.system === sys && sel.includes(r.market) && r.applicability !== 'Not applicable')
-  const ds = [...new Set(rs.flatMap((r) => r.evidence.map((e) => e.doc)))]
+  const ds = [...new Set(rs.flatMap((r) => r.evidence.filter((e) => e.decision !== 'Withdrawn').map((e) => e.doc)))]
   const H = Math.max(rs.length, ds.length, 1) * 66 + 36
   const ry = (i: number, n: number) => 30 + (i + 0.5) * ((H - 36) / Math.max(n, 1))
-  const edges = rs.flatMap((r, i) => r.evidence.map((e) => {
+  const edges = rs.flatMap((r, i) => r.evidence.filter((e) => e.decision !== 'Withdrawn').map((e) => {
     const d = docs.find((x) => x.id === e.doc)!
     const kind = d.rev !== e.rev || e.decision === 'Rejected' ? 'bad' : e.decision === 'Accepted' && d.status === 'Accepted' ? 'ok' : 'wait'
     return { r: r.id, d: e.doc, y1: ry(i, rs.length), y2: ry(ds.indexOf(e.doc), ds.length), kind }
@@ -98,7 +98,7 @@ export function Inspector() {
               <p className="small muted">{r.topic}</p>
               <p className="small" style={{ marginTop: 6 }}><Applic a={r.applicability} /> {r.rationale}</p>
             </div></div>
-            {r.evidence.map((e, i) => {
+            {r.evidence.filter((e) => e.decision !== 'Withdrawn').map((e, i) => {
               const d = docs.find((x) => x.id === e.doc)!
               const stale = d.rev !== e.rev
               const tone = stale || e.decision === 'Rejected' ? 'bad' : e.decision === 'Accepted' && d.status === 'Accepted' ? '' : 'warn'
@@ -108,11 +108,11 @@ export function Inspector() {
                   <p className="small muted" style={{ margin: '5px 0' }}>{e.note}</p>
                   {stale && <Badge tone="red">Document is now {R(d.rev)} — this link is stale</Badge>}
                   {e.reason && <p className="small">Assessed by {e.reviewedBy}: {e.reason}</p>}
-                  <div className="small" style={{ marginTop: 6 }}>{d.signatures.length ? d.signatures.map((s, k) => <div key={k} className="muted">Sign-off: {s.role} · {s.name} · {fmtDate(s.at)} ({R(s.rev)}, prototype)</div>) : <span className="muted">No sign-off recorded on this revision.</span>}</div>
+                  <div className="small" style={{ marginTop: 6 }}>{d.signatures.length ? d.signatures.map((s, k) => <div key={k} className="muted">Sign-off: {s.role} · {s.name} · {fmtDate(s.at)} ({R(s.rev)})</div>) : <span className="muted">No sign-off recorded on this revision.</span>}</div>
                 </div></div>
               )
             })}
-            {!r.evidence.length && <div className="node bad"><div className="nbox"><b><AlertOctagon size={14} color="#a93a33" style={{ verticalAlign: -2 }} /> No evidence linked</b><p className="small muted" style={{ marginTop: 4 }}>An inspector asking this today would receive no document. Assign a corrective action.</p></div></div>}
+            {!r.evidence.filter((e) => e.decision !== 'Withdrawn').length && <div className="node bad"><div className="nbox"><b><AlertOctagon size={14} color="#a93a33" style={{ verticalAlign: -2 }} /> No evidence linked</b><p className="small muted" style={{ marginTop: 4 }}>An inspector asking this today would receive no document. Assign a corrective action.</p></div></div>}
           </div>
         </section>
         <section className="card" style={{ alignSelf: 'start' }}>

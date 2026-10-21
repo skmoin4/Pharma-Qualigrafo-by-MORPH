@@ -6,18 +6,18 @@ import type { DocStatus, EvidenceState, MarketKey } from '../types'
 import { useStore } from '../store'
 
 export type PageKey =
-  | 'overview' | 'setup' | 'requirements' | 'evidence' | 'inspector' | 'documents' | 'reviews' | 'comments'
+  | 'overview' | 'setup' | 'registers' | 'requirements' | 'evidence' | 'inspector' | 'documents' | 'reviews' | 'comments'
   | 'rfis' | 'inspections' | 'findings' | 'changes' | 'actions' | 'handover' | 'packages' | 'updates' | 'activity' | 'sources' | 'schedule' | 'audit' | 'templates' | 'team' | 'risks' | 'ncrs' | 'vendor' | 'rehearsal'
 
-export type HomeKey = 'portfolio' | 'work' | 'watch'
+export type HomeKey = 'portfolio' | 'work' | 'watch' | 'admin' | 'new' | 'library'
 
-export const PAGE_KEYS: PageKey[] = ['overview', 'setup', 'requirements', 'evidence', 'inspector', 'documents', 'reviews', 'comments', 'rfis', 'inspections', 'findings', 'changes', 'actions', 'handover', 'packages', 'updates', 'activity', 'sources', 'schedule', 'audit', 'templates', 'team', 'risks', 'ncrs', 'vendor', 'rehearsal']
+export const PAGE_KEYS: PageKey[] = ['overview', 'setup', 'registers', 'requirements', 'evidence', 'inspector', 'documents', 'reviews', 'comments', 'rfis', 'inspections', 'findings', 'changes', 'actions', 'handover', 'packages', 'updates', 'activity', 'sources', 'schedule', 'audit', 'templates', 'team', 'risks', 'ncrs', 'vendor', 'rehearsal']
 
 /* ---------- hash router (no dependency) ---------- */
 export function parseHash(): { project: string | null; page: PageKey; home: HomeKey } {
   const h = window.location.hash
   const m = h.match(/^#\/p\/([^/]+)\/?([^/]*)/)
-  if (!m) return { project: null, page: 'overview', home: h === '#/work' ? 'work' : h === '#/watch' ? 'watch' : 'portfolio' }
+  if (!m) return { project: null, page: 'overview', home: h === '#/work' ? 'work' : h === '#/watch' ? 'watch' : h === '#/admin' ? 'admin' : h === '#/library' ? 'library' : h === '#/new-project' ? 'new' : 'portfolio' }
   const page = (PAGE_KEYS as string[]).includes(m[2]) ? (m[2] as PageKey) : 'overview'
   return { project: decodeURIComponent(m[1]), page, home: 'portfolio' }
 }
@@ -55,7 +55,7 @@ export function go(page: PageKey) {
   useUI.setState({ drawer: null, menu: false })
   window.location.hash = id ? `#/p/${id}/${page}` : '#/'
 }
-export const home = (k: HomeKey = 'portfolio') => { useUI.setState({ drawer: null, menu: false }); window.location.hash = k === 'portfolio' ? '#/' : `#/${k}` }
+export const home = (k: HomeKey = 'portfolio') => { useUI.setState({ drawer: null, menu: false }); window.location.hash = k === 'portfolio' ? '#/' : k === 'new' ? '#/new-project' : `#/${k}` }
 export const openProjectRoute = (id: string, page: PageKey = 'overview') => { window.location.hash = `#/p/${id}/${page}` }
 
 export const fmtDate = (s: string) => new Date(s).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -65,7 +65,7 @@ export const R = (n: number) => `R${String(n).padStart(2, '0')}`
 export function Badge({ tone, children, dot = true }: { tone?: string; children: ReactNode; dot?: boolean }) {
   return <span className={`badge ${tone ?? ''}`}>{dot && <i />}{children}</span>
 }
-export const docTone = (s: DocStatus) => (s === 'Accepted' ? 'green' : s === 'Missing' || s === 'Changes requested' ? 'red' : s === 'Under review' ? 'amber' : 'blue')
+export const docTone = (s: DocStatus) => (s === 'Accepted' ? 'green' : s === 'Missing' || s === 'Changes requested' ? 'red' : s === 'Under review' ? 'amber' : s === 'Void' || s === 'Superseded' ? '' : 'blue')
 export const DocBadge = ({ s }: { s: DocStatus }) => <Badge tone={docTone(s)}>{s}</Badge>
 
 export const stateTone = (s: EvidenceState) =>

@@ -1,17 +1,8 @@
-import type { Doc, EvidenceLink, GapAction, MarketKey, Pin, RegUpdate, Requirement } from '../types'
-
-export const disciplines = ['Civil & Cleanroom', 'Process Equipment', 'Piping & Utilities', 'HVAC', 'Electrical', 'Instrumentation', 'Fire & Life Safety', 'CQV']
-
-export const markets: Record<MarketKey, { name: string; short: string; authority: string; base: string; url: string }> = {
-  SA: { name: 'Saudi Arabia', short: 'KSA', authority: 'SFDA', base: 'SFDA GMP guide and applicable local supplementary provisions', url: 'https://www.sfda.gov.sa/en/guide/69378' },
-  IN: { name: 'India', short: 'IN', authority: 'CDSCO / State licensing', base: 'Applicable Drugs Rules and Schedule M, as amended', url: 'https://www.cdsco.gov.in/opencms/opencms/en/Notifications/Gazette-Notifications/' },
-  EU: { name: 'European Union', short: 'EU', authority: 'EMA / national authorities', base: 'EudraLex Volume 4, parts and annexes by activity', url: 'https://health.ec.europa.eu/medicinal-products/eudralex/eudralex-volume-4_en' },
-  US: { name: 'United States', short: 'US', authority: 'FDA', base: 'Applicable drug cGMP (21 CFR 210/211); Part 11 where relevant', url: 'https://www.ecfr.gov/current/title-21/chapter-I/subchapter-C/part-211' },
-  UK: { name: 'United Kingdom', short: 'UK', authority: 'MHRA', base: 'Applicable MHRA GMP framework', url: 'https://www.gov.uk/guidance/good-manufacturing-practice-and-good-distribution-practice' },
-}
+// Automated-test fixtures (fictional sample projects). Not product data: never loaded into a customer installation.
+import type { Doc, EvidenceLink, GapAction, MarketKey, Pin, RegUpdate, Requirement } from '../src/domain/types.ts'
 
 const d = (id: string, title: string, discipline: string, system: string, rev: number, status: Doc['status'], owner: string, due: string, critical = false): Doc => ({
-  id, title, discipline, system, rev, status, owner, due, critical,
+  id, title, discipline, system, rev, status, owner, due, critical, number: `NPL-${id.slice(4)}`,
   signStage: status === 'Accepted' ? 2 : 0,
   signatures: status === 'Accepted'
     ? [
@@ -38,7 +29,7 @@ export const seedDocs: Doc[] = [
 ]
 
 const ev = (doc: string, rev: number, accepted: boolean, note: string): EvidenceLink => ({
-  doc, rev, note, by: 'Contractor', at: '2026-10-10T00:00:00Z',
+  id: '', doc, rev, note, by: 'Contractor', at: '2026-10-10T00:00:00Z',
   decision: accepted ? 'Accepted' : 'Pending',
   ...(accepted ? { reviewedBy: 'Owner / QA' as const, reason: 'Fit for the stated requirement scope.' } : {}),
 })
@@ -92,9 +83,9 @@ export const seedReqs: Requirement[] = [
 ]
 
 export const seedPins: Pin[] = [
-  { id: 'CMT-001', text: 'Confirm door swing and access at the cleanroom corridor interface.', doc: 'DOC-001', rev: 2, room: 'CR-101', x: 0.39, y: 0.43, model: 'DEMO-MODEL-ARCH-A', element: 'DEMO-ELEMENT-DOOR-101', status: 'Open', by: 'Consultant', replies: [] },
-  { id: 'CMT-002', text: 'Review terminal access clearance; coordinate with ceiling panel joints.', doc: 'DOC-004', rev: 2, room: 'CR-102', x: 0.7, y: 0.4, model: 'DEMO-MODEL-MEP-A', element: 'DEMO-ELEMENT-TERMINAL-102', status: 'Open', by: 'Consultant', replies: [] },
-  { id: 'CMT-003', text: 'Verify equipment-maintenance access; attach revised layout evidence.', doc: 'DOC-002', rev: 1, room: 'Equipment area', x: 0.23, y: 0.76, model: null, element: null, status: 'Open', by: 'Owner / QA', replies: [] },
+  { id: 'CMT-001', text: 'Confirm door swing and access at the cleanroom corridor interface.', doc: 'DOC-001', rev: 2, room: 'CR-101', anchored: false, page: 1, x: 0.39, y: 0.43, model: 'DEMO-MODEL-ARCH-A', element: 'DEMO-ELEMENT-DOOR-101', status: 'Open', by: 'Consultant', replies: [], nav: null },
+  { id: 'CMT-002', text: 'Review terminal access clearance; coordinate with ceiling panel joints.', doc: 'DOC-004', rev: 2, room: 'CR-102', anchored: false, page: 1, x: 0.7, y: 0.4, model: 'DEMO-MODEL-MEP-A', element: 'DEMO-ELEMENT-TERMINAL-102', status: 'Open', by: 'Consultant', replies: [], nav: null },
+  { id: 'CMT-003', text: 'Verify equipment-maintenance access; attach revised layout evidence.', doc: 'DOC-002', rev: 1, room: 'Equipment area', anchored: false, page: 1, x: 0.23, y: 0.76, model: null, element: null, status: 'Open', by: 'Owner / QA', replies: [], nav: null },
 ]
 
 export const seedUpdates: RegUpdate[] = [
@@ -105,12 +96,12 @@ export const seedActions: GapAction[] = [
   { id: 'GAP-001', req: 'REQ-008', title: 'Link material certificates to installed spools and line numbers', owner: 'Piping contractor (BuildCo)', due: '2026-10-22', priority: 'High', status: 'Open' },
 ]
 
-import type { Change, Finding, Inspection, Profile, Rfi } from './../types'
+import type { Change, Finding, Inspection, Profile, Rfi } from '../src/domain/types.ts'
 
 export const projectIndex: Profile[] = [
-  { id: 'PRJ-026', name: 'Nova Pharma Expansion', client: 'Nova Pharma Ltd', site: 'Riyadh, Saudi Arabia', facility: 'Non-sterile formulation', scope: 'Expansion', phase: 'Engineering & construction', plantCountry: 'SA', ownerStandards: 'NPL-QMS-014 Engineering documentation procedure (rev 4)' },
-  { id: 'PRJ-031', name: 'Al Noor API Plant', client: 'Al Noor Chemicals', site: 'Jubail, Saudi Arabia', facility: 'API', scope: 'New plant', phase: 'Design', plantCountry: 'SA', ownerStandards: 'ANC-ENG-002 Project documentation standard' },
-  { id: 'PRJ-018', name: 'Hyderabad Sterile Block', client: 'Deccan Life Sciences', site: 'Hyderabad, India', facility: 'Sterile products', scope: 'Renovation', phase: 'Commissioning & qualification', plantCountry: 'IN', ownerStandards: 'DLS-VMP-009 Validation master plan' },
+  { id: 'PRJ-026', name: 'Nova Pharma Expansion', client: 'Nova Pharma Ltd', site: 'Riyadh, Saudi Arabia', facility: 'Non-sterile formulation', scope: 'Expansion', phase: 'Engineering & construction', plantCountry: 'SA', ownerStandards: 'NPL-QMS-014 Engineering documentation procedure (rev 4)', status: 'Active' },
+  { id: 'PRJ-031', name: 'Al Noor API Plant', client: 'Al Noor Chemicals', site: 'Jubail, Saudi Arabia', facility: 'API', scope: 'New plant', phase: 'Design', plantCountry: 'SA', ownerStandards: 'ANC-ENG-002 Project documentation standard', status: 'Active' },
+  { id: 'PRJ-018', name: 'Hyderabad Sterile Block', client: 'Deccan Life Sciences', site: 'Hyderabad, India', facility: 'Sterile products', scope: 'Renovation', phase: 'Commissioning & qualification', plantCountry: 'IN', ownerStandards: 'DLS-VMP-009 Validation master plan', status: 'Active' },
 ]
 export const projectMarkets: Record<string, MarketKey[]> = { 'PRJ-026': ['SA', 'EU', 'IN'], 'PRJ-031': ['SA'], 'PRJ-018': ['IN', 'EU'] }
 
@@ -131,7 +122,7 @@ export const seedChanges: Change[] = [
   { id: 'CHG-001', title: 'Relocate PW sampling valve', system: 'PW-001', status: 'Impact review', docs: ['DOC-003', 'DOC-008', 'DOC-009'], reqs: ['REQ-006', 'REQ-008', 'REQ-017'], impact: { 'DOC-003': 'Unassessed', 'DOC-008': 'Unassessed', 'DOC-009': 'Unassessed', 'REQ-006': 'Unassessed', 'REQ-008': 'Unassessed', 'REQ-017': 'Unassessed' } },
 ]
 
-import type { Ncr, Risk } from '../types'
+import type { Ncr, Risk } from '../src/domain/types.ts'
 
 export const seedRisks: Risk[] = [
   { id: 'RSK-001', title: 'Reactor vendor delivery slips past installation window', detail: 'RE-201 datasheet is still under correction; long-lead items may miss the planned installation slot.', system: 'RE-201', likelihood: 4, impact: 4, owner: 'EquipCo', mitigation: 'Weekly vendor progress call; pre-approve datasheet scope; agree interim storage with site.', due: '2026-10-30', status: 'Mitigating' },
