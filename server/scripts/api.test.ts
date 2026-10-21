@@ -4,6 +4,9 @@ import { createHash } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { app } from '../src/app.ts'
 import { prisma } from '../src/db.ts'
+import jwt from 'jsonwebtoken'
+import { config, sessionMaxSeconds } from '../src/config.ts'
+import { loginLimiter } from '../src/lib/security.ts'
 import { evidenceState, handoverGates } from '../src/domain/rules.ts'
 import type { ProjectData, Role } from '../src/domain/types.ts'
 
@@ -101,16 +104,16 @@ try {
   ok(await act('/docs/DOC-007/submit', { note: 'again' }) !== null, 'cannot resubmit a document already under review')
 
   as('Owner / QA')
-  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true }) !== null, 'Owner/QA cannot sign stage 1 (wrong role)')
+  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true, password: PASSWORD }) !== null, 'Owner/QA cannot sign stage 1 (wrong role)')
   as('Consultant')
-  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: false }) !== null, 'sign blocked without explicit intent confirmation')
-  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true }) === null, 'Consultant signs stage 1')
+  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: false, password: PASSWORD }) !== null, 'sign blocked without explicit intent confirmation')
+  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true, password: PASSWORD }) === null, 'Consultant signs stage 1')
   ok(doc('DOC-007').signStage === 1 && doc('DOC-007').status === 'Under review', 'auto-advanced to stage 2, still under review')
   ok(doc('DOC-007').signatures[0].name === 'Demo Consultant', 'signer name comes from the authenticated account')
   ok(last.events.some((e) => e.category === 'Routing' && e.forRole === 'Owner / QA' && e.doc === 'DOC-007'), 'auto-routed to Owner / QA')
   const issuedBefore = last.issued.length
   as('Owner / QA')
-  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true }) === null, 'Owner/QA signs stage 2')
+  ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true, password: PASSWORD }) === null, 'Owner/QA signs stage 2')
   ok(doc('DOC-007').status === 'Accepted', 'revision accepted after both stages')
   ok(last.issued.length === issuedBefore + 1 && last.issued[0].doc === 'DOC-007', 'controlled issue manifest generated')
 
@@ -528,10 +531,10 @@ try {
   ok((await lib(QA, 'POST', `/versions/${sa1}/import`, { mode: 'append', rows: [{ key: 'TOPIC-01', title: 'Clash', discipline: 'CQV' }] })).json.error?.includes('replace') === true, 'append refuses keys already in the version')
 
   // four-eyes approval
-  ok((await lib(QA, 'POST', `/versions/${sa1}/approve`, { reason: 'Checked' })).json.error?.includes('Four-eyes') === true, 'the author cannot approve their own draft')
-  ok((await lib(tokens.Consultant, 'POST', `/versions/${sa1}/approve`, { reason: 'Checked' })).status === 403, 'non-editors cannot approve')
-  ok((await lib(RV, 'POST', `/versions/${sa1}/approve`, { reason: '' })).status === 422, 'approval needs its basis recorded')
-  const ap = await lib(RV, 'POST', `/versions/${sa1}/approve`, { reason: 'Topics accepted as starting scope; clauses to follow in v2' })
+  ok((await lib(QA, 'POST', `/versions/${sa1}/approve`, { reason: 'Checked', password: PASSWORD })).json.error?.includes('Four-eyes') === true, 'the author cannot approve their own draft')
+  ok((await lib(tokens.Consultant, 'POST', `/versions/${sa1}/approve`, { reason: 'Checked', password: PASSWORD })).status === 403, 'non-editors cannot approve')
+  ok((await lib(RV, 'POST', `/versions/${sa1}/approve`, { reason: '', password: 'Reviewer-2026-lib' })).status === 422, 'approval needs its basis recorded')
+  const ap = await lib(RV, 'POST', `/versions/${sa1}/approve`, { reason: 'Topics accepted as starting scope; clauses to follow in v2', password: 'Reviewer-2026-lib' })
   ok(ap.status === 200 && ap.json.version.status === 'Approved' && ap.json.version.approvedByName === 'Library Reviewer', 'second editor approves SA v1')
   ok(ap.json.notified.includes('PRJ-026') && ap.json.notified.includes('PRJ-031') && !ap.json.notified.includes('PRJ-018'), `projects targeting SA notified (${ap.json.notified.join(', ')})`)
   ok((await lib(QA, 'POST', `/versions/${sa1}/items`, { key: 'LATE-1', title: 'Late edit', discipline: 'CQV' })).json.error?.includes('cannot be changed') === true, 'an approved version is frozen')
@@ -566,8 +569,8 @@ try {
   ok((await lib(RV, 'POST', `/versions/${d2.json.version.id}/items`, { key: 'STERILE-01', title: 'Grade A air supply qualification', discipline: 'HVAC', facilities: ['Sterile products'], critical: true })).status === 201, 'sterile-only item added')
   const view = (await lib(QA, 'GET', `/versions/${d2.json.version.id}`)).json.version
   ok(view.comparedWith === 1 && view.items.find((i: any) => i.key === 'TOPIC-01').change.startsWith('Changed: clause') && view.removed[0].key === 'TOPIC-02' && view.items.find((i: any) => i.key === 'STERILE-01').change === 'Added', 'draft shows its differences from v1')
-  ok((await lib(RV, 'POST', `/versions/${d2.json.version.id}/approve`, { reason: 'x' })).status === 403, 'the editor of v2 cannot approve it')
-  ok((await lib(QA, 'POST', `/versions/${d2.json.version.id}/approve`, { reason: 'Clauses verified against the 2024 guide' })).status === 200, 'Owner / QA approves v2')
+  ok((await lib(RV, 'POST', `/versions/${d2.json.version.id}/approve`, { reason: 'x', password: 'Reviewer-2026-lib' })).status === 403, 'the editor of v2 cannot approve it')
+  ok((await lib(QA, 'POST', `/versions/${d2.json.version.id}/approve`, { reason: 'Clauses verified against the 2024 guide', password: PASSWORD })).status === 200, 'Owner / QA approves v2')
   packs = (await lib(QA, 'GET', '')).json.packs
   ok(packs.find((p: any) => p.market === 'SA').versions.map((v: any) => v.status).join() === 'Approved,Superseded', 'v1 superseded by v2')
   lp = (await get(LP, QA)).json.project
@@ -580,7 +583,7 @@ try {
   ok(!lp.reqs.some((r) => r.libraryKey === 'STERILE-01'), 'facility filter respected')
 
   // adding a market in Setup brings its library
-  ok((await lib(RV, 'POST', `/versions/${vid('IN')}/approve`, { reason: 'Accepted as starting scope' })).status === 200, 'IN pack approved')
+  ok((await lib(RV, 'POST', `/versions/${vid('IN')}/approve`, { reason: 'Accepted as starting scope', password: 'Reviewer-2026-lib' })).status === 200, 'IN pack approved')
   const before = lp.reqs.length
   lp = (await call('PUT', `${LP}/profile`, { facility: lp.profile.facility, scope: lp.profile.scope, phase: lp.profile.phase, ownerStandards: '', markets: ['SA', 'IN'], reason: 'Product will also be supplied to India' }, QA)).json.project
   ok(lp.reqs.length === before + 9 && lp.reqs.filter((r) => r.market === 'IN').every((r) => r.libraryKey), 'new target market adds its approved library requirements')
@@ -763,6 +766,140 @@ try {
     ok(pd.findings.length === n0 + 1 && nf.status === 'Open' && nf.raisedBy === 'Consultant' && !!nf.raisedAt && /^CHK-\d{2}$/.test(nf.id), `manual finding ${nf.id} raised by the Consultant`)
     pd = proj(await call('POST', `${P}/findings/${nf.id}/dispose`, { status: 'Resolved', reason: 'P&ID corrected to 12 m3/h in R02' }, QA))
     ok(pd.findings.find((f) => f.id === nf.id)!.status === 'Resolved', 'manual finding dispositioned like any other')
+  }
+  // ======================================================== phase 2 / step 1: e-signatures, session timeout
+  {
+    const C = tokens.Consultant, K = tokens.Contractor
+    loginLimiter.reset()
+    // a fresh document with a real file, submitted for review
+    let pd = (await call('GET', P, undefined, C)).json.project as ProjectData
+    const company = pd.docs.find((d) => d.owner !== 'Consult Partners')!.owner
+    pd = (await call('POST', `${P}/docs`, { title: 'Chiller vendor datasheet', number: 'NPL-HVAC-DS-0901', discipline: 'HVAC', system: '', owner: company, due: '2026-12-30', critical: false }, C)).json.project
+    const sd = pd.docs.find((d) => d.number === 'NPL-HVAC-DS-0901')!.id
+    as('Contractor')
+    const content = '%PDF-1.4 chiller datasheet ' + Date.now()
+    ok((await upload(sd, 'chiller.pdf', content)) === null, 'source uploaded for signing')
+    ok((await act(`/docs/${sd}/submit`, { note: 'For review' })) === null, 'submitted')
+
+    const sign = (token: string, body: object) => call('POST', `${P}/docs/${sd}/sign`, { reason: 'Checked against URS', intent: true, ...body }, token)
+    ok((await sign(C, {})).status === 400, 'signature without the password field is rejected')
+    const wrong = await sign(C, { password: 'not-my-password1' })
+    ok(wrong.status === 422 && wrong.json.error.includes('Password is incorrect'), 'wrong password: signature not recorded')
+    pd = (await call('GET', P, undefined, C)).json.project
+    ok(pd.docs.find((d) => d.id === sd)!.signatures.length === 0, 'nothing signed after a failed re-authentication')
+    const s1 = await sign(C, { password: PASSWORD })
+    ok(s1.status === 200, 'Consultant signs with the password')
+    const sig = (s1.json.project as ProjectData).docs.find((d) => d.id === sd)!.signatures[0]
+    ok(sig.meaning === 'Reviewed — technically acceptable' && sig.email === EMAIL.Consultant && sig.checksum === sha(content) && /^[0-9a-f]{64}$/.test(sig.sigHash ?? ''), 'signature records meaning, signer e-mail, file checksum and hash')
+    const s2 = await sign(QA, { password: PASSWORD, reason: 'Approved for construction' })
+    const sig2 = (s2.json.project as ProjectData).docs.find((d) => d.id === sd)!.signatures[1]
+    ok(s2.status === 200 && sig2.meaning === 'Approved for use', 'Owner / QA approval carries its own meaning')
+    const iss = (s2.json.project as ProjectData).issued.find((i) => i.doc === sd)
+    ok(!iss || (iss.signers as any[]).every((x) => x.meaning && x.sigHash), 'issue manifest lists meaning and signature hash per signer')
+
+    // verification: valid, then detect tampering, legacy signatures labelled
+    const verify = async (doc: string) => (await call('GET', `${P}/docs/${doc}/signatures/verify`, undefined, C)).json.signatures as { status: string }[]
+    ok((await verify(sd)).every((v) => v.status === 'Valid'), 'signature hashes verify')
+    const row = await prisma.docSignature.findFirstOrThrow({ where: { document: { code: sd, project: { code: 'PRJ-026' } } }, orderBy: { at: 'asc' } })
+    await prisma.docSignature.update({ where: { id: row.id }, data: { reason: 'Changed behind the application' } })
+    ok((await verify(sd))[0].status === 'Altered', 'a signature changed directly in the database is detected')
+    await prisma.docSignature.update({ where: { id: row.id }, data: { reason: row.reason } })
+    const legacyDoc = pd.docs.find((d) => d.signatures.some((s) => !s.sigHash))
+    if (legacyDoc) ok((await verify(legacyDoc.id)).some((v) => v.status.startsWith('Not an electronic signature')), 'signatures from before e-signatures are labelled as such')
+    ok((await call('GET', `${P}/docs/${sd}/signatures/verify`, undefined, tokens.Contractor)).status === 200, 'project members can verify signatures')
+
+    // security log + lockout after repeated wrong passwords
+    const sec = (await call('GET', '/admin/security-events?limit=50', undefined, QA)).json.events.map((e: any) => e.type)
+    ok(sec.includes('esign.signed') && sec.includes('esign.failure'), 'signatures and failed re-authentications are in the security log')
+    for (let i = 0; i < 5; i++) await call('POST', `${P}/docs/DOC-001/sign`, { reason: 'x', intent: true, password: 'wrong-password-9' }, K)
+    ok((await call('POST', `${P}/docs/DOC-001/sign`, { reason: 'x', intent: true, password: PASSWORD }, K)).status === 429, 'five wrong signature passwords lock the account temporarily')
+    loginLimiter.reset()
+
+    // library approval needs the password too
+    const anyDraft = (await call('GET', '/library', undefined, QA)).json.packs.flatMap((p: any) => p.versions).find((v: any) => v.status === 'Draft')
+    if (anyDraft) ok((await call('POST', `/library/versions/${anyDraft.id}/approve`, { reason: 'x', password: 'wrong-password-1' }, QA)).json.error?.includes('Password is incorrect'), 'library approval re-authenticates')
+
+    // session: short-lived tokens, refresh while active, absolute maximum
+    const cfg = (await call('GET', '/reference/config')).json
+    ok(cfg.idleMinutes === config.IDLE_TIMEOUT_MIN, `inactivity timeout published (${cfg.idleMinutes} min)`)
+    const claims = jwt.decode(C) as jwt.JwtPayload
+    ok(claims.exp! - claims.iat! === config.IDLE_TIMEOUT_MIN * 60 && typeof claims.ss === 'number', 'tokens expire after the idle timeout and carry the session start')
+    const rf = await call('POST', '/auth/refresh', undefined, C)
+    ok(rf.status === 200 && (jwt.decode(rf.json.token) as jwt.JwtPayload).ss === claims.ss, 'refresh extends the session, keeping its start')
+    const consultant = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL.Consultant } })
+    const expired = jwt.sign({ tv: consultant.tokenVersion, ss: Math.floor(Date.now() / 1000) - 3600, iat: Math.floor(Date.now() / 1000) - 3600, exp: Math.floor(Date.now() / 1000) - 60 }, config.JWT_SECRET, { subject: consultant.id })
+    const idle = await call('GET', P, undefined, expired)
+    ok(idle.status === 401 && idle.json.error.includes('expired'), 'an idle (expired) token is refused')
+    ok((await call('POST', '/auth/refresh', undefined, expired)).status === 401, 'an expired token cannot be refreshed')
+    const old = jwt.sign({ tv: consultant.tokenVersion, ss: Math.floor(Date.now() / 1000) - sessionMaxSeconds - 60 }, config.JWT_SECRET, { subject: consultant.id, expiresIn: 600 })
+    const tooLong = await call('POST', '/auth/refresh', undefined, old)
+    ok(tooLong.status === 401 && tooLong.json.error.includes('maximum length'), 'sessions end at the absolute maximum even when active')
+  }
+  // ======================================================== phase 2 / step 2: old -> new everywhere (C2)
+  {
+    const C = tokens.Consultant
+    const audit = async (n = 6) => (await call('GET', `${P}/audit?limit=${n}`, undefined, C)).json.events.map((e: any) => e.text).join('\n') as string
+    let pd = (await call('GET', P, undefined, QA)).json.project as ProjectData
+
+    // registers
+    const co = pd.companies.find((x) => x.kind !== 'Owner' && x.active)!
+    const kind2 = co.kind === 'Subcontractor' ? 'Vendor / supplier' : 'Subcontractor'
+    await call('PUT', `${P}/companies/${co.id}`, { kind: kind2, contactName: 'R. Sharma' }, QA)
+    ok((await audit()).includes(`Company ${co.name} updated: kind "${co.kind}" -> "${kind2}"; contact "${co.contactName || '—'}" -> "R. Sharma"`), 'company change logged old -> new')
+    const sy = pd.systems.find((x) => x.active)!
+    await call('PUT', `${P}/systems/${sy.tag}`, { name: `${sy.name} (rev)`, gmpCritical: !sy.gmpCritical }, C)
+    ok((await audit()).includes(`System ${sy.tag} updated: description "${sy.name}" -> "${sy.name} (rev)"; GMP-critical "${sy.gmpCritical ? 'yes' : 'no'}" -> "${sy.gmpCritical ? 'no' : 'yes'}"`), 'system change logged old -> new')
+
+    // requirements: applicability and source reference
+    const rq = pd.reqs.find((r) => r.applicability === 'Assessment pending')!
+    await call('POST', `${P}/reqs/${rq.id}/applicability`, { applicability: 'Required', rationale: 'Applies to the oral solid line' }, C)
+    ok((await audit()).includes(`${rq.id} applicability "Assessment pending" -> "Required". Rationale: Applies to the oral solid line`), 'applicability logged old -> new with rationale')
+    await call('PUT', `${P}/reqs/${rq.id}/source-ref`, { clause: '4.2.1', version: '2024 edition', effective: '2024-06-01', attest: false }, C)
+    ok((await audit()).includes(`clause "${rq.clause || '—'}" -> "4.2.1"`), 'source reference logged old -> new')
+
+    // profile (new baseline)
+    const prof = pd.profile
+    await call('PUT', `${P}/profile`, { facility: prof.facility, scope: prof.scope, phase: 'Commissioning', ownerStandards: prof.ownerStandards, markets: pd.markets, reason: 'Moved into commissioning' }, QA)
+    ok((await audit()).includes(`phase "${prof.phase}" -> "Commissioning". Reason: Moved into commissioning`), 'profile change logged old -> new on the new baseline')
+
+    // statuses
+    pd = (await call('GET', P, undefined, QA)).json.project
+    const rk = pd.risks.find((r) => r.status === 'Open' || r.status === 'Mitigating')!
+    const to = rk.status === 'Open' ? 'Mitigating' : 'Open'
+    await call('POST', `${P}/risks/${rk.id}/status`, { status: to, note: 'Mitigation started' }, C)
+    ok((await audit()).includes(`${rk.id} status "${rk.status}" -> "${to}". Note: Mitigation started`), 'risk status logged old -> new')
+    const ga = pd.actions.find((a) => a.status === 'Open')
+    if (ga) {
+      await call('POST', `${P}/actions/${ga.id}/progress`, { to: 'Ready for verification' }, tokens.Contractor)
+      ok((await audit()).includes(`${ga.id} status "Open" -> "Ready for verification"`), 'action status logged old -> new')
+    }
+    const fnd = pd.findings.find((f) => f.status === 'Open')
+    if (fnd) {
+      await call('POST', `${P}/findings/${fnd.id}/dispose`, { status: 'Accepted exception', reason: 'Alias approved by the owner' }, C)
+      ok((await audit()).includes(`${fnd.id} status "Open" -> "Accepted exception". Rationale: Alias approved by the owner`), 'finding disposition logged with the rationale')
+    }
+
+    // library: item edits and the draft note, in the security log
+    const packs = (await call('GET', '/library', undefined, QA)).json.packs
+    const sa = packs.find((p: any) => p.market === 'SA')
+    let draft = sa.versions.find((v: any) => v.status === 'Draft')
+    if (!draft) draft = (await call('POST', '/library/packs/SA/drafts', undefined, QA)).json.version
+    const full = (await call('GET', `/library/versions/${draft.id}`, undefined, QA)).json.version
+    const it = full.items[0]
+    await call('PUT', `/library/items/${it.id}`, { clause: 'Chapter 9.9' }, QA)
+    await call('PUT', `/library/versions/${draft.id}`, { note: 'Clause review round 3' }, QA)
+    const sec = (await call('GET', '/admin/security-events?limit=10', undefined, QA)).json.events.map((e: any) => e.detail).join('\n')
+    ok(sec.includes(`${it.key} edited: clause "${it.clause || '—'}" -> "Chapter 9.9"`), 'library item edit logged old -> new')
+    ok(sec.includes('note ') && sec.includes('-> "Clause review round 3"'), 'library draft note change logged')
+    await call('DELETE', `/library/versions/${draft.id}`, undefined, QA)
+
+    // administration
+    const users = (await call('GET', '/admin/users', undefined, QA)).json.users
+    const target = users.find((u: any) => u.email === EMAIL.Contractor)
+    await call('PATCH', `/admin/users/${target.id}`, { name: 'Demo Contractor (BuildCo)' }, QA)
+    const sec2 = (await call('GET', '/admin/security-events?limit=5', undefined, QA)).json.events.find((e: any) => e.type === 'user.updated')
+    ok(sec2?.detail === `name "${target.name}" -> "Demo Contractor (BuildCo)"`, 'user change logged old -> new')
+    await call('PATCH', `/admin/users/${target.id}`, { name: target.name }, QA)
   }
 } finally {
   server.close()

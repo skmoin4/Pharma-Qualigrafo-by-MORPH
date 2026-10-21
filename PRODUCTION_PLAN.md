@@ -248,3 +248,63 @@ NCR rescheduled, action reassigned, manual finding raised and resolved, old -> n
 Next: **Phase 2 — GxP supplier-audit readiness (C1–C7)**, starting with Part 11 / Annex 11 electronic signatures
 (re-authentication bound to the revision checksum).
 
+### Phase 2 / step 1 — electronic signatures (C1) and inactivity timeout (C3) (done 2026-10-21)
+
+Phase 2 order: 1. e-signatures + inactivity timeout (C1, C3) · 2. remaining old -> new audit gaps (C2) · 3. PDF reports
+(C4) · 4. scheduled reminders + e-mail (C5) · 5. user-access review (C6) · 6. validation pack (C7).
+
+**Electronic signatures (21 CFR Part 11 / EU GMP Annex 11)**
+
+| Control | Implementation |
+|---|---|
+| Re-authentication at each signing (11.200) | Every document sign-off and every requirement-library approval asks for the password again. A wrong password records nothing; failures are logged (`esign.failure`) and count towards the same 5-attempt / 15-minute lockout as sign-in (`esign.locked`). |
+| Signature manifestation (11.50) | Each signature stores printed name, signer e-mail, role, date and time, and the **meaning**: stage 1 "Reviewed — technically acceptable", stage 2 "Approved for use". The signer sees the meaning and the file checksum before signing; the sign-off record, the issue manifest and the audit trail show them. |
+| Signature / record linking (11.70) | The signature stores the SHA-256 of the signed revision's content (file or Revit snapshot) and a SHA-256 **signature hash** over document, revision, content checksum, signer, meaning, reason and time. **Verify signatures** (drawer, `GET …/docs/:id/signatures/verify`) recomputes it: *Valid*, *Altered* (a stored field was changed outside the application), or *Not an electronic signature* for sign-offs recorded before this step. A revision without a source file cannot be signed. |
+| Accountability | Signatures come only from the authenticated, re-authenticated account (never from the request body); `esign.signed` is written to the security log. |
+
+**Inactivity timeout (Annex 11 §12)**
+
+- Server: session tokens now live only `IDLE_TIMEOUT_MIN` minutes (default 15). An active client refreshes them
+  (`POST /auth/refresh`); an idle one cannot use its token any more. `JWT_EXPIRES_IN` (default 12h) is now the
+  **absolute** session length, carried as the session start in the token: refreshing never extends past it.
+- Browser: activity in any tab counts. One minute before the limit a warning offers **Stay signed in**; at the limit the
+  screen locks and the token is dropped. The same user continues **on the same page** by entering the password, or signs
+  out. A token refused by the server (expired, revoked) also shows the lock screen instead of losing the page.
+
+Tests: API **379** checks (+22: password required, wrong password, meaning / e-mail / checksum / hash stored, issue
+manifest, verification and tamper detection, legacy label, security log, lockout, library re-authentication, token
+lifetime, refresh, expired and over-age sessions); browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + **22 (new
+`e2e9.mjs`: sign with password and meaning, verify, idle warning, lock, unlock in place, server-ended session, mobile)**.
+
+Next: **Phase 2 / step 2 — close the remaining old -> new audit gaps (C2)** (registers, team, profile and other
+updates that still log only "updated").
+
+### Phase 2 / step 2 — old -> new values everywhere in the audit trail (C2) (done 2026-10-21)
+
+A sweep of every audit and security-log entry. Everything that **changes** a value now states what it was and what it
+became (`field "old" -> "new"`), and every decision carries its recorded reason. Creations log the new record;
+transitions log the status change. One shared helper (`server/src/lib/audit.ts`) formats all of them.
+
+| Area | Before | Now (example) |
+|---|---|---|
+| Company register | "Company updated: X" | `Company AirCo updated: kind "Vendor / supplier" -> "Subcontractor"; contact "—" -> "R. Sharma"` |
+| System register | "System updated: TAG" | `System AHU-01 updated: description "…" -> "…"; GMP-critical "no" -> "yes"` |
+| Applicability | "REQ-014 applicability: Required" | `REQ-014 applicability "Assessment pending" -> "Required". Rationale: …` |
+| Source reference | "saved as draft" | `… saved as draft: clause "—" -> "4.2.1"; source version "—" -> "2024 edition"` |
+| Project profile (baseline) | "Baseline B3 created: reason" | `Baseline B3 created: phase "Design" -> "Commissioning"; markets "SA" -> "SA, EU". Reason: …` |
+| Risk / action / NCR / inspection / finding / change statuses | "RSK-002 -> Mitigating", "NCR-001 verified and closed" | `RSK-002 status "Open" -> "Mitigating". Note: …`, `… (status "Response submitted" -> "Closed"). Verification: …` |
+| Evidence assessment, document return | no reason in the log | decision old -> new plus the rationale / reason |
+| Change impact items | "assessed as Impacted" | `impact "Unassessed" -> "Impacted"` |
+| Revit element link | new element only | `… linked to Revit element E-2 (was E-1)` |
+| Automation rules | "enabled" | `… enabled ("off" -> "on")` |
+| Library item edit, draft note | "TOPIC-01 edited", note not logged | `TOPIC-01 edited: clause "—" -> "Chapter 9.9"`, `note "…" -> "…"` (security log) |
+| User administration | `name=…` (new value only) | `name "Demo Contractor" -> "Demo Contractor (BuildCo)"` (security log) |
+
+Already old -> new from Phase 1: document register details, requirement details, RFI / risk / NCR / action edits,
+company and discipline renames, team membership changes, project details.
+
+Tests: API **390** checks (+11, one per area above); browser suites unchanged and passing (197 + 54 + 20 + 20 + 19 +
+33 + 26 + 20 + 22).
+
+Next: **Phase 2 / step 3 — PDF reports (C4)**: handover dossier, audit package and document transmittal.
+

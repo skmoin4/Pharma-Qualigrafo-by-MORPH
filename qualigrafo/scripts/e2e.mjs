@@ -1,7 +1,7 @@
 // Run (preview server on :8081): node scripts/e2e.mjs
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { attach, forget, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { PASSWORD, attach, forget, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -78,20 +78,25 @@ for (const [w, h, tag] of [[1440, 900, 'desktop'], [390, 844, 'mobile']]) {
   await page.goto(BASE + '#/p/PRJ-026/documents')
   await page.getByRole('button', { name: 'Airflow balancing report' }).first().click()
   await page.locator('textarea').first().fill('Reviewed')
-  const signBtn = page.getByRole('button', { name: /Record sign-off as Consultant/ })
+  const signBtn = page.getByRole('button', { name: /Sign as Consultant/ })
+  await signBtn.click()
+  ok(await vis(page.getByText('Password is incorrect')), 'UI: e-signature refused without the password')
+  await page.getByLabel('Signature password').fill(PASSWORD)
   await signBtn.click()
   ok(await vis(page.getByText('Explicit confirmation required')), 'UI: sign blocked without confirmation checkbox')
+  await page.getByLabel('Signature password').fill(PASSWORD)
   await page.locator('.dbody input[type=checkbox]').first().check()
   await signBtn.click()
   await page.waitForTimeout(150)
-  ok(await vis(page.getByRole('button', { name: /Record sign-off as Owner/ })), 'UI: auto-advanced to Owner / QA stage')
+  ok(await vis(page.getByRole('button', { name: /Sign as Owner/ })), 'UI: auto-advanced to Owner / QA stage')
   await page.keyboard.press('Escape')
 
   await setRole(page, 'Owner / QA')
   await page.getByRole('button', { name: 'Airflow balancing report' }).first().click().catch(async () => { await page.goto(BASE + '#/p/PRJ-026/documents'); await page.getByRole('button', { name: 'Airflow balancing report' }).first().click() })
   await page.locator('textarea').first().fill('QA approved')
+  await page.getByLabel('Signature password').fill(PASSWORD)
   await page.locator('.dbody input[type=checkbox]').first().check()
-  await page.getByRole('button', { name: /Record sign-off as Owner/ }).click()
+  await page.getByRole('button', { name: /Sign as Owner/ }).click()
   await page.waitForTimeout(150)
   ok(await vis(page.locator('.drawer').getByText('Accepted').first()), 'UI: revision Accepted after final sign-off')
   await page.keyboard.press('Escape')

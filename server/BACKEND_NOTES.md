@@ -229,6 +229,19 @@ All project responses also carry `scope` (vendor company or `null`).
 | DELETE | `/library/items/:id` | |
 | POST | `/library/versions/:id/approve` | `{ reason }`; four-eyes (403 for creator / last editor); -> `{ market, version, notified }` |
 
+Phase 2 / step 1 (e-signatures, inactivity):
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/auth/refresh` | new token with the same session start; 401 when idle-expired or past `JWT_EXPIRES_IN` |
+| POST | `/projects/:id/docs/:doc/sign` | body now `{ reason, intent, password }`; signature gets meaning, e-mail, checksum, sigHash |
+| GET | `/projects/:id/docs/:doc/signatures/verify` | `{ signatures: [{ rev, name, role, meaning, at, checksum, status: Valid / Altered / Not an electronic signature … }] }` |
+| POST | `/library/versions/:id/approve` | body now `{ reason, password }` |
+| GET | `/reference/config` | adds `idleMinutes` |
+
+Env: `IDLE_TIMEOUT_MIN` (default 15) = token lifetime / inactivity limit; `JWT_EXPIRES_IN` (default 12h) = absolute
+session length.
+
 Project routes added in step 6 (every edit body also carries `reason`; "Nothing changed." -> 422):
 
 | Method | Path | Body / notes |
@@ -325,6 +338,8 @@ pins it for automated tests only.
 | 19 | **Production Phase 1 / step 4** — requirement library (versioned packs, CSV import, four-eyes approval, library updates to projects), project-specific requirements, requirement details (PRODUCTION_PLAN.md §5). API 293 checks, browser 196 + 54 + 20 + 20 + 19 + 33 | Done (2026-10-21) |
 | 20 | **Production Phase 1 / step 5** — document register: create, edit with old -> new audit, void / supersede / reinstate with evidence hand-over, evidence withdrawal, MDR import from .xlsx / CSV with preview (PRODUCTION_PLAN.md §5). API 331 checks, browser 196 + 54 + 20 + 20 + 19 + 33 + 26 | Done (2026-10-21) |
 | 21 | **Production Phase 1 / step 6** — edit RFIs, risks, NCRs, corrective actions with reason + old -> new audit; manual findings. Phase 1 complete (PRODUCTION_PLAN.md §5). API 357 checks, browser 196 + 54 + 20 + 20 + 19 + 33 + 26 + 20 | Done (2026-10-21) |
+| 22 | **Phase 2 / step 1** — electronic signatures (password at each signing, meaning, checksum binding, signature hash + verification) and inactivity timeout (short tokens, refresh, lock screen). API 379 checks, browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 | Done (2026-10-21) |
+| 23 | **Phase 2 / step 2** — old -> new values and decision reasons in every audit / security-log entry (shared `lib/audit.ts`). API 390 checks, browser suites unchanged | Done (2026-10-21) |
 
 ## 9. Frontend integration (step 11)
 
@@ -508,8 +523,8 @@ Only revisions whose current source is a PDF, PNG or JPEG can carry positioned c
 
 ## 14. Open items / later
 
-- **Electronic signatures:** sign-off is still not a Part 11 / Annex 11 compliant e-signature (no re-authentication
-  challenge bound to the file checksum). Next: ask for the password again on each sign-off and bind it to the revision
-  checksum. Notices keep the word "prototype" until then.
+- **Electronic signatures:** done in Phase 2 / step 1 (re-authentication, meaning, checksum binding, signature hash,
+  verification). Still open for a customer's validation: a written e-signature policy and user certification letters
+  (11.100(c)) are procedural, outside the software.
 - **Production auth:** move the token to an httpOnly cookie (with CSRF protection) or add short-lived access + refresh
   tokens; add MFA for administrators; shared (Redis) store for the sign-in limiter.

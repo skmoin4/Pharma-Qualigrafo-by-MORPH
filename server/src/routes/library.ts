@@ -3,7 +3,8 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { FACILITIES, MARKETS } from '../domain/enums.ts'
-import { currentUser } from '../middleware/auth.ts'
+import { currentUser, reauthenticate } from '../middleware/auth.ts'
+import { securityLog } from '../lib/security.ts'
 import * as L from '../services/library.ts'
 
 export const library = Router()
@@ -54,7 +55,10 @@ library.delete('/items/:id', async (req, res) => {
   res.json({ ok: true })
 })
 library.post('/versions/:id/approve', async (req, res) => {
-  const b = z.object({ reason: z.string().max(2000) }).parse(req.body ?? {})
-  const r = await L.approveVersion(currentUser(req), req.params.id, b.reason)
+  const b = z.object({ reason: z.string().max(2000), password: z.string().max(200) }).parse(req.body ?? {})
+  const user = currentUser(req)
+  await reauthenticate(req, b.password, `library approval ${req.params.id}`)
+  const r = await L.approveVersion(user, req.params.id, b.reason)
+  await securityLog('esign.signed', { email: user.email, userId: user.id, actorId: user.id, actorName: user.name, ip: req.ip, detail: `library approval ${r.market} v${r.version}` })
   res.json({ ...r, version: await L.getVersion(req.params.id), packs: await L.listLibrary() })
 })

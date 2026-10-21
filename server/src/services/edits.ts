@@ -8,12 +8,7 @@ import { toDate } from './documents.ts'
 import { assertActive } from './docRegister.ts'
 import { requireDiscipline, requireSystem } from './registers.ts'
 
-const show = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : v === '' || v == null ? '—' : String(v))
-/** "field "old" -> "new"" for every pair whose values differ. */
-export function changeList(pairs: [string, unknown, unknown][]) {
-  return pairs.filter(([, a, b]) => show(a) !== show(b)).map(([label, a, b]) => `${label} "${show(a)}" -> "${show(b)}"`)
-}
-const changed = (pairs: [string, unknown, unknown][], label: string) => pairs.some(([l, a, b]) => l === label && show(a) !== show(b))
+import { changeList, changed } from '../lib/audit.ts'
 
 /** Common checks; returns the change list. */
 function prepare(pairs: [string, unknown, unknown][], reason: string) {

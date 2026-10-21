@@ -1,6 +1,7 @@
 // Project registers: companies (parties), systems / equipment, disciplines.
 // Other records refer to them by name / tag, so every create path validates against these registers.
 import { forbidden, notFound, rule } from '../lib/http.ts'
+import { changeList } from '../lib/audit.ts'
 import type { Ctx } from './ctx.ts'
 
 const reviewer = (c: Ctx) => {
@@ -64,7 +65,12 @@ export async function updateCompany(c: Ctx, id: string, b: { name?: string; kind
     await c.log(`Company renamed: ${co.name} -> ${name} (${docs.count} document(s) updated)`)
   }
   if (b.active !== undefined && b.active !== co.active) await c.log(`Company ${name} ${b.active ? 'reactivated' : 'deactivated'}`)
-  else if (!renamed) await c.log(`Company updated: ${name}`)
+  const fields = changeList([
+    ['kind', co.kind, b.kind ?? co.kind],
+    ['contact', co.contactName, b.contactName === undefined ? co.contactName : b.contactName?.trim() || null],
+    ['contact e-mail', co.contactEmail, b.contactEmail === undefined ? co.contactEmail : b.contactEmail?.trim() || null],
+  ])
+  if (fields.length) await c.log(`Company ${name} updated: ${fields.join('; ')}`)
 }
 
 /* ---------------------------------------------------------------- systems / equipment */
@@ -117,7 +123,14 @@ export async function updateSystem(c: Ctx, tag: string, b: { name?: string; disc
     where: { id: s.id },
     data: { name: b.name === undefined ? undefined : clean(b.name), discipline: b.discipline === undefined ? undefined : b.discipline || null, area: b.area === undefined ? undefined : b.area?.trim() || null, gmpCritical: b.gmpCritical, active: b.active },
   })
-  await c.log(b.active !== undefined && b.active !== s.active ? `System ${tag} ${b.active ? 'reactivated' : 'deactivated'}` : `System updated: ${tag}`)
+  if (b.active !== undefined && b.active !== s.active) await c.log(`System ${tag} ${b.active ? 'reactivated' : 'deactivated'}`)
+  const fields = changeList([
+    ['description', s.name, b.name === undefined ? s.name : clean(b.name)],
+    ['discipline', s.discipline, b.discipline === undefined ? s.discipline : b.discipline || null],
+    ['area', s.area, b.area === undefined ? s.area : b.area?.trim() || null],
+    ['GMP-critical', s.gmpCritical, b.gmpCritical ?? s.gmpCritical],
+  ])
+  if (fields.length) await c.log(`System ${tag} updated: ${fields.join('; ')}`)
 }
 
 /* ---------------------------------------------------------------- disciplines */

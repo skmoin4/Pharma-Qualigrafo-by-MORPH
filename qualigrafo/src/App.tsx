@@ -3,6 +3,7 @@ import { Activity as ActivityIcon, Archive, Bell as BellIcon, BellRing, Boxes, B
 import type { ComponentType, ReactNode } from 'react'
 import { coverage, useProjectList, useStore, VENDOR_PAGES } from './store'
 import { Loading, Login } from './components/Login'
+import { IdleWarning, LockScreen, useIdleSession } from './components/Session'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ForcedPasswordChange, PasswordDialog } from './components/Account'
 // Rarely used screens load on demand to keep the main bundle small.
@@ -91,6 +92,7 @@ export default function App() {
   const closePw = useCallback(() => setPwOpen(false), [])
   const all = useAll()
   const projectList = useProjectList()
+  const idle = useIdleSession()
 
   useEffect(() => { void restore() }, [restore])
   // Other people change the same project; pull a fresh copy whenever the tab regains focus.
@@ -223,6 +225,8 @@ export default function App() {
       <Palette labels={scope ? (Object.fromEntries(Object.entries(LABEL).filter(([k]) => allowed(k as PageKey))) as Record<PageKey, string>) : LABEL} inProject={inProject} />
       {pwOpen && <PasswordDialog onClose={closePw} />}
       <Toast />
+      <LockScreen />
+      {idle.warn && <IdleWarning onStay={idle.stay} />}
     </div>
   )
 }

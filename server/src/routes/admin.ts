@@ -1,5 +1,6 @@
 // Platform administration: users, project memberships (role + vendor scope), password resets, security log.
 import bcrypt from 'bcryptjs'
+import { changeList } from '../lib/audit.ts'
 import { Router } from 'express'
 import type { Request } from 'express'
 import { z } from 'zod'
@@ -78,7 +79,7 @@ admin.patch('/users/:id', async (req, res) => {
     include: withMemberships,
   })
   const type = deactivating ? 'user.deactivated' : b.active === true && !u.active ? 'user.activated' : 'user.updated'
-  const changes = Object.entries(b).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${v}`).join(', ')
+  const changes = changeList([['name', u.name, b.name ?? u.name], ['company', u.company, b.company === undefined ? u.company : b.company || null], ['administrator', u.isAdmin, b.isAdmin ?? u.isAdmin], ['active', u.active, b.active ?? u.active]]).join('; ') || 'no change'
   await securityLog(type, { email: u.email, userId: u.id, ...actor(req), detail: changes })
   res.json({ user: userView(updated) })
 })

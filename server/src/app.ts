@@ -36,7 +36,7 @@ app.get('/api/health', async (_req, res) => {
 })
 app.get('/api/reference/markets', (_req, res) => res.json({ markets }))
 /** Values the UI must share with the server: the working date for due/overdue logic and the upload policy. */
-app.get('/api/reference/config', (_req, res) => res.json({ today: today(), upload: { maxBytes: MAX_UPLOAD_BYTES, extensions: Object.keys(FILE_TYPES) } }))
+app.get('/api/reference/config', (_req, res) => res.json({ today: today(), idleMinutes: config.IDLE_TIMEOUT_MIN, upload: { maxBytes: MAX_UPLOAD_BYTES, extensions: Object.keys(FILE_TYPES) } }))
 
 app.use('/api/auth', auth)
 app.use('/api/projects', requireAuth, projects)

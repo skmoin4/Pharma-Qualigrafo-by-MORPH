@@ -54,7 +54,8 @@ export async function linkElement(c: Ctx, code: string, b: { model: string | nul
     if (!m) throw rule('This model has not been published by the Revit add-in for this project.')
   }
   await c.tx.pin.update({ where: { id: p.id }, data: { model: b.model, element } })
-  await c.log(b.model ? `${p.code} linked to Revit element ${element}` : `${p.code} Revit link removed`)
+  const was = p.element ? ` (was ${p.element})` : ''
+  await c.log(b.model ? `${p.code} linked to Revit element ${element}${was}` : `${p.code} Revit link removed${was}`)
 }
 
 export async function requestNavigation(c: Ctx, code: string) {

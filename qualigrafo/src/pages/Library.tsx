@@ -106,6 +106,7 @@ function VersionView({ id, editor, onChanged }: { id: string; editor: boolean; o
   const [edit, setEdit] = useState<string | 'new' | null>(null)
   const [importing, setImporting] = useState(false)
   const [reason, setReason] = useState('')
+  const [password, setPassword] = useState('')
   const [note, setNote] = useState('')
   const [q, setQ] = useState('')
   const load = useCallback(async () => { try { const r = (await api<{ version: LibVersion }>('GET', `/library/versions/${id}`)).version; setV(r); setNote(r.note) } catch (e) { toast(errorText(e), 'warn') } }, [id, toast])
@@ -119,9 +120,9 @@ function VersionView({ id, editor, onChanged }: { id: string; editor: boolean; o
   const shown = v.items.filter((i) => `${i.key} ${i.title} ${i.discipline} ${i.clause}`.toLowerCase().includes(q.toLowerCase()))
   const approve = async () => {
     try {
-      const r = await api<{ notified: string[] }>('POST', `/library/versions/${v.id}/approve`, { reason })
-      toast(`${v.market} v${v.version} approved${r.notified.length ? ` · update sent to ${r.notified.join(', ')}` : ''}`); setReason(''); await load(); onChanged()
-    } catch (e) { toast(errorText(e), 'warn') }
+      const r = await api<{ notified: string[] }>('POST', `/library/versions/${v.id}/approve`, { reason, password })
+      toast(`${v.market} v${v.version} approved${r.notified.length ? ` · update sent to ${r.notified.join(', ')}` : ''}`); setReason(''); setPassword(''); await load(); onChanged()
+    } catch (e) { setPassword(''); toast(errorText(e), 'warn') }
   }
   return (
     <section className="card">
@@ -171,8 +172,9 @@ function VersionView({ id, editor, onChanged }: { id: string; editor: boolean; o
             ? <div className="notice small">You prepared or last edited this draft. Under the four-eyes rule another library editor must approve it.</div>
             : <p className="muted small" style={{ marginTop: 0 }}>Approving freezes this version, supersedes the current one, and sends a "Library update" to every active project targeting {v.market}. Projects change only when their Owner / QA applies it.</p>}
           <textarea className="input" value={reason} disabled={mine} onChange={(e) => setReason(e.target.value)} placeholder="Basis of approval: what was verified, against which official text and edition" aria-label="Approval basis" />
+          {!mine && <><label className="lab">Password (electronic signature)</label><input className="input" type="password" autoComplete="current-password" style={{ maxWidth: 320 }} value={password} onChange={(e) => setPassword(e.target.value)} aria-label="Approval password" /></>}
           <div className="row" style={{ marginTop: 8 }}>
-            <button className="btn pri" disabled={mine || !reason.trim()} onClick={approve}><Check size={13} /> Approve v{v.version}</button>
+            <button className="btn pri" disabled={mine || !reason.trim() || !password} onClick={approve}><Check size={13} /> Approve v{v.version}</button>
             <button className="btn danger" onClick={async () => { if (!confirm(`Discard draft v${v.version}? Its changes are lost.`)) return; try { await api('DELETE', `/library/versions/${v.id}`); toast('Draft discarded'); onChanged() } catch (e) { toast(errorText(e), 'warn') } }}>Discard draft</button>
           </div>
         </div>

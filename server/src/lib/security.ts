@@ -96,6 +96,7 @@ export type SecurityType =
   | 'user.created' | 'user.updated' | 'user.deactivated' | 'user.activated'
   | 'membership.set' | 'membership.removed'
   | 'library.draft' | 'library.edit' | 'library.import' | 'library.approved' | 'library.discarded'
+  | 'esign.signed' | 'esign.failure' | 'esign.locked'
 
 export async function securityLog(type: SecurityType, e: { email?: string; userId?: string; actorId?: string; actorName?: string; ip?: string; detail?: string }) {
   await prisma.securityEvent.create({ data: { type, ...e, detail: e.detail ?? '' } })

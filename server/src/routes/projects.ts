@@ -6,7 +6,9 @@ import {
   ACTION_STATUS, APPLICABILITY, AUTOMATION_KEYS, COMPANY_KINDS, MARKETS, zRole, FACILITIES, NCR_SEVERITY, PRIORITY, RISK_STATUS, SCOPES, zDate, zMarket, zRating, zText,
 } from '../domain/enums.ts'
 import { stats } from '../domain/rules.ts'
-import { currentUser } from '../middleware/auth.ts'
+import { currentUser, reauthenticate } from '../middleware/auth.ts'
+import { signatureHash } from '../lib/esign.ts'
+import { securityLog } from '../lib/security.ts'
 import { inProject, membership } from '../services/ctx.ts'
 import type { Ctx } from '../services/ctx.ts'
 import { loadProject } from '../services/loadProject.ts'
@@ -60,6 +62,22 @@ projects.get('/:projectCode', async (req, res) => {
   const user = currentUser(req)
   const { project, role, scope } = await membership(req.params.projectCode, user.id)
   res.json({ role, scope, project: await loadProject(project.id, user.id, scope, role) })
+})
+
+/** Recompute every signature hash of a document: a mismatch means a stored signature field was altered. */
+projects.get('/:projectCode/docs/:id/signatures/verify', async (req, res) => {
+  const user = currentUser(req)
+  const { project, scope } = await membership(req.params.projectCode, user.id)
+  const d = await prisma.document.findUnique({ where: { projectId_code: { projectId: project.id, code: req.params.id } }, include: { signatures: { orderBy: { at: 'asc' } } } })
+  if (!d || (scope && d.owner !== scope)) throw notFound(`Document ${req.params.id} not found.`)
+  res.json({
+    doc: d.code,
+    signatures: d.signatures.map((s) => {
+      const legacy = !s.sigHash
+      const valid = !legacy && s.sigHash === signatureHash({ doc: d.code, rev: s.rev, checksum: s.checksum ?? '', userId: s.userId ?? '', email: s.email ?? '', name: s.name, role: s.role, meaning: s.meaning, reason: s.reason, at: s.at })
+      return { rev: s.rev, name: s.name, role: s.role, meaning: s.meaning, at: s.at.toISOString(), checksum: s.checksum, status: legacy ? 'Not an electronic signature (recorded before e-signatures)' : valid ? 'Valid' : 'Altered' }
+    }),
+  })
 })
 
 /** Full, unbounded audit trail (the project payload only carries the latest entries). */
@@ -175,15 +193,18 @@ type Params = Record<string, string>
  * Registers a workflow action: validate body -> run atomically in the project -> return the fresh project.
  * Vendor-scoped accounts may only call actions flagged `vendor` (and those still check record ownership).
  */
-function act<T extends z.ZodType>(method: 'post' | 'put' | 'delete', path: string, schema: T, fn: (c: Ctx, body: z.infer<T>, p: Params) => Promise<unknown>, opts: { vendor?: boolean; archived?: boolean } = {}) {
+function act<T extends z.ZodType>(method: 'post' | 'put' | 'delete', path: string, schema: T, fn: (c: Ctx, body: z.infer<T>, p: Params) => Promise<unknown>, opts: { vendor?: boolean; archived?: boolean; reauth?: string } = {}) {
   projects[method](`/:projectCode${path}`, async (req: Request, res: Response) => {
     const user = currentUser(req)
     const body = schema.parse(req.body ?? {})
     const params = req.params as Params
+    const purpose = opts.reauth ? `${opts.reauth} ${params.projectCode}/${params.id ?? ''}` : ''
+    if (opts.reauth) await reauthenticate(req, (body as { password?: string }).password, purpose)
     const projectId = await inProject(params.projectCode, user, req.requestId, async (c) => {
       if (c.scope && !opts.vendor) throw forbidden('This action is not available to vendor accounts.')
       await fn(c, body, params)
     }, { allowArchived: opts.archived })
+    if (opts.reauth) await securityLog('esign.signed', { email: user.email, userId: user.id, actorId: user.id, actorName: user.name, ip: req.ip, detail: purpose })
     const { role, scope } = await membership(params.projectCode, user.id)
     res.json({ role, scope, project: await loadProject(projectId, user.id, scope, role) })
   })
@@ -225,7 +246,7 @@ act('put', '/docs/:id/details', zDocFields.extend({ reason: zText }), (c, b, p) 
 act('post', '/docs/:id/void', z.object({ reason: zText, supersededBy: z.string().max(40).optional() }), (c, b, p) => Reg.voidDocument(c, p.id, b))
 act('post', '/docs/:id/reinstate', reasonBody, (c, b, p) => Reg.reinstateDocument(c, p.id, b.reason))
 act('post', '/docs/:id/submit', z.object({ note: zText }), (c, b, p) => D.submitDoc(c, p.id, b.note), V)
-act('post', '/docs/:id/sign', z.object({ reason: zText, intent: z.boolean() }), (c, b, p) => D.signDoc(c, p.id, b.reason, b.intent))
+act('post', '/docs/:id/sign', z.object({ reason: zText, intent: z.boolean(), password: z.string().max(200) }), (c, b, p) => D.signDoc(c, p.id, b.reason, b.intent), { reauth: 'document sign-off' })
 act('post', '/docs/:id/return', reasonBody, (c, b, p) => D.returnDoc(c, p.id, b.reason))
 act('post', '/docs/:id/revisions', none, (c, _b, p) => D.newRevision(c, p.id), V)
 act('post', '/docs/:id/imports', z.object({ snapshotId: z.string().min(1) }), (c, b, p) => D.importRevit(c, p.id, b.snapshotId), V)

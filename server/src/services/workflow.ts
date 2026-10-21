@@ -8,7 +8,7 @@ const AUTOMATION_FIELD = { routing: 'autoRouting', reminders: 'autoReminders', a
 export async function setAutomation(c: Ctx, k: keyof Automation, v: boolean) {
   if (c.role === 'Contractor') throw forbidden('Only Consultant or Owner / QA can change automation rules.')
   await c.tx.project.update({ where: { id: c.project.id }, data: { [AUTOMATION_FIELD[k]]: v } })
-  await c.log(`Automation rule ${k} ${v ? 'enabled' : 'disabled'}`)
+  await c.log(`Automation rule ${k} ${v ? 'enabled' : 'disabled'} ("${v ? 'off' : 'on'}" -> "${v ? 'on' : 'off'}")`)
 }
 
 /** In-app reminders to every signer whose sign-off is waiting. */

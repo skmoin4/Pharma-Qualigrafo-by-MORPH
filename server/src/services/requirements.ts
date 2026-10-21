@@ -1,4 +1,5 @@
 import { coverage, evidenceState } from '../domain/rules.ts'
+import { changeList } from '../lib/audit.ts'
 import type { Applicability, Facility, GapAction, MarketKey, Scope } from '../domain/types.ts'
 import { forbidden, notFound, rule } from '../lib/http.ts'
 import { getDoc, getOr404, getReq, nextCode, codeKey } from './ctx.ts'
@@ -15,15 +16,17 @@ export async function saveProfile(c: Ctx, p: { facility: Facility; scope: Scope;
   if (!p.markets.length) throw rule('Select at least one target market.')
   const material = p.facility !== c.project.facility || p.scope !== c.project.scope
   const v = c.project.baseline + 1
+  const markets = [...new Set([c.project.plantCountry, ...p.markets])]
+  const fields = changeList([['facility', c.project.facility, p.facility], ['scope', c.project.scope, p.scope], ['phase', c.project.phase, p.phase], ['owner standards', c.project.ownerStandards, p.ownerStandards], ['markets', c.project.markets as string[], markets]])
   await c.tx.project.update({
     where: { id: c.project.id },
-    data: { facility: p.facility, scope: p.scope, phase: p.phase, ownerStandards: p.ownerStandards, markets: [...new Set([c.project.plantCountry, ...p.markets])], baseline: v },
+    data: { facility: p.facility, scope: p.scope, phase: p.phase, ownerStandards: p.ownerStandards, markets, baseline: v },
   })
   await c.tx.baseline.create({ data: { projectId: c.project.id, v, byRole: c.role, byUserId: c.user.id, reason: p.reason } })
   if (material) {
     await c.tx.requirement.updateMany({ where: { projectId: c.project.id }, data: { applicability: 'Assessment pending', rationale: 'Facility type or scope changed; reassess applicability.' } })
   }
-  await c.log(`Baseline B${v} created: ${p.reason}${material ? ' (applicability reset)' : ''}`)
+  await c.log(`Baseline B${v} created: ${fields.join('; ') || 'no profile field changed'}. Reason: ${p.reason}${material ? ' (applicability reset)' : ''}`)
   // A newly targeted market brings in its approved library requirements.
   const before = (c.project.markets as string[]) ?? []
   const added = [...new Set([c.project.plantCountry, ...p.markets])].filter((m) => !before.includes(m))
@@ -68,7 +71,7 @@ export async function decideApplicability(c: Ctx, code: string, a: Applicability
   if (c.role === 'Contractor') throw forbidden('A contractor cannot decide applicability.')
   if (!rationale.trim()) throw rule('Decision rationale is required.')
   await c.tx.requirement.update({ where: { id: r.id }, data: { applicability: a, rationale } })
-  await c.log(`${r.code} applicability: ${a}`)
+  await c.log(`${r.code} ${changeList([['applicability', r.applicability, a]])[0] ?? `applicability "${a}" confirmed`}. Rationale: ${rationale.trim()}`)
 }
 
 export async function setSourceRef(c: Ctx, code: string, s: { clause: string; version: string; effective: string; attest: boolean }) {
@@ -76,7 +79,8 @@ export async function setSourceRef(c: Ctx, code: string, s: { clause: string; ve
   if (c.role === 'Contractor') throw forbidden('Only a reviewer can record source references.')
   if (s.attest && (!s.clause.trim() || !s.version.trim() || !s.effective.trim())) throw rule('Clause, source version and effective date are all required before attesting.')
   await c.tx.requirement.update({ where: { id: r.id }, data: { clause: s.clause, sourceVersion: s.version, effective: s.effective, sourceAttested: s.attest } })
-  await c.log(`${r.code} source reference ${s.attest ? 'recorded (user-attested, not a released rule pack)' : 'saved as draft'}`)
+  const fields = changeList([['clause', r.clause, s.clause], ['source version', r.sourceVersion, s.version], ['effective', r.effective, s.effective], ['attested', r.sourceAttested, s.attest]])
+  await c.log(`${r.code} source reference ${s.attest ? 'recorded (user-attested, not a released rule pack)' : 'saved as draft'}${fields.length ? `: ${fields.join('; ')}` : ''}`)
 }
 
 export async function linkEvidence(c: Ctx, reqCode: string, docCode: string, note: string) {
@@ -101,7 +105,7 @@ export async function assessEvidence(c: Ctx, reqCode: string, evidenceId: string
   if (e.byRole === c.role || e.byUserId === c.user.id) throw rule('Self-acceptance is blocked. Another reviewer must assess evidence you linked.')
   if (accept && (e.document.rev !== e.rev || e.document.status !== 'Accepted')) throw rule('Only a current, accepted document revision can satisfy this requirement.')
   await c.tx.evidenceLink.update({ where: { id: e.id }, data: { decision: accept ? 'Accepted' : 'Rejected', reason, reviewedBy: c.role, reviewedByUserId: c.user.id } })
-  await c.log(`Evidence ${accept ? 'accepted' : 'rejected'}: ${r.code} <- ${e.document.code} R${e.rev}`)
+  await c.log(`Evidence ${accept ? 'accepted' : 'rejected'}: ${r.code} <- ${e.document.code} R${e.rev} (decision "${e.decision}" -> "${accept ? 'Accepted' : 'Rejected'}"). Rationale: ${reason.trim()}`)
 }
 
 /** Withdraw an evidence link (wrong document, replaced evidence). It stays visible as history but no longer counts. */
@@ -135,7 +139,7 @@ export async function progressAction(c: Ctx, code: string, to: GapAction['status
   }
   if (to === 'Open') throw rule('Actions cannot be moved back to Open.')
   await c.tx.gapAction.update({ where: { id: a.id }, data: { status: to, submittedBy: to === 'Ready for verification' ? c.role : a.submittedBy } })
-  await c.log(`${a.code} -> ${to}`)
+  await c.log(`${a.code} status "${a.status}" -> "${to}"`)
 }
 
 export async function assessUpdate(c: Ctx, code: string, applicable: boolean, reason: string) {

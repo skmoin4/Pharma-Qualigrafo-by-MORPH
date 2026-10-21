@@ -296,6 +296,11 @@ model DocSignature {
   at         DateTime @default(now())
   rev        Int
   reason     String
+  /// Electronic signature (Part 11): meaning, signer e-mail, signed content checksum, SHA-256 over all of it.
+  meaning    String   @default("")
+  email      String?
+  checksum   String?
+  sigHash    String?
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([documentId])

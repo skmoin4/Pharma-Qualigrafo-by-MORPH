@@ -3,6 +3,10 @@ import { ExternalLink } from 'lucide-react'
 import { markets } from '../data/reference'
 import { evidenceState, hasCurrentSource, isActiveDoc, plusDays, useStore } from '../store'
 import { SourceSection } from './Files'
+import { api, errorText } from '../api'
+
+/** Meaning of each sign-off stage (same text the server records with the signature). */
+const SIGNATURE_MEANING = ['Reviewed — technically acceptable', 'Approved for use']
 import { CompanySelect, DisciplineSelect, SystemSelect } from './Pickers'
 import type { Applicability } from '../types'
 import { Applic, Badge, DocBadge, Drawer, MarketChip, R, StateBadge, fmtDate, go, useUI } from './ui'
@@ -13,10 +17,13 @@ function useAct() {
 }
 
 export function DocDrawer({ id }: { id: string }) {
-  const { docs, role, submitDoc, signDoc, returnDoc, newRevision, reqs } = useStore()
+  const { docs, role, submitDoc, signDoc, returnDoc, newRevision, reqs, current } = useStore()
   const open = useUI((s) => s.open)
   const act = useAct()
-  const signer = useStore((s) => s.session?.name ?? role)
+  const session = useStore((s) => s.session)
+  const signer = session ? `${session.name} · ${session.email}` : role
+  const [password, setPassword] = useState('')
+  const [verified, setVerified] = useState<string[] | null>(null)
   const [note, setNote] = useState('')
   const [intent, setIntent] = useState(false)
   const doc = docs.find((d) => d.id === id)!
@@ -35,7 +42,7 @@ export function DocDrawer({ id }: { id: string }) {
         <div><small>System / asset</small>{doc.system || <span className="muted">—</span>}</div>
         <div><small>Responsible party</small>{doc.owner}</div>
         <div><small>Due</small>{doc.due}</div>
-        <div><small>Criticality</small>{doc.critical ? 'Critical record' : 'Standard'}</div>
+        <div style={{ gridColumn: '1 / -1' }}><small>Criticality</small>{doc.critical ? 'Critical record' : 'Standard'}</div>
       </div>
 
       <h3>Source file</h3>
@@ -51,13 +58,17 @@ export function DocDrawer({ id }: { id: string }) {
 
       <label className="lab">Note / decision reason (required for every action)</label>
       <textarea className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Record the submission note or decision reason…" />
-      {doc.status === 'Under review' && (<><label className="lab">Signing as</label><input className="input" value={signer} disabled /><label className="row" style={{ marginTop: 10, alignItems: 'flex-start' }}><input type="checkbox" checked={intent} onChange={(e) => setIntent(e.target.checked)} style={{ marginTop: 3 }} /><span className="small">I have reviewed <b>{doc.id} {R(doc.rev)}</b> and explicitly confirm this decision.</span></label></>)}
+      {doc.status === 'Under review' && role === expected && (<>
+        <div className="notice info small" style={{ marginTop: 10 }}>Electronic signature. Meaning: <b>{SIGNATURE_MEANING[doc.signStage]}</b>. It is bound to {doc.id} {R(doc.rev)}{doc.file ? <> (SHA-256 <code>{doc.file.sha256.slice(0, 12)}…</code>)</> : ''} and recorded with your name, e-mail and the time.</div>
+        <div className="grid g2"><div><label className="lab">Signing as</label><input className="input" value={signer} disabled /></div><div><label className="lab">Password (re-enter to sign)</label><input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="Signature password" /></div></div>
+        <label className="row" style={{ marginTop: 10, alignItems: 'flex-start' }}><input type="checkbox" checked={intent} onChange={(e) => setIntent(e.target.checked)} style={{ marginTop: 3 }} /><span className="small">I have reviewed <b>{doc.id} {R(doc.rev)}</b> and sign it as <b>{SIGNATURE_MEANING[doc.signStage]}</b>.</span></label>
+      </>)}
       <div className="row wrap" style={{ marginTop: 12 }}>
         {role === 'Contractor' && ['Missing', 'Draft', 'Changes requested'].includes(doc.status) && <button className="btn pri" disabled={!sourced} title={sourced ? undefined : `Attach the source file for ${R(doc.rev)} first`} onClick={() => act(submitDoc(id, note), 'Submitted for review')}>Submit {R(doc.rev)} for review</button>}
         {role === 'Contractor' && doc.status === 'Accepted' && <button className="btn" onClick={() => act(newRevision(id), 'New revision started. Linked evidence now needs reassessment.')}>Start new revision</button>}
         {doc.status === 'Under review' && (
           <>
-            <button className="btn pri" disabled={role !== expected} onClick={async () => { const er = await act(signDoc(id, note, intent), expected === 'Consultant' ? 'Consultant sign-off recorded. Automatically routed to Owner / QA.' : 'Final sign-off recorded. Revision accepted.'); if (!er) setIntent(false) }}>Record sign-off as {expected}</button>
+            <button className="btn pri" disabled={role !== expected} onClick={async () => { const er = await act(signDoc(id, note, intent, password), expected === 'Consultant' ? 'Consultant sign-off recorded. Automatically routed to Owner / QA.' : 'Final sign-off recorded. Revision accepted.'); setPassword(''); if (!er) setIntent(false) }}>Sign as {expected}</button>
             <button className="btn" disabled={role === 'Contractor'} onClick={() => act(returnDoc(id, note), 'Returned for changes')}>Return for changes</button>
           </>
         )}
@@ -70,7 +81,12 @@ export function DocDrawer({ id }: { id: string }) {
       {doc.signatures.length > 0 && (
         <>
           <h3>Sign-off record</h3>
-          <div className="tablewrap"><table><tbody>{doc.signatures.map((s, i) => <tr key={i}><td><b>{s.name}</b><small>{s.role}</small></td><td>{s.reason}</td><td>{fmtDate(s.at)}<small>bound to {R(s.rev)}</small></td></tr>)}</tbody></table></div>
+          <div className="tablewrap"><table><tbody>{doc.signatures.map((s, i) => <tr key={i}>
+            <td><b>{s.name}</b><small>{s.role}{s.email ? ` · ${s.email}` : ''}</small></td>
+            <td>{s.meaning && <b>{s.meaning}</b>}<small>{s.reason}</small></td>
+            <td>{fmtDate(s.at)}<small>bound to {R(s.rev)}{s.checksum ? ` · ${s.checksum.slice(0, 10)}…` : ''}</small>{verified?.[i] && <small><Badge tone={verified[i] === 'Valid' ? 'green' : verified[i] === 'Altered' ? 'red' : ''} dot={false}>{verified[i] === 'Valid' ? 'Signature verified' : verified[i]}</Badge></small>}</td>
+          </tr>)}</tbody></table></div>
+          <button className="btn sm" style={{ marginTop: 6 }} onClick={async () => { try { const r = await api<{ signatures: { status: string }[] }>('GET', `/projects/${encodeURIComponent(current!)}/docs/${encodeURIComponent(id)}/signatures/verify`); setVerified(r.signatures.map((x) => x.status)) } catch (e) { useStore.getState().toast(errorText(e), 'warn') } }}>Verify signatures</button>
         </>
       )}
 

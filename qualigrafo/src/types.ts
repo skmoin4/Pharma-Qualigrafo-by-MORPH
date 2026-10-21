@@ -10,6 +10,11 @@ export interface Signature {
   at: string
   rev: number
   reason: string
+  /** Electronic signature fields (absent on signatures recorded before e-signatures). */
+  meaning?: string
+  email?: string
+  checksum?: string
+  sigHash?: string
 }
 
 /** Metadata of an uploaded file; bytes are downloaded from /api/projects/:code/files/:id. */
@@ -267,7 +272,7 @@ export interface IssuedPackage {
   doc: string
   title: string
   rev: number
-  signers: { role: Role; name: string; at: string }[]
+  signers: { role: Role; name: string; at: string; email?: string | null; meaning?: string; sigHash?: string | null }[]
   checksum: string | null
 }
 

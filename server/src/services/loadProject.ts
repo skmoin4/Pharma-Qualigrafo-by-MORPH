@@ -62,7 +62,7 @@ export async function loadProject(projectId: string, userId: string, scope: stri
       id: d.code, title: d.title, discipline: d.discipline, system: d.system, rev: d.rev, status: d.status as Doc['status'], owner: d.owner, due: day(d.due), critical: d.critical,
       signStage: d.signStage as Doc['signStage'], source: opt(d.source) as Doc['source'], checksum: opt(d.checksum), sourceRev: opt(d.sourceRev), file: fileMeta(d.file), number: d.number,
       voided: d.voidedAt ? { reason: d.voidReason ?? '', at: iso(d.voidedAt), by: d.voidedBy ?? '', supersededBy: opt(d.supersededBy) } : undefined,
-      signatures: d.signatures.map((s) => ({ role: s.role as Role, name: s.name, at: iso(s.at), rev: s.rev, reason: s.reason })),
+      signatures: d.signatures.map((s) => ({ role: s.role as Role, name: s.name, at: iso(s.at), rev: s.rev, reason: s.reason, meaning: s.meaning || undefined, email: opt(s.email), checksum: opt(s.checksum), sigHash: opt(s.sigHash) })),
       history: d.history.map((h) => ({ rev: h.rev, status: h.status as Doc['status'], at: iso(h.at), by: h.byRole as Role, note: opt(h.note) })),
     })),
 

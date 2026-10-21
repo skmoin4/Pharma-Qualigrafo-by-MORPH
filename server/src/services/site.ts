@@ -61,7 +61,7 @@ export async function decideInspection(c: Ctx, code: string, accept: boolean, re
   if (i.status !== 'Submitted') throw rule('Only a submitted inspection can be decided.')
   if (!reason.trim()) throw rule('Decision reason is required.')
   await c.tx.inspection.update({ where: { id: i.id }, data: { status: accept ? 'Accepted' : 'Correction required', decision: reason } })
-  await c.log(`${i.code} ${accept ? 'accepted' : 'correction required'}`)
+  await c.log(`${i.code} status "${i.status}" -> "${accept ? 'Accepted' : 'Correction required'}". Reason: ${reason.trim()}`)
 }
 
 /* -------------------------------------------------------------- findings */
@@ -72,7 +72,7 @@ export async function disposeFinding(c: Ctx, code: string, status: 'Resolved' | 
   if (f.status !== 'Open') throw rule('This finding has already been dispositioned.')
   if (!reason.trim()) throw rule('A disposition rationale is required.')
   await c.tx.finding.update({ where: { id: f.id }, data: { status, disposition: reason } })
-  await c.log(`${f.code} ${status}`)
+  await c.log(`${f.code} status "${f.status}" -> "${status}". Rationale: ${reason.trim()}`)
 }
 
 /* --------------------------------------------------------------- changes */
@@ -101,7 +101,7 @@ export async function assessChangeItem(c: Ctx, code: string, item: string, v: 'I
   const it = ch.items.find((x) => x.ref === item)
   if (!it) throw rule(`${item} is not linked to ${ch.code}.`)
   await c.tx.changeItem.update({ where: { id: it.id }, data: { impact: v } })
-  await c.log(`${ch.code}: ${item} assessed as ${v}`)
+  await c.log(`${ch.code}: ${item} impact "${it.impact}" -> "${v}"`)
 }
 
 export async function decideChange(c: Ctx, code: string, authorize: boolean, reason: string) {
@@ -111,7 +111,7 @@ export async function decideChange(c: Ctx, code: string, authorize: boolean, rea
   if (ch.status !== 'Impact review' && ch.status !== 'Proposed') throw rule('This change has already been decided.')
   if (authorize && ch.items.some((i) => i.impact === 'Unassessed')) throw rule('Assess every linked record before authorising.')
   await c.tx.change.update({ where: { id: ch.id }, data: { status: authorize ? 'Authorized' : 'Rejected', decision: reason } })
-  await c.log(`${ch.code} ${authorize ? 'authorised' : 'rejected'}`)
+  await c.log(`${ch.code} ${authorize ? 'authorised' : 'rejected'} (status "${ch.status}" -> "${authorize ? 'Authorized' : 'Rejected'}"). Reason: ${reason.trim()}`)
 }
 
 /* ------------------------------------------------- anchored comments (pins) */

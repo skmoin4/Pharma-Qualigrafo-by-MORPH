@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../db.ts'
 import { HttpError, rule, unauthorized } from '../lib/http.ts'
 import { loginLimiter, passwordProblem, securityLog } from '../lib/security.ts'
+import { config } from '../config.ts'
 import { currentUser, publicUser, requireSession, signToken } from '../middleware/auth.ts'
 import { canCreateProjects } from '../services/projects.ts'
 
@@ -59,5 +60,12 @@ auth.post('/password', requireSession, async (req, res) => {
     data: { passwordHash: await bcrypt.hash(b.next, BCRYPT_COST), tokenVersion: { increment: 1 }, mustChangePassword: false, passwordChangedAt: new Date() },
   })
   await securityLog('password.changed', { email: u.email, userId: u.id, actorId: u.id, actorName: u.name, ip: req.ip })
-  res.json({ token: signToken(updated.id, updated.tokenVersion), user: await sessionUser(updated) })
+  res.json({ token: signToken(updated.id, updated.tokenVersion, req.sessionStart), user: await sessionUser(updated) })
+})
+
+/** Extend an active session by another idle period (never past the absolute session length). */
+auth.post('/refresh', requireSession, async (req, res) => {
+  const u = currentUser(req)
+  const fresh = await prisma.user.findUniqueOrThrow({ where: { id: u.id } })
+  res.json({ token: signToken(fresh.id, fresh.tokenVersion, req.sessionStart), idleMinutes: config.IDLE_TIMEOUT_MIN })
 })

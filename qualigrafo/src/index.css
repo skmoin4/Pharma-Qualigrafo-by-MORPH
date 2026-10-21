@@ -306,6 +306,7 @@ kbd { font: 11px ui-monospace, Consolas, monospace; border: 1px solid #c5d2d9; b
 /* sign-in */
 .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--navy); }
 .login { width: 100%; max-width: 380px; }
+.lockscreen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px 16px; background: var(--navy); overflow: auto; }
 
 /* files */
 .dropzone { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 14px; border: 1.5px dashed #b9c8d0; border-radius: 6px; background: #fafcfd; color: var(--ink-2); text-align: center; cursor: pointer; }

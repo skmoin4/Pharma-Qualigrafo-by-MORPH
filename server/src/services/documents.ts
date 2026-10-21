@@ -1,4 +1,5 @@
 import { expectedSigner } from '../domain/rules.ts'
+import { SIGNATURE_MEANING, signatureHash } from '../lib/esign.ts'
 import { requireCompany, requireDiscipline, requireSystem } from './registers.ts'
 import type { Role } from '../domain/types.ts'
 import { forbidden, notFound, rule } from '../lib/http.ts'
@@ -29,13 +30,17 @@ export async function signDoc(c: Ctx, code: string, reason: string, intent: bool
   if (c.role !== expected) throw forbidden(`Awaiting ${expected}. Only ${expected} can sign this stage.`)
   if (!reason.trim()) throw rule('A sign-off reason is required.')
   if (!intent) throw rule('Explicit confirmation required: tick that you reviewed this exact revision.')
+  if (!hasCurrentSource(d)) throw rule(`${d.code} ${pad(d.rev)} has no source file to sign.`)
   const stage = d.signStage + 1
   const done = stage === 2
-  // Signer identity always comes from the authenticated account, never from the request body.
-  await c.tx.docSignature.create({ data: { documentId: d.id, role: c.role, name: c.user.name, userId: c.user.id, rev: d.rev, reason } })
+  // Signer identity always comes from the authenticated (and re-authenticated) account, never from the request body.
+  const meaning = SIGNATURE_MEANING[d.signStage]
+  const at = new Date()
+  const sigHash = signatureHash({ doc: d.code, rev: d.rev, checksum: d.checksum!, userId: c.user.id, email: c.user.email, name: c.user.name, role: c.role, meaning, reason, at })
+  await c.tx.docSignature.create({ data: { documentId: d.id, role: c.role, name: c.user.name, userId: c.user.id, email: c.user.email, rev: d.rev, reason, meaning, checksum: d.checksum, sigHash, at } })
   await c.tx.document.update({ where: { id: d.id }, data: { signStage: stage, status: done ? 'Accepted' : d.status } })
   if (done) await c.tx.docHistory.create({ data: { documentId: d.id, rev: d.rev, status: 'Accepted', byRole: c.role, byUserId: c.user.id, note: reason } })
-  await c.log(`${d.code} R${d.rev} sign-off by ${c.role}${done ? ' - revision accepted' : ''}`)
+  await c.log(`${d.code} R${d.rev} sign-off by ${c.role}${done ? ' - revision accepted' : ''} (e-signature: ${c.user.name}, "${meaning}", content ${d.checksum!.slice(0, 12)}…)`)
 
   await c.notify('Signature', `${c.role} (${c.user.name}) signed ${d.code} R${d.rev}.`, d.code)
   if (!done && c.project.autoRouting) await c.notify('Routing', `${d.code} R${d.rev} automatically routed to Owner / QA for stage 2.`, d.code, 'Owner / QA')
@@ -47,7 +52,7 @@ export async function signDoc(c: Ctx, code: string, reason: string, intent: bool
   await c.tx.issuedPackage.create({
     data: {
       projectId: c.project.id, code: nextCode('ISS', codes), documentId: d.id, title: d.title, rev: d.rev, checksum: d.checksum,
-      signers: sigs.map((s) => ({ role: s.role, name: s.name, at: s.at.toISOString() })),
+      signers: sigs.map((s) => ({ role: s.role, name: s.name, email: s.email, at: s.at.toISOString(), meaning: s.meaning, sigHash: s.sigHash })),
     },
   })
   await c.notify('Issue', `Controlled issue manifest generated for ${d.code} R${d.rev}.`, d.code)
@@ -60,7 +65,7 @@ export async function returnDoc(c: Ctx, code: string, reason: string) {
   if (!reason.trim()) throw rule('Explain the required changes.')
   await c.tx.document.update({ where: { id: d.id }, data: { status: 'Changes requested', signStage: 0 } })
   await c.tx.docHistory.create({ data: { documentId: d.id, rev: d.rev, status: 'Changes requested', byRole: c.role, byUserId: c.user.id, note: reason } })
-  await c.log(`${d.code} returned for changes`)
+  await c.log(`${d.code} R${d.rev} returned for changes (status "Under review" -> "Changes requested"): ${reason.trim()}`)
   await c.notify('Issue status', `${d.code} returned for changes: approval route cancelled. Earlier sign-offs are kept as history only.`, d.code, 'Contractor')
 }
 

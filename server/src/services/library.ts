@@ -8,6 +8,7 @@ import { STARTER_LIBRARY } from '../domain/starterLibrary.ts'
 import type { MarketKey } from '../domain/types.ts'
 import { forbidden, notFound, rule } from '../lib/http.ts'
 import { securityLog } from '../lib/security.ts'
+import { changeList } from '../lib/audit.ts'
 import type { AuthUser } from '../middleware/auth.ts'
 import { nextCode } from './ctx.ts'
 import { diffForProject } from './libraryProjects.ts'
@@ -151,8 +152,10 @@ export async function newDraft(user: AuthUser, market: MarketKey) {
 export async function updateDraft(user: AuthUser, versionId: string, note: string) {
   await assertEditor(user)
   await prisma.$transaction(async (tx) => {
-    await draftOf(tx, versionId)
+    const v = await draftOf(tx, versionId)
     await tx.libraryVersion.update({ where: { id: versionId }, data: { note: note.trim(), updatedByUserId: user.id, updatedAt: new Date() } })
+    const fields = changeList([['note', v.note, note.trim()]])
+    if (fields.length) await log(user, 'library.edit', `${v.pack.market} v${v.version}: ${fields.join('; ')}`)
   })
 }
 
@@ -192,7 +195,8 @@ export async function updateItem(user: AuthUser, itemId: string, input: Partial<
     const it = normalise({ ...merged, key: i.key })
     await tx.libraryItem.update({ where: { id: i.id }, data: { ...it, key: i.key } })
     await touch(tx, v.id, user)
-    await log(user, 'library.edit', `${v.pack.market} v${v.version}: ${i.key} edited`)
+    const fields = changeList((Object.keys(current) as (keyof typeof current)[]).map((k) => [k, current[k], it[k as keyof typeof it]]))
+    await log(user, 'library.edit', `${v.pack.market} v${v.version}: ${i.key} edited${fields.length ? `: ${fields.join('; ')}` : ' (no change)'}`)
   })
 }
 

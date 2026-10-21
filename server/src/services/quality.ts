@@ -21,7 +21,7 @@ export async function updateRisk(c: Ctx, code: string, status: Risk['status'], n
   if (!note.trim()) throw rule('A note is required for every risk status change.')
   if ((status === 'Closed' || status === 'Accepted') && c.role === 'Contractor') throw forbidden('Only a reviewer can close or accept a risk.')
   await c.tx.risk.update({ where: { id: r.id }, data: { status, decision: note } })
-  await c.log(`${r.code} -> ${status}`)
+  await c.log(`${r.code} status "${r.status}" -> "${status}". Note: ${note.trim()}`)
 }
 
 /* ------------------------------------------------------------------ NCRs */
@@ -54,7 +54,7 @@ export async function closeNcr(c: Ctx, code: string, reason: string) {
   if (n.status !== 'Response submitted') throw rule('The contractor must submit a response before closure.')
   if (!reason.trim()) throw rule('Record how the corrective action was verified.')
   await c.tx.ncr.update({ where: { id: n.id }, data: { status: 'Closed', closedBy: c.role, closeReason: reason } })
-  await c.log(`${n.code} verified and closed`)
+  await c.log(`${n.code} verified and closed (status "${n.status}" -> "Closed"). Verification: ${reason.trim()}`)
 }
 
 export async function reopenNcr(c: Ctx, code: string, reason: string) {
@@ -63,5 +63,5 @@ export async function reopenNcr(c: Ctx, code: string, reason: string) {
   if (n.status === 'Open') throw rule('This NCR is already open.')
   if (!reason.trim()) throw rule('Explain why the response is not accepted.')
   await c.tx.ncr.update({ where: { id: n.id }, data: { status: 'Open', closeReason: null, closedBy: null } })
-  await c.log(`${n.code} returned to contractor: ${reason}`)
+  await c.log(`${n.code} returned to contractor (status "${n.status}" -> "Open"): ${reason.trim()}`)
 }

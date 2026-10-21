@@ -70,6 +70,11 @@ interface State extends ProjectData {
   current: string | null
   toasts: ToastMsg[]
   uploadPolicy: UploadPolicy | null
+  /** Session locked after inactivity ('idle') or because the server ended it ('expired'); the user re-enters the password. */
+  locked: null | 'idle' | 'expired'
+  idleMinutes: number
+  lock: (why: 'idle' | 'expired') => void
+  unlock: (password: string) => Promise<string | null>
   restore: () => Promise<void>
   login: (email: string, password: string) => Result
   logout: () => void
@@ -94,7 +99,7 @@ interface State extends ProjectData {
   previewRegister: (rows: RegisterRow[], source: string) => Promise<{ preview?: ImportPreview; error?: string }>
   importRegister: (rows: RegisterRow[], source: string) => Result
   withdrawEvidence: (reqId: string, idx: number, reason: string) => Result
-  signDoc: (id: string, reason: string, intent: boolean) => Result
+  signDoc: (id: string, reason: string, intent: boolean, password: string) => Result
   setAutomation: (k: keyof Automation, v: boolean) => Result
   sendReminders: () => Result
   markAllRead: () => Result
@@ -216,6 +221,26 @@ export const useStore = create<State>()((set, get) => {
     current: null,
     toasts: [],
     uploadPolicy: null,
+    locked: null,
+    idleMinutes: 15,
+    lock: (why) => {
+      if (!get().session || get().locked) return
+      tokenStore.set(null)
+      set({ locked: why })
+    },
+    unlock: async (password) => {
+      const s = get().session
+      if (!s) return 'Not signed in.'
+      try {
+        const r = await api<{ token: string; user: SessionUser }>('POST', '/auth/login', { email: s.email, password })
+        tokenStore.set(r.token)
+        set({ locked: null, session: r.user })
+        void get().loadAll()
+        return null
+      } catch (e) {
+        return errorText(e)
+      }
+    },
 
     restore: async () => {
       if (!tokenStore.get()) return
@@ -238,7 +263,7 @@ export const useStore = create<State>()((set, get) => {
     },
     logout: () => {
       tokenStore.set(null)
-      set({ ...blankProject(), session: null, status: 'idle', loadError: null, projects: {}, order: [], current: null, role: 'Consultant', scope: null, toasts: [] })
+      set({ ...blankProject(), session: null, status: 'idle', loadError: null, projects: {}, order: [], current: null, role: 'Consultant', scope: null, toasts: [], locked: null })
     },
     changePassword: async (current, next) => {
       try {
@@ -257,7 +282,7 @@ export const useStore = create<State>()((set, get) => {
       try {
         const [r, cfg] = await Promise.all([
           api<{ projects: ProjectResponse[] }>('GET', '/projects'),
-          api<{ today: string; upload: UploadPolicy }>('GET', '/reference/config'),
+          api<{ today: string; idleMinutes?: number; upload: UploadPolicy }>('GET', '/reference/config'),
         ])
         TODAY = cfg.today
         const policy = cfg.upload
@@ -266,7 +291,7 @@ export const useStore = create<State>()((set, get) => {
         const cur = get().current
         const open = cur && projects[cur] ? cur : null
         set({
-          projects, order: r.projects.map((p) => p.project.profile.id), status: 'ready', current: open, uploadPolicy: policy,
+          projects, order: r.projects.map((p) => p.project.profile.id), status: 'ready', current: open, uploadPolicy: policy, idleMinutes: cfg.idleMinutes ?? 15,
           role: open ? projects[open].role : r.projects[0]?.role ?? get().role,
           scope: open ? projects[open].scope : r.projects[0]?.scope ?? null,
           ...(open ? projects[open].data : {}),
@@ -321,7 +346,7 @@ export const useStore = create<State>()((set, get) => {
       if (!ev?.id) return Promise.resolve('Evidence link not found. Refresh and try again.')
       return post(`/reqs/${enc(reqId)}/evidence/${enc(ev.id)}/withdraw`, { reason })
     },
-    signDoc: (id, reason, intent) => post(`/docs/${enc(id)}/sign`, { reason, intent }),
+    signDoc: (id, reason, intent, password) => post(`/docs/${enc(id)}/sign`, { reason, intent, password }),
     returnDoc: (id, reason) => post(`/docs/${enc(id)}/return`, { reason }),
     newRevision: (id) => post(`/docs/${enc(id)}/revisions`),
     uploadSource: async (id, file, label, onProgress) => {
@@ -433,7 +458,8 @@ export const useStore = create<State>()((set, get) => {
   }
 })
 
-setUnauthorizedHandler(() => useStore.getState().logout())
+// A signed-in user whose token is refused (expired, revoked) gets the lock screen and keeps the page; otherwise sign out.
+setUnauthorizedHandler(() => { const s = useStore.getState(); if (s.session && s.status === 'ready') s.lock('expired'); else s.logout() })
 
 /* ---------- derived logic ---------- */
 export function evidenceState(r: Requirement, docs: Doc[]): EvidenceState {
