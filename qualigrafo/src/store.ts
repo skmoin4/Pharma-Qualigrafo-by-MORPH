@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api, downloadAs, errorText, fetchBlob, setUnauthorizedHandler, tokenStore, uploadForm } from './api'
-import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, Facility, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Risk, Ncr, NcrSeverity, Rating, SessionUser, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
+import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, Facility, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Transmittal, Risk, Ncr, NcrSeverity, Rating, SessionUser, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
 
 /** Working date (YYYY-MM-DD) for due / overdue logic. Starts as the browser's date; replaced by the server's (site time zone) after sign-in. */
 export let TODAY = new Date().toLocaleDateString('en-CA')
@@ -34,6 +34,7 @@ export interface ProjectData {
   automation: Automation
   imports: ImportBatch[]
   issued: IssuedPackage[]
+  transmittals: Transmittal[]
   risks: Risk[]
   ncrs: Ncr[]
   companies: Company[]
@@ -46,7 +47,7 @@ export interface ProjectData {
 export const blankProject = (): ProjectData => ({
   profile: { id: '', name: '', client: '', site: '', facility: 'API', scope: 'New plant', phase: '', plantCountry: 'SA', ownerStandards: '', status: 'Active' },
   markets: [], docs: [], reqs: [], pins: [], updates: [], actions: [], rfis: [], inspections: [], findings: [], changes: [], snapshots: [], baselines: [], audit: [],
-  baseline: 1, revitMode: false, events: [], automation: { routing: true, reminders: true, autoIssue: true }, imports: [], issued: [], risks: [], ncrs: [], companies: [], systems: [], disciplines: [], members: [], connector: { tokens: [], models: [] },
+  baseline: 1, revitMode: false, events: [], automation: { routing: true, reminders: true, autoIssue: true }, imports: [], issued: [], transmittals: [], risks: [], ncrs: [], companies: [], systems: [], disciplines: [], members: [], connector: { tokens: [], models: [] },
 })
 
 /** Every action resolves to an error message, or null on success (same contract the pages already use). */
@@ -55,7 +56,7 @@ interface ProjectEntry { role: Role; scope: string | null; data: ProjectData }
 interface ProjectResponse { role: Role; scope: string | null; project: ProjectData }
 
 /** Pages a vendor-scoped account can open (the server returns nothing for the rest). */
-export const VENDOR_PAGES = ['vendor', 'documents', 'sources', 'activity', 'comments', 'rfis', 'ncrs'] as const
+export const VENDOR_PAGES = ['vendor', 'documents', 'sources', 'activity', 'comments', 'rfis', 'ncrs', 'transmittals'] as const
 export interface UploadPolicy { maxBytes: number; extensions: string[] }
 
 interface State extends ProjectData {
@@ -87,6 +88,10 @@ interface State extends ProjectData {
   dismissToast: (id: number) => void
   saveProfile: (p: { facility: Facility; scope: Scope; phase: string; ownerStandards: string; markets: MarketKey[]; reason: string }) => Result
   submitDoc: (id: string, note: string) => Result
+  createTransmittal: (t: { to: string; purpose: string; note: string; docs: string[] }) => Result
+  acknowledgeTransmittal: (id: string, note: string) => Result
+  /** Downloads a server-generated PDF report of the open project (path below /projects/:code). */
+  downloadReport: (path: string, name: string) => Promise<void>
   editRfi: (id: string, b: { title: string; discipline: string; system: string; due: string; reason: string }) => Result
   editRisk: (id: string, b: { title: string; detail: string; system: string; likelihood: Rating; impact: Rating; owner: string; mitigation: string; due: string; reason: string }) => Result
   editNcr: (id: string, b: { title: string; description: string; system: string; severity: NcrSeverity; doc: string; due: string; reason: string }) => Result
@@ -326,6 +331,13 @@ export const useStore = create<State>()((set, get) => {
     markAllRead: () => post('/notices/read-all'),
 
     submitDoc: (id, note) => post(`/docs/${enc(id)}/submit`, { note }),
+    createTransmittal: (t) => post('/transmittals', t),
+    acknowledgeTransmittal: (id, note) => post(`/transmittals/${enc(id)}/acknowledge`, { note }),
+    downloadReport: async (path, name) => {
+      const code = get().current
+      if (!code) return
+      try { await downloadAs(`/projects/${enc(code)}${path}`, `${code}_${name}`); void get().refresh() } catch (e) { get().toast(errorText(e), 'warn') }
+    },
     editRfi: (id, b) => put(`/rfis/${enc(id)}`, b),
     editRisk: (id, b) => put(`/risks/${enc(id)}`, b),
     editNcr: (id, b) => put(`/ncrs/${enc(id)}`, b),

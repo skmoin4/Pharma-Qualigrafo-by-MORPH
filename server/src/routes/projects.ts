@@ -17,6 +17,8 @@ import { forbidden, notFound, rule } from '../lib/http.ts'
 import * as D from '../services/documents.ts'
 import * as Reg from '../services/docRegister.ts'
 import * as Ed from '../services/edits.ts'
+import * as Rp from '../services/reports.ts'
+import * as Tr from '../services/transmittals.ts'
 import * as Q from '../services/quality.ts'
 import * as R from '../services/requirements.ts'
 import * as S from '../services/site.ts'
@@ -78,6 +80,49 @@ projects.get('/:projectCode/docs/:id/signatures/verify', async (req, res) => {
       return { rev: s.rev, name: s.name, role: s.role, meaning: s.meaning, at: s.at.toISOString(), checksum: s.checksum, status: legacy ? 'Not an electronic signature (recorded before e-signatures)' : valid ? 'Valid' : 'Altered' }
     }),
   })
+})
+
+/* ---------------------------------------------------------------- PDF reports */
+
+/** Sends a generated PDF and records the generation (with the file's SHA-256) in the project audit trail. */
+async function sendReport(req: Request, res: Response, projectId: string, role: string, file: string, label: string, r: { pdf: Buffer; sha256: string }) {
+  const user = currentUser(req)
+  await prisma.auditEvent.create({ data: { projectId, role, userId: user.id, userName: user.name, text: `Report generated: ${label} (PDF, SHA-256 ${r.sha256})`, requestId: req.requestId } })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="${file}"`)
+  res.setHeader('X-Content-SHA256', r.sha256)
+  res.send(r.pdf)
+}
+const reportStamp = () => new Date().toISOString().replace(/[-:]/g, '').slice(0, 13).replace('T', '-')
+
+projects.get('/:projectCode/reports/handover.pdf', async (req, res) => {
+  const user = currentUser(req)
+  const { project, role, scope } = await membership(req.params.projectCode, user.id)
+  if (scope) throw forbidden('Reports are not available to vendor accounts.')
+  const data = await loadProject(project.id, user.id, null, role)
+  const id = `HOD-${reportStamp()}`
+  await sendReport(req, res, project.id, role, `${project.code}_Handover_Dossier_${id}.pdf`, `Handover dossier ${id}`, await Rp.handoverPdf(data, `${user.name} (${role})`, id))
+})
+
+projects.get('/:projectCode/snapshots/:id/report.pdf', async (req, res) => {
+  const user = currentUser(req)
+  const { project, role, scope } = await membership(req.params.projectCode, user.id)
+  if (scope) throw forbidden('Reports are not available to vendor accounts.')
+  const s = await prisma.snapshot.findUnique({ where: { projectId_code: { projectId: project.id, code: req.params.id } } })
+  if (!s) throw notFound(`Package ${req.params.id} not found.`)
+  const data = await loadProject(project.id, user.id, null, role)
+  const pdf = await Rp.auditPackagePdf(data, { code: s.code, at: s.at, byRole: s.byRole, baseline: s.baseline, markets: s.markets as string[], required: s.required, accepted: s.accepted, blockers: s.blockers as string[], rows: s.rows as never }, `${user.name} (${role})`, s.code)
+  await sendReport(req, res, project.id, role, `${project.code}_${s.code}_B${s.baseline}.pdf`, `Audit evidence package ${s.code}`, pdf)
+})
+
+projects.get('/:projectCode/transmittals/:id/report.pdf', async (req, res) => {
+  const user = currentUser(req)
+  const { project, role, scope } = await membership(req.params.projectCode, user.id)
+  const t = await prisma.transmittal.findUnique({ where: { projectId_code: { projectId: project.id, code: req.params.id } } })
+  if (!t || (scope && t.toCompany !== scope)) throw notFound(`Transmittal ${req.params.id} not found.`)
+  const data = await loadProject(project.id, user.id, null, role)
+  const pdf = await Rp.transmittalPdf(data, { ...t, items: t.items as unknown as Tr.TransmittalItem[] }, `${user.name} (${role})`, t.code)
+  await sendReport(req, res, project.id, role, `${project.code}_${t.code}.pdf`, `Transmittal ${t.code}`, pdf)
 })
 
 /** Full, unbounded audit trail (the project payload only carries the latest entries). */
@@ -266,6 +311,8 @@ act('put', '/risks/:id', z.object({ title: z.string().max(300), detail: zText, s
 act('put', '/ncrs/:id', z.object({ title: z.string().max(300), description: zText, system: z.string().max(60), severity: z.enum(NCR_SEVERITY), doc: z.string().max(40), due: zDate }).merge(editReason), (c, b, p) => Ed.editNcr(c, p.id, b))
 act('put', '/actions/:id', z.object({ title: zText, owner: z.string().max(120), due: zDate, priority: z.enum(PRIORITY) }).merge(editReason), (c, b, p) => Ed.editAction(c, p.id, b))
 act('post', '/findings', z.object({ title: z.string().max(300), doc: z.string().min(1).max(40), severity: z.enum(['High', 'Medium', 'Low']), source: zText, rule: z.string().max(300) }), (c, b) => Ed.raiseFinding(c, b))
+act('post', '/transmittals', z.object({ to: z.string().min(1).max(120), purpose: z.string().max(60), note: z.string().max(2000), docs: z.array(z.string().max(40)).min(1).max(500) }), (c, b) => Tr.createTransmittal(c, b))
+act('post', '/transmittals/:id/acknowledge', z.object({ note: z.string().max(1000) }), (c, b, p) => Tr.acknowledgeTransmittal(c, p.id, b.note), V)
 act('post', '/actions', z.object({ req: z.string().min(1), title: zText, owner: z.string().max(120), due: zDate, priority: z.enum(PRIORITY) }), (c, b) => R.addAction(c, b))
 act('post', '/actions/:id/progress', z.object({ to: z.enum(ACTION_STATUS) }), (c, b, p) => R.progressAction(c, p.id, b.to))
 act('post', '/updates/:id/assess', z.object({ applicable: z.boolean(), reason: zText }), (c, b, p) => R.assessUpdate(c, p.id, b.applicable, b.reason))

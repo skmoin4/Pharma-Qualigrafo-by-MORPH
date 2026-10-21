@@ -23,7 +23,7 @@ const fileMeta = (f: FileRow | null): FileMeta | undefined => (f ? { id: f.id, n
 /** `scope` (vendor company) limits the payload to that company's documents and what hangs off them. */
 export async function loadProject(projectId: string, userId: string, scope: string | null = null, role: string | null = null): Promise<ProjectData> {
   const docRef = { select: { code: true } } as const
-  const [p, docs, reqs, pins, updates, actions, rfis, inspections, findings, changes, snapshots, baselines, audit, notices, imports, issued, risks, ncrs, companies, systems, disciplines, members, tokens, models] = await Promise.all([
+  const [p, docs, reqs, pins, updates, actions, rfis, inspections, findings, changes, snapshots, baselines, audit, notices, imports, issued, risks, ncrs, companies, systems, disciplines, members, tokens, models, transmittals] = await Promise.all([
     prisma.project.findUniqueOrThrow({ where: { id: projectId } }),
     prisma.document.findMany({ where: { projectId }, include: { file: true, signatures: { orderBy: { at: 'asc' } }, history: { orderBy: { at: 'asc' } } } }),
     prisma.requirement.findMany({ where: { projectId }, include: { evidence: { orderBy: { position: 'asc' }, include: { document: docRef } } } }),
@@ -48,6 +48,7 @@ export async function loadProject(projectId: string, userId: string, scope: stri
     prisma.membership.findMany({ where: { projectId }, include: { user: { select: { id: true, name: true, email: true, company: true, active: true } } }, orderBy: { user: { name: 'asc' } } }),
     role === 'Owner / QA' ? prisma.connectorToken.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } }) : Promise.resolve([]),
     prisma.revitModel.findMany({ where: { projectId }, orderBy: { name: 'asc' }, include: { snapshots: { orderBy: { publishedAt: 'desc' }, take: 10 } } }),
+    prisma.transmittal.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } }),
   ])
 
   const libVersions = new Map((await prisma.libraryVersion.findMany({ where: { id: { in: [...new Set(reqs.map((r) => r.libraryVersionId).filter((x): x is string => !!x))] } }, select: { id: true, version: true } })).map((v) => [v.id, v.version]))
@@ -105,6 +106,11 @@ export async function loadProject(projectId: string, userId: string, scope: stri
 
     imports: imports.map((i): ImportBatch => ({ id: i.code, at: iso(i.at), mode: i.mode as ImportBatch['mode'], doc: i.document.code, fromRev: i.fromRev, toRev: i.toRev, checksum: i.checksum, label: i.label, cancelledRoute: i.cancelledRoute, file: fileMeta(i.file) })),
 
+    transmittals: transmittals.map((t) => ({
+      id: t.code, to: t.toCompany, purpose: t.purpose, note: t.note, at: iso(t.createdAt), by: t.createdByName, byRole: t.createdByRole as Role,
+      items: t.items as ProjectData['transmittals'][number]['items'],
+      ack: t.ackAt ? { by: t.ackByName ?? '', at: iso(t.ackAt), note: opt(t.ackNote) } : undefined,
+    })),
     issued: issued.map((i): IssuedPackage => ({ id: i.code, at: iso(i.at), doc: i.document.code, title: i.title, rev: i.rev, signers: i.signers as IssuedPackage['signers'], checksum: i.checksum })),
 
     risks: byCode(risks).map((r): Risk => ({ id: r.code, title: r.title, detail: r.detail, system: r.system, likelihood: r.likelihood as Risk['likelihood'], impact: r.impact as Risk['impact'], owner: r.owner, mitigation: r.mitigation, due: day(r.due), status: r.status as Risk['status'], decision: opt(r.decision) })),
@@ -138,6 +144,7 @@ export async function loadProject(projectId: string, userId: string, scope: stri
     ncrs: out.ncrs.filter((n) => !!n.doc && own.has(n.doc)),
     imports: out.imports.filter((i) => own.has(i.doc)),
     issued: out.issued.filter((i) => own.has(i.doc)),
+    transmittals: out.transmittals.filter((t) => t.to === scope),
     events: out.events.filter((e) => !!e.doc && own.has(e.doc)),
     audit: audit.filter((a) => a.userId === userId).map((a): AuditEvent => ({ at: iso(a.at), role: a.role as Role, text: a.text, user: opt(a.userName) })),
     reqs: [], updates: [], actions: [], inspections: [], findings: [], changes: [], snapshots: [], risks: [],

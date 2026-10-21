@@ -352,3 +352,15 @@ export interface SnapshotRec { id: string; version: string; publishedAt: string;
 export interface RevitModelRec { id: string; guid: string; name: string; lastSnapshotAt: string | null; snapshots: SnapshotRec[] }
 /** Revit connector state of a project. Tokens are listed only for Owner / QA. */
 export interface ConnectorState { tokens: ConnectorTokenRec[]; models: RevitModelRec[] }
+
+export interface Transmittal {
+  id: string
+  to: string
+  purpose: string
+  note: string
+  at: string
+  by: string
+  byRole: Role
+  items: { doc: string; number: string; title: string; rev: number; status: string; checksum: string | null; fileName: string | null; signatures: { name: string; role: string; meaning: string; at: string }[] }[]
+  ack?: { by: string; at: string; note?: string }
+}

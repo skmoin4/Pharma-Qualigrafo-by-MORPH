@@ -297,6 +297,18 @@ export interface Ncr {
 }
 
 /** Everything that belongs to one project workspace (same shape as the frontend store's ProjectData). */
+export interface Transmittal {
+  id: string
+  to: string
+  purpose: string
+  note: string
+  at: string
+  by: string
+  byRole: Role
+  items: { doc: string; number: string; title: string; rev: number; status: string; checksum: string | null; fileName: string | null; signatures: { name: string; role: string; meaning: string; at: string }[] }[]
+  ack?: { by: string; at: string; note?: string }
+}
+
 export interface ProjectData {
   profile: Profile
   markets: MarketKey[]
@@ -318,6 +330,7 @@ export interface ProjectData {
   automation: Automation
   imports: ImportBatch[]
   issued: IssuedPackage[]
+  transmittals: Transmittal[]
   risks: Risk[]
   ncrs: Ncr[]
   companies: Company[]

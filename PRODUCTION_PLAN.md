@@ -8,16 +8,23 @@ engineering teams can run real projects on, and the order in which to build it.
 
 ## 1. Where we stand
 
-**Solid and reusable as-is**
-- Workflow engine: two-stage review/sign-off, revisions, evidence linking, NCR / RFI / inspection / change / risk rules,
-  role checks, per-project locking, append-only audit trail, notifications.
-- Real login, per-project roles, vendor (company) isolation, admin screen, password policy, lockout, security log.
-- File upload with server-side SHA-256, content-addressed storage, member-only download.
-- Test suites: API (141 checks) and browser (260 checks).
+> **Resume here (updated 2026-10-21).** Branch `production-backend`. Phase 1 is complete; Phase 2 steps 1–3 are
+> complete. **Next: Phase 2 / step 4 — C5 scheduled reminders + e-mail notifications** (then C6 access review, C7
+> validation pack). Each finished step is described in section 5. Session guide: `CLAUDE.md` (repo root).
 
-**The core problem:** every project, document, requirement, finding and regulatory update in the app comes from
-`server/prisma/seedData.ts` (fictional sample data). The UI can *work on* records, but it cannot *create the
-foundation* of a real project. A customer could not start their first real project today.
+| Phase | Status |
+|---|---|
+| Backend + integration (BACKEND_NOTES steps 1–14) | Done |
+| **Phase 1** — a customer can run a real project (B1–B9) | **Done** (steps 1–6, section 5) |
+| **Phase 2** — GxP supplier-audit readiness (C1–C7) | Steps 1–3 done: C1 e-signatures, C3 inactivity timeout, C2 old → new audit, C4 PDF reports + transmittals. **Open: C5, C6, C7** |
+| Phase 3 — platform and operations (P1–P7) | Not started |
+| Phase 4 — integrations (real Revit add-in) | Connector API done (BACKEND_NOTES §13); add-in itself not started |
+
+Tests at this point: API 412 checks; browser suites e2e … e2e10 with 427 checks; all passing.
+
+*Original analysis (2026-10-20), kept for context:* the workflow engine, login / roles / vendor isolation and file
+storage were solid, but every project, document, requirement and finding came from fictional sample data — a customer
+could not set up a real project. Phase 1 closed that gap.
 
 ## 2. Gap analysis
 
@@ -87,6 +94,14 @@ Phase 1 order (each step = backend + UI + tests + notes, like steps 11–14):
 4. ~~Requirement library + instantiate into projects + project-specific requirements (B2)~~ — **done 2026-10-21**, see section 5
 5. ~~Document create / edit / void / Excel import (B3)~~ — **done 2026-10-21**, see section 5
 6. ~~Edit records with old → new audit, manual findings, library-level regulatory updates (B6, B7)~~ — **done 2026-10-21**, see section 5
+
+Phase 2 order:
+1. ~~E-signatures with re-authentication + inactivity timeout (C1, C3)~~ — **done 2026-10-21**
+2. ~~Old → new values everywhere in the audit trail (C2)~~ — **done 2026-10-21**
+3. ~~PDF reports: handover dossier, audit package, document transmittal (C4)~~ — **done 2026-10-21**
+4. **Scheduled reminders + e-mail notifications (C5)** ← next
+5. Periodic user-access review report (C6)
+6. Validation pack for the software (C7)
 
 ## 4. Decisions (taken 2026-10-20)
 
@@ -307,4 +322,31 @@ Tests: API **390** checks (+11, one per area above); browser suites unchanged an
 33 + 26 + 20 + 22).
 
 Next: **Phase 2 / step 3 — PDF reports (C4)**: handover dossier, audit package and document transmittal.
+
+### Phase 2 / step 3 — PDF reports and document transmittals (C4) (done 2026-10-21)
+
+PDFs are generated **on the server** from the stored records (PDFKit 0.20.2, DejaVu Sans font embedded so symbols such
+as →, ≥, ±, µ print correctly). Every page carries project, report id, who generated it and when, and page n of m.
+Every generation is written to the **audit trail with the SHA-256 of the PDF** (also sent as `X-Content-SHA256`), so a
+printed or e-mailed copy can be checked against the record later.
+
+| Report | Where | Content |
+|---|---|---|
+| **Handover dossier** | Handover readiness → *Handover dossier (PDF)* (Consultant, Owner / QA) | Project profile and baseline; gate status statement; 1. document-gate conditions; 2. requirement coverage per market; 3. critical documents with the signatures of their current revision (name, role, meaning, date, e-signature); 4. every open item (critical documents, comments, RFIs, inspections, findings, actions, NCRs, changes) and overdue documents; 5. controlled issues. Scope disclaimer (not a certificate). |
+| **Audit evidence package** | Audit packages → *PDF* per frozen package | Frozen time and role, baseline, markets, accepted / required; outstanding requirements grouped by state; every requirement with applicability, evidence state and linked revisions. Built from the frozen snapshot, so later changes never alter it. The earlier printable HTML and JSON exports stay. |
+| **Document transmittal** (new record) | Documents → **Transmittals** | Consultant / Owner / QA issue a numbered transmittal (TRN-001…) to a company in the register with a controlled purpose (For approval, For review / comment, For information, For construction, As built), remarks and a selection of documents. Each item is **frozen at issue**: number, title, revision, status, file name, SHA-256 and the approvals of that revision. Missing, void and superseded documents cannot be transmitted. The receiving company (any contractor account, or the vendor account of that company) **acknowledges receipt** in the app, with a remark; vendors only see transmittals addressed to them. The PDF lists the documents with checksums and either the electronic acknowledgement or a signature block. |
+
+Vendor accounts cannot pull the handover dossier or audit packages (403); they can download transmittals addressed to
+their company.
+
+Limitation: right-to-left scripts (e.g. Arabic) are not shaped correctly in the PDFs; project data is expected in
+Latin script.
+
+Tests: API **412** checks (+22: PDF type, hash header = file hash, audit entry with the hash, vendor restrictions,
+package PDF, transmittal validation, frozen items, vendor visibility, acknowledgement rules); browser 197 + 54 + 20 + 20
++ 19 + 33 + 26 + 20 + 22 + **16 (new `e2e10.mjs`: dossier and package downloads are real PDFs, transmittal issue,
+vendor receipt, transmittal PDF, audit entries, mobile)**. The generated PDFs were also rendered and reviewed page by
+page.
+
+Next: **Phase 2 / step 4 — scheduled reminders and e-mail notifications (C5).**
 

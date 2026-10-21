@@ -61,6 +61,8 @@ server/
       documents.ts     submit, sign, return, new revision, source import, vendor package
       docRegister.ts   Document register: create, edit details (old -> new audit), void / supersede, reinstate, MDR import
       edits.ts         Edit RFIs, risks, NCRs, corrective actions (reason + old -> new audit); raise findings manually
+      reports.ts       PDF reports (PDFKit): handover dossier, audit evidence package, transmittal
+      transmittals.ts  Document transmittals: issue (frozen items), acknowledge receipt
       requirements.ts  profile/baseline, applicability, source ref, evidence, actions, reg. updates, snapshots
       site.ts          RFIs, inspections, findings, change impact, anchored comments
       quality.ts       risks, NCRs
@@ -229,6 +231,16 @@ All project responses also carry `scope` (vendor company or `null`).
 | DELETE | `/library/items/:id` | |
 | POST | `/library/versions/:id/approve` | `{ reason }`; four-eyes (403 for creator / last editor); -> `{ market, version, notified }` |
 
+Phase 2 / step 3 (PDF reports, transmittals) — every PDF response carries `X-Content-SHA256` and is logged in the audit trail:
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/projects/:id/reports/handover.pdf` | handover dossier (not for vendor accounts) |
+| GET | `/projects/:id/snapshots/:aud/report.pdf` | audit evidence package of a frozen snapshot (not for vendor accounts) |
+| POST | `/projects/:id/transmittals` | `{ to, purpose, note, docs[] }` (Consultant / Owner / QA) -> TRN-nnn with frozen items |
+| POST | `/projects/:id/transmittals/:trn/acknowledge` | `{ note }` (receiving contractor / vendor of that company) |
+| GET | `/projects/:id/transmittals/:trn/report.pdf` | transmittal PDF (vendors: only their own) |
+
 Phase 2 / step 1 (e-signatures, inactivity):
 
 | Method | Path | Notes |
@@ -340,6 +352,7 @@ pins it for automated tests only.
 | 21 | **Production Phase 1 / step 6** — edit RFIs, risks, NCRs, corrective actions with reason + old -> new audit; manual findings. Phase 1 complete (PRODUCTION_PLAN.md §5). API 357 checks, browser 196 + 54 + 20 + 20 + 19 + 33 + 26 + 20 | Done (2026-10-21) |
 | 22 | **Phase 2 / step 1** — electronic signatures (password at each signing, meaning, checksum binding, signature hash + verification) and inactivity timeout (short tokens, refresh, lock screen). API 379 checks, browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 | Done (2026-10-21) |
 | 23 | **Phase 2 / step 2** — old -> new values and decision reasons in every audit / security-log entry (shared `lib/audit.ts`). API 390 checks, browser suites unchanged | Done (2026-10-21) |
+| 24 | **Phase 2 / step 3** — server-generated PDF reports (handover dossier, audit package, transmittal) with SHA-256 logging; document transmittals with frozen items and receipt acknowledgement. API 412 checks, browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 + 16 | Done (2026-10-21) |
 
 ## 9. Frontend integration (step 11)
 

@@ -7,11 +7,11 @@ import { useStore } from '../store'
 
 export type PageKey =
   | 'overview' | 'setup' | 'registers' | 'requirements' | 'evidence' | 'inspector' | 'documents' | 'reviews' | 'comments'
-  | 'rfis' | 'inspections' | 'findings' | 'changes' | 'actions' | 'handover' | 'packages' | 'updates' | 'activity' | 'sources' | 'schedule' | 'audit' | 'templates' | 'team' | 'risks' | 'ncrs' | 'vendor' | 'rehearsal'
+  | 'rfis' | 'inspections' | 'findings' | 'changes' | 'actions' | 'handover' | 'packages' | 'updates' | 'activity' | 'sources' | 'schedule' | 'audit' | 'templates' | 'team' | 'risks' | 'ncrs' | 'vendor' | 'rehearsal' | 'transmittals'
 
 export type HomeKey = 'portfolio' | 'work' | 'watch' | 'admin' | 'new' | 'library'
 
-export const PAGE_KEYS: PageKey[] = ['overview', 'setup', 'registers', 'requirements', 'evidence', 'inspector', 'documents', 'reviews', 'comments', 'rfis', 'inspections', 'findings', 'changes', 'actions', 'handover', 'packages', 'updates', 'activity', 'sources', 'schedule', 'audit', 'templates', 'team', 'risks', 'ncrs', 'vendor', 'rehearsal']
+export const PAGE_KEYS: PageKey[] = ['overview', 'setup', 'registers', 'requirements', 'evidence', 'inspector', 'documents', 'reviews', 'comments', 'rfis', 'inspections', 'findings', 'changes', 'actions', 'handover', 'packages', 'updates', 'activity', 'sources', 'schedule', 'audit', 'templates', 'team', 'risks', 'ncrs', 'vendor', 'rehearsal', 'transmittals']
 
 /* ---------- hash router (no dependency) ---------- */
 export function parseHash(): { project: string | null; page: PageKey; home: HomeKey } {

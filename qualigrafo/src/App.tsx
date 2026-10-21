@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
-import { Activity as ActivityIcon, Archive, Bell as BellIcon, BellRing, Boxes, Briefcase, CalendarRange, ChevronRight, CircleHelp, ClipboardCheck, ClipboardList, FilePlus2, FileText, FileUp, GitBranch, History, Inbox, LayoutDashboard, ListChecks, Menu, MessageSquare, Network, PackageCheck, PenLine, Radar, ScanSearch, Search, Settings2, TriangleAlert, Users, Flame, ShieldAlert, Store, Swords, UserCog, Building2, BookOpen } from 'lucide-react'
+import { Activity as ActivityIcon, Archive, Send, Bell as BellIcon, BellRing, Boxes, Briefcase, CalendarRange, ChevronRight, CircleHelp, ClipboardCheck, ClipboardList, FilePlus2, FileText, FileUp, GitBranch, History, Inbox, LayoutDashboard, ListChecks, Menu, MessageSquare, Network, PackageCheck, PenLine, Radar, ScanSearch, Search, Settings2, TriangleAlert, Users, Flame, ShieldAlert, Store, Swords, UserCog, Building2, BookOpen } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import { coverage, useProjectList, useStore, VENDOR_PAGES } from './store'
 import { Loading, Login } from './components/Login'
@@ -19,6 +19,7 @@ import Overview from './pages/Overview'
 import Setup from './pages/Setup'
 const Registers = lazy(() => import('./pages/Registers'))
 const Library = lazy(() => import('./pages/Library'))
+const Transmittals = lazy(() => import('./pages/Transmittals'))
 import Requirements from './pages/Requirements'
 import { EvidenceMap, Inspector } from './pages/Evidence'
 import { Documents, Reviews } from './pages/Documents'
@@ -34,28 +35,28 @@ const LABEL: Record<PageKey, string> = {
   overview: 'Overview', setup: 'Setup & baseline', registers: 'Companies & systems', schedule: 'Schedule', requirements: 'Requirements', evidence: 'Evidence map', inspector: 'Inspector view',
   updates: 'Regulatory changes', actions: 'Corrective actions', documents: 'Document register', sources: 'Source files', reviews: 'Reviews & approvals',
   activity: 'Updates & automation', comments: 'Technical comments', rfis: 'RFIs', inspections: 'Inspections', findings: 'Consistency findings', changes: 'Change impact',
-  handover: 'Handover readiness', packages: 'Audit packages', audit: 'Audit trail', templates: 'Templates & vendors', team: 'Team & responsibilities',
+  handover: 'Handover readiness', packages: 'Audit packages', transmittals: 'Transmittals', audit: 'Audit trail', templates: 'Templates & vendors', team: 'Team & responsibilities',
   risks: 'Risk register', ncrs: 'Non-conformances', vendor: 'Vendor portal view', rehearsal: 'Audit rehearsal',
 }
 const ICON: Record<PageKey, ReactNode> = {
   overview: <LayoutDashboard size={15} />, setup: <Settings2 size={15} />, registers: <Building2 size={15} />, schedule: <CalendarRange size={15} />, requirements: <ListChecks size={15} />, evidence: <Network size={15} />,
   inspector: <ScanSearch size={15} />, updates: <BellRing size={15} />, actions: <ClipboardCheck size={15} />, documents: <FileText size={15} />, sources: <FileUp size={15} />,
   reviews: <PenLine size={15} />, activity: <ActivityIcon size={15} />, comments: <MessageSquare size={15} />, rfis: <CircleHelp size={15} />, inspections: <ClipboardList size={15} />,
-  findings: <TriangleAlert size={15} />, changes: <GitBranch size={15} />, handover: <PackageCheck size={15} />, packages: <Archive size={15} />, audit: <History size={15} />,
+  findings: <TriangleAlert size={15} />, changes: <GitBranch size={15} />, handover: <PackageCheck size={15} />, packages: <Archive size={15} />, transmittals: <Send size={15} />, audit: <History size={15} />,
   templates: <FilePlus2 size={15} />, team: <Users size={15} />,
   risks: <Flame size={15} />, ncrs: <ShieldAlert size={15} />, vendor: <Store size={15} />, rehearsal: <Swords size={15} />,
 }
 const GROUPS: { title: string; keys: PageKey[] }[] = [
   { title: 'Project', keys: ['overview', 'setup', 'registers', 'schedule', 'team'] },
   { title: 'Compliance & evidence', keys: ['requirements', 'evidence', 'inspector', 'rehearsal', 'updates', 'actions'] },
-  { title: 'Documents', keys: ['documents', 'sources', 'vendor', 'reviews', 'activity', 'comments', 'templates'] },
+  { title: 'Documents', keys: ['documents', 'sources', 'vendor', 'reviews', 'transmittals', 'activity', 'comments', 'templates'] },
   { title: 'Site & change', keys: ['rfis', 'inspections', 'ncrs', 'findings', 'risks', 'changes'] },
   { title: 'Handover', keys: ['handover', 'packages', 'audit'] },
 ]
 const PAGES: Record<PageKey, ComponentType> = {
   overview: Overview, setup: Setup, registers: Registers, schedule: Schedule, team: Team, requirements: Requirements, evidence: EvidenceMap, inspector: Inspector, updates: Updates, actions: Actions,
   documents: Documents, sources: Sources, reviews: Reviews, activity: Activity, comments: Comments, templates: Templates, rfis: Rfis, inspections: Inspections, findings: Findings,
-  changes: Changes, handover: Handover, packages: Packages, audit: Audit,
+  changes: Changes, handover: Handover, packages: Packages, transmittals: Transmittals, audit: Audit,
   risks: Risks, ncrs: Ncrs, vendor: Vendor, rehearsal: Rehearsal,
 }
 const HOME_LABEL: Record<HomeKey, string> = { portfolio: 'Portfolio', work: 'My work', watch: 'Regulatory watch', admin: 'Users & access', new: 'New project', library: 'Requirement library' }

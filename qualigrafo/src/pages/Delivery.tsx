@@ -55,7 +55,7 @@ export function Handover() {
   const open = gates.filter((g) => g.n > 0)
   return (
     <>
-      <PageHead title="Handover readiness" sub="Each condition is reported separately with its own count. There is deliberately no blended score." actions={<button className="btn" onClick={() => go('packages')}>Evidence packages</button>} />
+      <PageHead title="Handover readiness" sub="Each condition is reported separately with its own count. There is deliberately no blended score." actions={<>{s.role !== 'Contractor' && <button className="btn pri" onClick={() => s.downloadReport('/reports/handover.pdf', 'Handover_Dossier.pdf')}><Download size={14} /> Handover dossier (PDF)</button>}<button className="btn" onClick={() => go('packages')}>Evidence packages</button></>} />
       <div className={`notice ${open.length ? '' : 'info'}`} style={{ marginBottom: 14 }}>{open.length ? <><b>Document gate: {open.length} of {gates.length} conditions open.</b> Handover cannot be recommended from these records until they are cleared.</> : <><b>All configured document conditions are clear.</b> Owner release remains a separate, signed decision outside this platform.</>}</div>
       <section className="card flush">
         <h2>Document-gate conditions</h2>
@@ -79,7 +79,7 @@ export function Handover() {
 }
 
 export function Packages() {
-  const { snapshots, createSnapshot, baseline, markets, toast } = useStore()
+  const { snapshots, createSnapshot, baseline, markets, toast, downloadReport } = useStore()
   const exportHtml = (id: string) => {
     const sn = snapshots.find((x) => x.id === id)!
     const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!)
@@ -109,7 +109,7 @@ export function Packages() {
                 <td>{fmtDate(x.at)}</td>
                 <td>{x.accepted} / {x.required}</td>
                 <td>{x.blockers.length ? <Badge tone="amber">{x.blockers.length} item(s)</Badge> : <Badge tone="green">None</Badge>}</td>
-                <td><div className="row"><button className="btn sm" onClick={() => exportHtml(x.id)}><Download size={12} /> Printable</button><button className="btn sm" onClick={() => exportJson(x.id)}>JSON</button></div></td>
+                <td><div className="row"><button className="btn sm pri" onClick={() => downloadReport(`/snapshots/${x.id}/report.pdf`, `${x.id}_B${x.baseline}.pdf`)}><Download size={12} /> PDF</button><button className="btn sm" onClick={() => exportHtml(x.id)}>Printable</button><button className="btn sm" onClick={() => exportJson(x.id)}>JSON</button></div></td>
               </tr>
             ))}
             {!snapshots.length && <tr><td colSpan={6}><Empty title="No packages yet">Freeze a package to capture baseline B{baseline} for {markets.join(', ')}. Later changes never alter a frozen package.</Empty></td></tr>}

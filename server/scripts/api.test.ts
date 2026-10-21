@@ -901,6 +901,66 @@ try {
     ok(sec2?.detail === `name "${target.name}" -> "Demo Contractor (BuildCo)"`, 'user change logged old -> new')
     await call('PATCH', `/admin/users/${target.id}`, { name: target.name }, QA)
   }
+  // ======================================================== phase 2 / step 3: PDF reports and transmittals (C4)
+  {
+    const C = tokens.Consultant, K = tokens.Contractor
+    const VND = (await call('POST', '/auth/login', { email: 'vendor@qualigrafo.test', password: PASSWORD })).json.token as string
+    const pdfGet = async (path: string, token: string) => {
+      const r = await fetch(`${base}${P}${path}`, { headers: { authorization: `Bearer ${token}` } })
+      const buf = Buffer.from(await r.arrayBuffer())
+      if (r.ok && process.env.REPORT_OUT) (await import('node:fs')).writeFileSync(`${process.env.REPORT_OUT}/${path.replace(/[^\w.-]+/g, '_')}`, buf)
+      return { status: r.status, type: r.headers.get('content-type'), sha: r.headers.get('x-content-sha256'), buf }
+    }
+    const shaBuf = (b: Buffer) => createHash('sha256').update(b).digest('hex')
+
+    // handover dossier
+    const hd = await pdfGet('/reports/handover.pdf', C)
+    ok(hd.status === 200 && hd.type === 'application/pdf' && hd.buf.subarray(0, 5).toString() === '%PDF-', `handover dossier is a PDF (${Math.round(hd.buf.length / 1024)} KB)`)
+    ok(hd.sha === shaBuf(hd.buf), 'response carries the SHA-256 of the PDF')
+    const au = (await call('GET', `${P}/audit?limit=3`, undefined, C)).json.events.map((e: any) => e.text).join('\n')
+    ok(au.includes(`Report generated: Handover dossier HOD-`) && au.includes(hd.sha!), 'generation recorded in the audit trail with the file hash')
+    ok((await pdfGet('/reports/handover.pdf', VND)).status === 403, 'vendor accounts cannot pull project reports')
+
+    // audit evidence package from a frozen snapshot
+    const snap = await call('POST', `${P}/snapshots`, {}, C)
+    const code = (snap.json.project as ProjectData).snapshots[0].id
+    const ap = await pdfGet(`/snapshots/${code}/report.pdf`, C)
+    ok(ap.status === 200 && ap.buf.subarray(0, 5).toString() === '%PDF-' && ap.sha === shaBuf(ap.buf), `audit package ${code} as PDF`)
+    ok((await pdfGet('/snapshots/AUD-999/report.pdf', C)).status === 404, 'unknown package is 404')
+
+    // transmittals
+    let pd = (await call('GET', P, undefined, QA)).json.project as ProjectData
+    const sendable = pd.docs.filter((d) => !['Missing', 'Void', 'Superseded'].includes(d.status))
+    const airDoc = pd.docs.find((d) => d.owner === 'AirCo' && !['Missing', 'Void', 'Superseded'].includes(d.status))
+    const pick = [...new Set([sendable[0].id, sendable[1].id, ...(airDoc ? [airDoc.id] : [])])]
+    const body = { to: 'AirCo', purpose: 'For construction', note: 'Issued for site installation', docs: pick }
+    ok((await call('POST', `${P}/transmittals`, body, K)).status === 403, 'contractors cannot issue transmittals')
+    ok((await call('POST', `${P}/transmittals`, { ...body, purpose: 'Because' }, C)).status === 422, 'purpose must be one of the controlled values')
+    ok((await call('POST', `${P}/transmittals`, { ...body, to: 'Nobody Ltd' }, C)).status === 422, 'recipient must be in the company register')
+    const missingDoc = pd.docs.find((d) => d.status === 'Missing')
+    if (missingDoc) ok((await call('POST', `${P}/transmittals`, { ...body, docs: [missingDoc.id] }, C)).json.error?.includes('no revision'), 'a document without a revision cannot be transmitted')
+    const voidDoc = pd.docs.find((d) => d.status === 'Void' || d.status === 'Superseded')
+    if (voidDoc) ok((await call('POST', `${P}/transmittals`, { ...body, docs: [voidDoc.id] }, C)).status === 422, 'void / superseded documents cannot be transmitted')
+    pd = (await call('POST', `${P}/transmittals`, body, C)).json.project
+    const tr = pd.transmittals[0]
+    const first = pd.docs.find((d) => d.id === pick[0])!
+    ok(/^TRN-\d{3}$/.test(tr.id) && tr.items.length === pick.length && tr.to === 'AirCo' && tr.by === 'Demo Consultant', `${tr.id} issued with ${tr.items.length} document(s)`)
+    ok(tr.items[0].rev === first.rev && tr.items[0].checksum === (first.sourceRev === first.rev ? first.checksum ?? null : null), 'items frozen with revision and checksum')
+    ok((await call('GET', '/projects/PRJ-026', undefined, VND)).json.project.transmittals.some((t: any) => t.id === tr.id), 'the receiving vendor sees the transmittal')
+    const t2 = (await call('POST', `${P}/transmittals`, { ...body, to: pd.companies.find((c) => c.name !== 'AirCo' && c.active)!.name }, C)).json.project.transmittals[0]
+    ok(!(await call('GET', '/projects/PRJ-026', undefined, VND)).json.project.transmittals.some((t: any) => t.id === t2.id), "a vendor does not see other companies' transmittals")
+    ok((await pdfGet(`/transmittals/${t2.id}/report.pdf`, VND)).status === 404, "a vendor cannot download another company's transmittal")
+    const tp = await pdfGet(`/transmittals/${tr.id}/report.pdf`, VND)
+    ok(tp.status === 200 && tp.sha === shaBuf(tp.buf), 'the receiving vendor downloads the transmittal PDF')
+
+    ok((await call('POST', `${P}/transmittals/${tr.id}/acknowledge`, { note: '' }, C)).status === 403, 'the issuer cannot acknowledge receipt')
+    ok((await call('POST', `${P}/transmittals/${t2.id}/acknowledge`, { note: '' }, VND)).status === 404, "a vendor cannot acknowledge another company's transmittal")
+    const ack = await call('POST', `${P}/transmittals/${tr.id}/acknowledge`, { note: 'Received complete' }, VND)
+    ok(ack.status === 200 && ack.json.project.transmittals.find((t: any) => t.id === tr.id).ack?.note === 'Received complete', 'receiving company acknowledged receipt')
+    ok((await call('POST', `${P}/transmittals/${tr.id}/acknowledge`, { note: '' }, K)).status === 422, 'receipt is acknowledged once')
+    const ap2 = await pdfGet(`/transmittals/${tr.id}/report.pdf`, C)
+    ok(ap2.status === 200, 'acknowledged transmittal PDF')
+  }
 } finally {
   server.close()
   await prisma.$disconnect()

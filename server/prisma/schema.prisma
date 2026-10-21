@@ -117,6 +117,7 @@ model Project {
   revitModels  RevitModel[]
   snapshotsRevit ModelSnapshot[]
   navigation   NavigationRequest[]
+  transmittals Transmittal[]
 }
 
 /// ---------------------------------------------------------------- Revit connector
@@ -765,3 +766,26 @@ model LibraryItem {
   @@unique([versionId, key])
 }
 
+
+/// Document transmittal: a controlled list of document revisions sent to a company for a stated purpose.
+/// Items are frozen at creation (number, title, revision, status, checksum, signatures of that revision).
+model Transmittal {
+  id              String    @id @default(cuid())
+  projectId       String
+  code            String
+  toCompany       String
+  purpose         String
+  note            String    @default("")
+  items           Json
+  createdByUserId String?
+  createdByName   String
+  createdByRole   String
+  createdAt       DateTime  @default(now())
+  ackByName       String?
+  ackByUserId     String?
+  ackAt           DateTime?
+  ackNote         String?
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, code])
+}

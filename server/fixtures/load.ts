@@ -46,6 +46,7 @@ function makeProject(id: string): ProjectData {
     automation: { routing: true, reminders: true, autoIssue: true }, imports: [], risks: clone(seedRisks), ncrs: clone(seedNcrs),
     companies: [], systems: [], disciplines: [], members: [], connector: { tokens: [], models: [] },
     issued: [{ id: 'ISS-001', at: '2026-10-09T09:00:00Z', doc: 'DOC-003', title: 'Purified water P&ID', rev: 3, signers: seedDocs[2].signatures.map((x) => ({ role: x.role, name: x.name, at: x.at })), checksum: null }],
+    transmittals: [],
   }
   if (id === 'PRJ-031') {
     base.docs = base.docs.map((d, i) => ({ ...d, rev: 0, status: i % 3 === 0 ? 'Draft' : 'Missing', signStage: 0, signatures: [], history: [{ rev: 0, status: i % 3 === 0 ? 'Draft' : 'Missing', at: SEEDED_AT, by: 'Contractor' }] }))
