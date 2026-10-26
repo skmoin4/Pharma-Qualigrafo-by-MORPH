@@ -1,7 +1,7 @@
 // Run (API seeded + preview server on :8081): node scripts/e2e3.mjs  - security flows through the real UI
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { ACCOUNTS, PASSWORD } from './e2e-lib.mjs'
+import { INSECURE, CHROME, ACCOUNTS, PASSWORD } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -11,8 +11,8 @@ const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail
 const isNoise = (t) => /Failed to load resource: the server responded with a status of 4\d\d/.test(t)
 const vis = (loc, timeout = 5000) => loc.waitFor({ state: 'visible', timeout }).then(() => true, () => false)
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+const browser = await chromium.launch({ executablePath: CHROME })
+const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))

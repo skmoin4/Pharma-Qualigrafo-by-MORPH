@@ -43,7 +43,7 @@ export function EditRecord({ name, fields, initial, onSave, onClose }: { name: s
     }
   }
   return (
-    <div className="card" style={{ margin: '8px 0', background: '#fafcfd' }}>
+    <div className="card" style={{ margin: '8px 0', background: 'rgba(255, 255, 255, 0.55)' }}>
       <div className="grid g2">
         {fields.map((f) => (
           <div key={f.key} style={f.wide ? { gridColumn: '1 / -1' } : undefined}>

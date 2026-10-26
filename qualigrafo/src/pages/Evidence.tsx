@@ -57,7 +57,7 @@ export function EvidenceMap() {
               const linked = edges.some((e) => e.d === id && hover === e.r)
               return (
                 <g key={id} onMouseEnter={() => setHover(id)} onMouseLeave={() => setHover(null)} onClick={() => open('doc', id)} style={{ cursor: 'pointer', opacity: !hover || hover === id || linked ? 1 : 0.4 }}>
-                  <rect x="640" y={y - 25} width="330" height="50" rx="5" fill="#f6fafa" stroke="#9ec9ca" />
+                  <rect x="640" y={y - 25} width="330" height="50" rx="5" fill="#eef3fd" stroke="#9fb8e8" />
                   <text x="656" y={y - 4} fontSize="12.5" fontWeight="650" fill="#15262f">{d.title.length > 38 ? d.title.slice(0, 37) + '…' : d.title}</text>
                   <text x="656" y={y + 14} fontSize="11" fill="#6c808c">{d.id} · {R(d.rev)} · {d.status}</text>
                 </g>

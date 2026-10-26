@@ -41,6 +41,14 @@ try {
   console.log(`\nAdministrator created: ${u.name} <${email}>`)
   console.log(`Temporary password:   ${temp}`)
   console.log('\nSign in and choose a new password. This temporary password is not shown again.')
+  // Four-eyes rule: nobody can approve their own requirement-library version, so a new installation needs a
+  // second qualified account before the first project can take its requirements from the library.
+  const others = await prisma.user.count({ where: { active: true, id: { not: u.id } } })
+  if (!others) {
+    console.log('\nNext: create a second account for a colleague (administrator or Owner / QA).')
+    console.log('The requirement library is approved under the four-eyes rule: whoever prepares a version')
+    console.log('cannot approve it, so a one-account installation cannot put requirements into a project.')
+  }
 } finally {
   await prisma.$disconnect()
 }

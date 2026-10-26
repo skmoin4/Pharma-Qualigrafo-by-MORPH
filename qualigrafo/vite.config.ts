@@ -7,6 +7,9 @@ const api = process.env.API_URL ?? 'http://localhost:4000'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Modern CSS target: with the default target esbuild rewrites `backdrop-filter` to the
+  // -webkit- form only, which current Chrome ignores — the frosted surfaces would be flat.
+  build: { cssTarget: 'chrome111' },
   server: {
     proxy: { '/api': api },
   },

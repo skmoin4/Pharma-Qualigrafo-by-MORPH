@@ -155,7 +155,34 @@ async function main() {
   await prisma.project.deleteMany()
   await prisma.user.deleteMany()
   await prisma.securityEvent.deleteMany()
+  await prisma.emailMessage.deleteMany()
+  await prisma.reminderRun.deleteMany()
+  await prisma.accessReview.deleteMany()
+  await prisma.backupRun.deleteMany()
+  await prisma.errorEvent.deleteMany()
+  await prisma.jobHeartbeat.deleteMany()
+  await prisma.outage.deleteMany()
+  await prisma.appSetting.deleteMany()
+  // Test data: the scheduled daily run stays off so it never alters fixtures while a test suite runs.
+  await prisma.appSetting.create({ data: { key: 'reminders', value: { enabled: false, time: '08:00', dueSoonDays: 3 }, updatedBy: 'fixtures' } })
+  await prisma.appSetting.create({ data: { key: 'backups', value: { enabled: false, time: '02:00', keep: 14, verify: true }, updatedBy: 'fixtures' } })
   await prisma.libraryPack.deleteMany()
+  // Monitoring (P6): heartbeats of the background jobs as if they had just run, one recorded error and one past
+  // interruption, so the Monitoring page has something to show in a test installation.
+  const now = new Date()
+  for (const name of ['api', 'mailer', 'reminders', 'backups']) {
+    await prisma.jobHeartbeat.create({ data: { name, lastRunAt: now, lastOkAt: now, runs: 12, detail: 'seeded by fixtures' } })
+  }
+  await prisma.errorEvent.create({
+    data: {
+      fingerprint: 'fixture-0000000000000000000000000000000000000000000000000000000001', kind: 'Request',
+      place: 'POST /api/projects/PRJ-026/docs/DOC-003/files', message: 'Storage write failed: no space left on device',
+      stack: 'Error: Storage write failed: no space left on device\n    at storeFile (src/services/storage.ts:48:11)',
+      count: 3, firstAt: new Date(now.getTime() - 3 * 3600_000), lastAt: new Date(now.getTime() - 90 * 60_000),
+      lastRequestId: '2f4c1e90-0000-4000-8000-00000000f1x7', lastUser: 'contractor@qualigrafo.test',
+    },
+  })
+  await prisma.outage.create({ data: { from: new Date(now.getTime() - 26 * 3600_000), to: new Date(now.getTime() - 25.8 * 3600_000), minutes: 12, detail: 'No API heartbeat for 12 minutes (the application was stopped or could not reach its database).' } })
   await rm(path.resolve(process.env.STORAGE_DIR ?? 'storage', 'objects'), { recursive: true, force: true })
 
   const passwordHash = await bcrypt.hash(PASSWORD, 10)
@@ -168,6 +195,20 @@ async function main() {
   for (const meta of projectIndex) {
     await writeProject(makeProject(meta.id), userIds)
     console.log(`  seeded ${meta.id} ${meta.name}`)
+  }
+  // Load test (P1 scale): --projects N adds N copies of PRJ-026 with the history of a project in use
+  // (300 audit entries, 150 notifications), e.g. npm run fixtures:load -- --projects 100.
+  const extra = Number(process.argv[process.argv.indexOf('--projects') + 1] ?? 0)
+  if (process.argv.includes('--projects') && extra > 0) {
+    for (let i = 1; i <= extra; i++) {
+      const p = makeProject('PRJ-026')
+      p.profile.id = `LT-${String(i).padStart(3, '0')}`
+      p.profile.name = `Load test project ${i}`
+      p.audit = Array.from({ length: 300 }, (_, k) => ({ at: new Date(Date.parse(SEEDED_AT) + k * 60_000).toISOString(), role: 'Consultant' as Role, text: `Load-test audit entry ${k + 1}: DOC-00${(k % 9) + 1} reviewed, field "status" "Draft" -> "Under review". Reason: load test.` }))
+      p.events = Array.from({ length: 150 }, (_, k) => ({ id: `EVT-${k + 1}`, at: new Date(Date.parse(SEEDED_AT) + k * 60_000).toISOString(), category: 'Routing' as const, text: `Load-test notification ${k + 1}: signature request routed.`, doc: 'DOC-001', forRole: 'Consultant' as Role, read: false }))
+      await writeProject(p, userIds)
+    }
+    console.log(`  seeded ${extra} load-test project(s) LT-001 … LT-${String(extra).padStart(3, '0')}`)
   }
   console.log(`\nTest users (password: ${PASSWORD})`)
   for (const u of USERS) console.log(`  ${u.role.padEnd(11)} ${u.email}${u.scope ? `  (vendor: ${u.scope} only)` : ''}${u.admin ? '  (administrator)' : ''}`)

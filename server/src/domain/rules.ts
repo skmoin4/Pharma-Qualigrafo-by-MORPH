@@ -5,10 +5,15 @@ import type { Doc, EvidenceState, ProjectData, Requirement, Role } from './types
  * Working date (YYYY-MM-DD) for due / overdue logic, in the installation's time zone (APP_TIMEZONE, default UTC).
  * CLOCK_DATE pins the date for automated tests only.
  */
+// Creating an Intl.DateTimeFormat is expensive and today() runs for every document in every summary: keep one per zone.
+const formatters = new Map<string, Intl.DateTimeFormat>()
 export function today(): string {
   const pinned = process.env.CLOCK_DATE
   if (pinned && /^\d{4}-\d{2}-\d{2}$/.test(pinned)) return pinned
-  return new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const tz = process.env.APP_TIMEZONE || 'UTC'
+  let f = formatters.get(tz)
+  if (!f) { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }); formatters.set(tz, f) }
+  return f.format(new Date())
 }
 
 export function evidenceState(r: Requirement, docs: Doc[]): EvidenceState {

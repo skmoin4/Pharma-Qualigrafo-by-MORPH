@@ -5,8 +5,13 @@ import type { AddressInfo } from 'node:net'
 import { app } from '../src/app.ts'
 import { prisma } from '../src/db.ts'
 import jwt from 'jsonwebtoken'
-import { config, sessionMaxSeconds } from '../src/config.ts'
-import { loginLimiter } from '../src/lib/security.ts'
+import { config, parseTrustProxy, sessionMaxSeconds } from '../src/config.ts'
+import { loginLimiter, resetApiRate } from '../src/lib/security.ts'
+import { MAX_ATTEMPTS, deliverDue, resetTransport } from '../src/services/mail.ts'
+import { maybeRunDaily, runReminders } from '../src/services/reminders.ts'
+import { createServer } from 'node:net'
+import { OQ_CASES, URS, catalogueProblems, oqCase, riskPriority, traceability } from '../src/validation/catalogue.ts'
+import { runIq } from '../src/services/iq.ts'
 import { evidenceState, handoverGates } from '../src/domain/rules.ts'
 import type { ProjectData, Role } from '../src/domain/types.ts'
 
@@ -17,6 +22,8 @@ const PASSWORD = process.env.SEED_PASSWORD ?? 'Demo@12345'
 const EMAIL: Record<Role, string> = { Consultant: 'consultant@qualigrafo.test', Contractor: 'contractor@qualigrafo.test', 'Owner / QA': 'qa@qualigrafo.test' }
 
 let fail = 0
+/** OQ test case marker: every check printed after it belongs to that test case (validation pack, C7). */
+const section = (id: string) => { const c = oqCase(id); if (!c) throw new Error(`Unknown OQ test case ${id}`); console.log(`SECTION ${id}  ${c.title}`) }
 const ok = (c: boolean, m: string) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
 
 async function call(method: string, path: string, body?: unknown, token?: string) {
@@ -56,9 +63,54 @@ async function upload(docId: string, name: string, content: string, label?: stri
   return j?.error ?? `HTTP ${r.status}`
 }
 
+/** Minimal SMTP server for the e-mail tests: records messages; `refuse` answers MAIL FROM with a temporary failure. */
+async function fakeSmtp() {
+  const mails: { to: string[]; data: string }[] = []
+  const state = { refuse: false }
+  const srv = createServer((sock) => {
+    sock.setEncoding('utf8')
+    let buf = ''
+    let inData = false
+    let cur = { to: [] as string[], data: '' }
+    sock.on('error', () => {})
+    sock.write('220 fake ESMTP\r\n')
+    sock.on('data', (chunk: string) => {
+      buf += chunk
+      for (let i = buf.indexOf('\r\n'); i >= 0; i = buf.indexOf('\r\n')) {
+        const line = buf.slice(0, i)
+        buf = buf.slice(i + 2)
+        if (inData) {
+          if (line === '.') { inData = false; mails.push(cur); cur = { to: [], data: '' }; sock.write('250 OK queued\r\n') }
+          else cur.data += `${line.startsWith('..') ? line.slice(1) : line}\n`
+          continue
+        }
+        const cmd = line.slice(0, 4).toUpperCase()
+        if (cmd === 'EHLO') sock.write('250-fake\r\n250 8BITMIME\r\n')
+        else if (cmd === 'MAIL') sock.write(state.refuse ? '451 Temporary local problem\r\n' : '250 OK\r\n')
+        else if (cmd === 'RCPT') { cur.to.push(line); sock.write('250 OK\r\n') }
+        else if (cmd === 'DATA') { inData = true; sock.write('354 End data with .\r\n') }
+        else if (cmd === 'QUIT') { sock.write('221 Bye\r\n'); sock.end() }
+        else sock.write('250 OK\r\n')
+      }
+    })
+  })
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+  return {
+    mails,
+    port: (srv.address() as AddressInfo).port,
+    get refuse() { return state.refuse },
+    set refuse(v: boolean) { state.refuse = v },
+    close: () => srv.close(),
+  }
+}
+
 try {
   // ---- health & auth
-  ok((await call('GET', '/health')).json.ok === true, 'health check reaches the database')
+  section('OQ-API-01')
+  const hc = (await call('GET', '/health')).json
+  ok(hc.ok === true && hc.db === 'up' && /^\d+\.\d+\.\d+/.test(hc.version), 'health check reaches the database and reports the version')
+  ok((await call('GET', '/health/live')).json?.ok === true, 'liveness check answers without the database')
+  ok(JSON.stringify(parseTrustProxy('loopback')) === '["loopback"]' && parseTrustProxy('1') === 1 && parseTrustProxy('true') === true && JSON.stringify(parseTrustProxy('uniquelocal, 10.0.0.0/8')) === '["uniquelocal","10.0.0.0/8"]', 'TRUST_PROXY: names, hop count, true / false, address lists')
   ok((await call('GET', P)).status === 401, 'project data requires authentication')
   ok((await call('POST', '/auth/login', { email: EMAIL.Consultant, password: 'wrong' })).status === 401, 'wrong password rejected')
   for (const r of Object.keys(EMAIL) as Role[]) {
@@ -76,10 +128,12 @@ try {
   ok((await call('POST', P + '/docs/DOC-007/submit', { note: 123 }, tokens.Contractor)).status === 400, 'invalid body is rejected with 400')
 
   // ---- submission & two-stage sign-off
+  section('OQ-API-02')
   as('Contractor')
   ok((await act('/docs/DOC-007/submit', { note: 'Ready' }))?.startsWith('Attach the source file') === true, 'submit blocked until the revision has a source file')
 
   // ---- file upload & storage
+  section('OQ-API-03')
   const pdf = '%PDF-1.4 fire pump inspection ' + Date.now()
   as('Consultant')
   ok(await upload('DOC-007', 'inspection.pdf', pdf) !== null, 'only the contractor uploads source files')
@@ -118,6 +172,7 @@ try {
   ok(last.issued.length === issuedBefore + 1 && last.issued[0].doc === 'DOC-007', 'controlled issue manifest generated')
 
   // ---- fresh revision = fresh approval
+  section('OQ-API-04')
   as('Consultant')
   ok(await act('/docs/DOC-007/revisions') !== null, 'only the contractor starts a new revision')
   as('Contractor')
@@ -127,11 +182,13 @@ try {
   ok(last.events[0].category === 'Revision', 'revision event logged')
 
   // ---- stale evidence after revision
+  section('OQ-API-05')
   ok(evidenceState(last.reqs.find((r) => r.id === 'REQ-006')!, last.docs) === 'Evidence accepted', 'REQ-006 accepted before revising DOC-003')
   ok(await act('/docs/DOC-003/revisions') === null, 'DOC-003 revised')
   ok(evidenceState(last.reqs.find((r) => r.id === 'REQ-006')!, last.docs) === 'Revision changed', 'revising DOC-003 makes linked evidence stale')
 
   // ---- source import cancels pending route and rejects duplicates
+  section('OQ-API-06')
   await upload('DOC-011', 'insulation-tests.pdf', 'IR test sheet A')
   await act('/docs/DOC-011/submit', { note: 'x' })
   ok(doc('DOC-011').status === 'Under review', 'DOC-011 under review')
@@ -143,18 +200,21 @@ try {
   ok((await call('POST', `${P}/docs/DOC-005/imports`, { snapshotId: 'nope' }, tokens.Contractor)).status === 404, 'Revit import needs a snapshot published by the add-in')
 
   // ---- return for changes
+  section('OQ-API-07')
   await act('/docs/DOC-001/submit', { note: 'again' })
   as('Consultant')
   ok(await act('/docs/DOC-001/return', { reason: '' }) !== null, 'return needs a reason')
   ok(await act('/docs/DOC-001/return', { reason: 'fix door swing' }) === null && doc('DOC-001').status === 'Changes requested', 'returned for changes')
 
   // ---- source reference attestation
+  section('OQ-API-08')
   ok(await put('/reqs/REQ-001/source-ref', { clause: 'x', version: '', effective: '', attest: true }) !== null, 'attestation needs clause + version + date')
   ok(await put('/reqs/REQ-001/source-ref', { clause: 'Sec 3', version: '2024 ed', effective: '2024-01-01', attest: true }) === null, 'source reference saved')
   as('Contractor')
   ok(await put('/reqs/REQ-001/source-ref', { clause: 'a', version: 'b', effective: '', attest: false }) !== null, 'contractor cannot edit source reference')
 
   // ---- evidence: link, self-acceptance block, only current accepted revisions
+  section('OQ-API-09')
   ok(await act('/reqs/REQ-008/evidence', { doc: 'DOC-009', note: 'certs' }) !== null, 'missing document cannot be linked')
   ok(await act('/reqs/REQ-008/evidence', { doc: 'DOC-003', note: 'P&ID R04 draft' }) === null, 'contractor links evidence')
   const link = last.reqs.find((r) => r.id === 'REQ-008')!.evidence[0]
@@ -165,8 +225,21 @@ try {
   ok(await act(`/reqs/REQ-008/evidence/${link.id}/assess`, { accept: false, reason: 'draft only' }) === null, 'reviewer rejects evidence')
   ok(await act('/reqs/REQ-003/applicability', { applicability: 'Required', rationale: '' }) !== null, 'applicability needs rationale')
   ok(await act('/reqs/REQ-003/applicability', { applicability: 'Required', rationale: 'IN scope confirmed' }) === null, 'applicability decided')
+  // one decision for several requirements (a freshly applied market pack), audited per requirement
+  ok(await act('/reqs/applicability', { ids: ['REQ-004', 'REQ-005'], applicability: 'Required', rationale: '' }) !== null, 'a decision for several requirements still needs a rationale')
+  ok(await act('/reqs/applicability', { ids: ['REQ-004', 'REQ-999'], applicability: 'Required', rationale: 'in scope' }) !== null, 'an unknown requirement rejects the whole batch')
+  const beforeBulk = last.reqs.filter((r) => ['REQ-004', 'REQ-005'].includes(r.id)).map((r) => r.applicability)
+  ok(await act('/reqs/applicability', { ids: ['REQ-004', 'REQ-005', 'REQ-004'], applicability: 'Not applicable', rationale: 'Single-storey layout: no interstitial plant room in this project.' }) === null, 'reviewer decides several requirements at once')
+  const afterBulk = last.reqs.filter((r) => ['REQ-004', 'REQ-005'].includes(r.id))
+  ok(afterBulk.every((r) => r.applicability === 'Not applicable' && r.rationale.startsWith('Single-storey layout')), `both requirements carry the decision and its rationale (was ${beforeBulk.join(', ')})`)
+  const bulkAudit = last.audit.filter((a) => /decided together/.test(a.text))
+  ok(bulkAudit.length === 2 && bulkAudit.every((a) => /REQ-00[45]/.test(a.text) && /Rationale: Single-storey/.test(a.text)), 'every requirement of the batch keeps its own audit entry with old -> new and the rationale')
+  as('Contractor')
+  ok(await act('/reqs/applicability', { ids: ['REQ-004'], applicability: 'Required', rationale: 'mine now' }) !== null, 'a contractor cannot decide applicability for a batch either')
+  as('Consultant')
 
   // ---- NCR rules
+  section('OQ-API-10')
   ok(await act('/ncrs', { title: 'x', description: '', system: 'PW-001', severity: 'Major', due: '2026-10-30' }) !== null, 'NCR needs a description')
   ok(await act('/ncrs', { title: 'Gasket wrong grade', description: 'EPDM specified, found silicone', system: 'PW-001', severity: 'Critical', due: '2026-10-30' }) === null, 'consultant raises a Critical NCR')
   const nid = last.ncrs[last.ncrs.length - 1].id
@@ -186,6 +259,7 @@ try {
   ok(await act('/ncrs/NCR-002/reopen', { reason: 'x' }) !== null, 'contractor cannot reopen')
 
   // ---- risk rules
+  section('OQ-API-11')
   ok(await act('/risks', { title: 'r', detail: '', system: 'PW-001', likelihood: 4, impact: 5, owner: '', mitigation: '', due: '2026-11-01' }) !== null, 'risk needs owner + mitigation')
   ok(await act('/risks/RSK-001/status', { status: 'Closed', note: 'done' }) !== null, 'contractor cannot close a risk')
   as('Owner / QA')
@@ -193,6 +267,7 @@ try {
   ok(await act('/risks/RSK-001/status', { status: 'Accepted', note: 'Residual risk accepted by QA' }) === null, 'reviewer accepts a risk with a note')
 
   // ---- RFIs, inspections, changes, regulatory update, snapshot
+  section('OQ-API-12')
   as('Contractor')
   ok(await act('/rfis', { title: 'Confirm valve type', discipline: 'Piping & Utilities', system: 'PW-001', due: '2026-10-25' }) === null && last.rfis.at(-1)!.id === 'RFI-003', 'contractor raises RFI-003')
   ok(await act('/rfis/RFI-003/answer', { response: 'x' }) !== null, 'contractor cannot answer an RFI')
@@ -216,6 +291,7 @@ try {
   ok(await act('/snapshots') === null && last.snapshots[0].id === 'AUD-001' && last.snapshots[0].rows.length > 0, 'audit snapshot frozen')
 
   // ---- reminders are sent by reviewers; simulation endpoints are gone
+  section('OQ-API-13')
   as('Contractor')
   ok(await act('/reminders/send') !== null, 'contractor cannot send reminders')
   as('Consultant')
@@ -225,12 +301,14 @@ try {
   as('Owner / QA')
 
   // ---- notifications are per user
+  section('OQ-API-14')
   const unread = (p: ProjectData) => p.events.filter((e) => !e.read).length
   ok(await act('/notices/read-all') === null && unread(last) === 0, 'Owner / QA marks all read')
   as('Consultant')
   ok(unread(await refresh()) > 0, 'read state is per user (Consultant still has unread)')
 
   // ---- audit trail is server-side and attributed
+  section('OQ-API-15')
   const audit = await call('GET', `${P}/audit?limit=5`, undefined, tokens.Consultant)
   ok(audit.json.events.length === 5 && audit.json.events.every((e: any) => e.user && e.requestId), 'audit entries carry user identity and request id')
   const csv = await call('GET', `${P}/audit?format=csv`, undefined, tokens.Consultant)
@@ -245,6 +323,7 @@ try {
   const QA = tokens['Owner / QA']
 
   // ---- sign-in limiter + security log
+  section('OQ-API-16')
   for (let i = 0; i < 5; i++) await login('nobody@qualigrafo.test', 'wrong-password-1')
   const locked = await login('nobody@qualigrafo.test', 'wrong-password-1')
   ok(locked.status === 429 && /Too many failed sign-in attempts/.test(locked.json.error), '6th failed sign-in for the same account is locked out (429)')
@@ -254,6 +333,7 @@ try {
   ok((await get('/admin/users', tokens.Consultant)).status === 403, 'non-administrators cannot open user administration')
 
   // ---- vendor isolation (AirCo-scoped Contractor)
+  section('OQ-API-17')
   const vendor = (await login('vendor@qualigrafo.test', PASSWORD)).json.token as string
   const vp = (await get(P, vendor)).json
   ok(vp.scope === 'AirCo' && vp.project.docs.length > 0 && vp.project.docs.every((d: any) => d.owner === 'AirCo'), 'vendor sees only its own company documents')
@@ -279,6 +359,7 @@ try {
   ok(vp2.audit.length > 0 && vp2.audit.every((a: any) => a.user === 'Demo Vendor (AirCo)'), 'vendor audit view lists only its own actions')
 
   // ---- user administration, temporary passwords, forced change, token revocation
+  section('OQ-API-18')
   const created = await send('POST', '/admin/users', { email: 'new.engineer.voltco@qualigrafo.test', name: 'New Engineer', company: 'VoltCo' }, QA)
   ok(created.status === 201 && /^[A-Za-z]{5}-\d{4}-[A-Za-z]{4}$/.test(created.json.tempPassword), 'admin creates a user with a one-time temporary password')
   ok((await send('POST', '/admin/users', { email: 'NEW.engineer.voltco@qualigrafo.test', name: 'Dup' }, QA)).status === 422, 'duplicate email rejected (case-insensitive)')
@@ -317,6 +398,7 @@ try {
   ok(['user.created', 'password.changed', 'password.reset', 'user.deactivated', 'membership.set', 'membership.removed'].every((t) => types.includes(t)), 'every administrative action is in the security log')
 
   // ======================================================== production step 2: project registers
+  section('OQ-API-19')
   const reg = (who: Role, method: string, path: string, body?: unknown) => call(method, P + path, body, tokens[who])
   const proj = async () => (await get(P, QA)).json.project as ProjectData
 
@@ -373,6 +455,7 @@ try {
   ok((await get('/admin/projects', QA)).json.projects.find((p: any) => p.code === 'PRJ-026').companies.includes('Delta Valves'), 'admin sees each project\'s companies for scoping')
 
   // ======================================================== production step 3: project lifecycle + team
+  section('OQ-API-20')
   const ids: Record<string, string> = {}
   for (const r of Object.keys(EMAIL) as Role[]) ids[r] = (await get('/auth/me', tokens[r])).json.user.id
   ids.Vendor = (await get('/auth/me', vendor)).json.user.id
@@ -433,6 +516,7 @@ try {
   ok((await call('POST', `${NP}/systems`, { tag: 'GR-01', name: 'Granulator', discipline: 'Process Equipment' }, tokens.Consultant)).status === 200, 'restored project accepts changes again')
 
   // ======================================================== step 3b: drawing comments + Revit connector
+  section('OQ-API-21')
   const pr3 = () => get(P, QA).then((r) => r.json.project as ProjectData)
   const pin = async (code: string) => (await pr3()).pins.find((x) => x.id === code)!
   // drawing placement: DOC-012 R00 carries the vendor's uploaded PDF
@@ -504,6 +588,7 @@ try {
   ok((await call('DELETE', `${P}/connector-tokens/${tokId}`, undefined, QA)).status === 200 && (await addin('GET', '/project')).status === 401, 'revoked token stops working immediately')
 
   // ======================================================== step 4: requirement library
+  section('OQ-API-22')
   const lib = (who: string, method: string, path: string, body?: unknown) => call(method, `/library${path}`, body, who)
   // a second library editor (administrator) for the four-eyes rule
   const rv = await send('POST', '/admin/users', { email: 'lib.reviewer@qualigrafo.test', name: 'Library Reviewer', isAdmin: true }, QA)
@@ -600,6 +685,7 @@ try {
   const secTypes = (await get('/admin/security-events?limit=100', QA)).json.events.map((e: any) => e.type)
   ok(['library.draft', 'library.edit', 'library.approved'].every((t) => secTypes.includes(t)), 'library changes are in the security log')
   // ======================================================== step 5: document register
+  section('OQ-API-23')
   {
     const C = tokens.Consultant, K = tokens.Contractor
     const proj = (r: { json: any }) => r.json.project as ProjectData
@@ -695,6 +781,7 @@ try {
     ok((await call('POST', `${P}/docs/import/preview`, { rows: [{ number: sd.number, due: '2027-02-01' }], source: 'x' }, C)).json.preview.errors[0]?.error.includes('superseded'), 'import does not update superseded documents')
   }
   // ======================================================== step 6: edit records, manual findings
+  section('OQ-API-24')
   {
     const C = tokens.Consultant, K = tokens.Contractor
     const proj = (r: { json: any }) => r.json.project as ProjectData
@@ -768,6 +855,7 @@ try {
     ok(pd.findings.find((f) => f.id === nf.id)!.status === 'Resolved', 'manual finding dispositioned like any other')
   }
   // ======================================================== phase 2 / step 1: e-signatures, session timeout
+  section('OQ-API-25')
   {
     const C = tokens.Consultant, K = tokens.Contractor
     loginLimiter.reset()
@@ -836,6 +924,7 @@ try {
     ok(tooLong.status === 401 && tooLong.json.error.includes('maximum length'), 'sessions end at the absolute maximum even when active')
   }
   // ======================================================== phase 2 / step 2: old -> new everywhere (C2)
+  section('OQ-API-26')
   {
     const C = tokens.Consultant
     const audit = async (n = 6) => (await call('GET', `${P}/audit?limit=${n}`, undefined, C)).json.events.map((e: any) => e.text).join('\n') as string
@@ -902,6 +991,7 @@ try {
     await call('PATCH', `/admin/users/${target.id}`, { name: target.name }, QA)
   }
   // ======================================================== phase 2 / step 3: PDF reports and transmittals (C4)
+  section('OQ-API-27')
   {
     const C = tokens.Consultant, K = tokens.Contractor
     const VND = (await call('POST', '/auth/login', { email: 'vendor@qualigrafo.test', password: PASSWORD })).json.token as string
@@ -960,6 +1050,548 @@ try {
     ok((await call('POST', `${P}/transmittals/${tr.id}/acknowledge`, { note: '' }, K)).status === 422, 'receipt is acknowledged once')
     const ap2 = await pdfGet(`/transmittals/${tr.id}/report.pdf`, C)
     ok(ap2.status === 200, 'acknowledged transmittal PDF')
+  }
+  // ======================================================== phase 2 / step 4: e-mail notifications and scheduled reminders (C5)
+  section('OQ-API-28')
+  {
+    const C = tokens.Consultant, K = tokens.Contractor
+    const mails = (where: object = {}) => prisma.emailMessage.findMany({ where, orderBy: { createdAt: 'asc' } })
+    const secEvents = async () => (await call('GET', '/admin/security-events?limit=30', undefined, QA)).json.events as any[]
+    const smtp = await fakeSmtp()
+
+    // security alerts queued by the earlier sections (always sent, whatever the preference)
+    const nu = await mails({ toEmail: 'new.engineer.voltco@qualigrafo.test', kind: 'Security' })
+    ok(nu.some((m) => m.subject.includes('Your Qualigrafo account')) && nu.some((m) => m.subject.includes('Your password was changed')), 'account holder is e-mailed about account creation and password change')
+    ok(!(await mails({ kind: 'Security' })).some((m) => /[A-Za-z]{5}-\d{4}-[A-Za-z]{4}/.test(m.body)), 'temporary passwords are never e-mailed')
+    ok((await mails({ toEmail: EMAIL.Contractor, subject: { contains: 'Electronic signing blocked' } })).length === 1, 'one alert when electronic signing locks after wrong passwords')
+    ok((await mails({ toEmail: 'nobody@qualigrafo.test' })).length === 0, 'no e-mail for sign-in attempts on unknown accounts')
+
+    // preferences
+    ok((await call('GET', '/auth/me', undefined, K)).json.user.emailPref === 'Immediate', 'e-mail notifications default to Immediate')
+    ok((await call('PUT', '/auth/preferences', { emailPref: 'Hourly' }, K)).status === 400, 'unknown preference rejected')
+
+    // immediate e-mail for a targeted notice: not to the actor, vendor accounts only for their company
+    await prisma.emailMessage.deleteMany()
+    let pd = (await call('GET', P, undefined, C)).json.project as ProjectData
+    const disc = pd.disciplines.find((d) => d.active)!.name
+    const other = pd.companies.find((c) => c.active && c.name !== 'AirCo')!.name
+    const mk = (title: string, owner: string) => call('POST', `${P}/docs`, { title, number: '', discipline: disc, system: '', owner, due: '2026-01-01', critical: false }, C)
+    pd = (await mk('Mail test AirCo datasheet', 'AirCo')).json.project
+    const airDoc = pd.docs.find((d) => d.title === 'Mail test AirCo datasheet')!
+    let out = await mails()
+    ok(out.some((m) => m.toEmail === EMAIL.Contractor && m.kind === 'Assignment' && m.subject.startsWith('[PRJ-026]') && m.body.includes(`${airDoc.id} Mail test AirCo datasheet registered`)), 'the contractor is e-mailed about a document assigned to them')
+    ok(out.some((m) => m.toEmail === 'vendor@qualigrafo.test' && m.body.includes('#/p/PRJ-026/documents')), 'the vendor of that company is e-mailed, with a link to the page')
+    ok(!out.some((m) => m.toEmail === EMAIL.Consultant), 'the person acting is not e-mailed about their own action')
+    await prisma.emailMessage.deleteMany()
+    await mk('Mail test other company', other)
+    out = await mails()
+    ok(out.some((m) => m.toEmail === EMAIL.Contractor) && !out.some((m) => m.toEmail === 'vendor@qualigrafo.test'), "vendor accounts get no e-mail about another company's documents")
+    await call('PUT', '/auth/preferences', { emailPref: 'Off' }, K)
+    await prisma.emailMessage.deleteMany()
+    await mk('Mail test pref off', other)
+    ok((await mails({ toEmail: EMAIL.Contractor })).length === 0, 'no work e-mails when notifications are Off')
+    await call('PUT', '/auth/preferences', { emailPref: 'Immediate' }, K)
+    await mk('Mail test delivery', other)
+    ok((await secEvents()).some((e) => e.type === 'user.updated' && e.detail === 'e-mail notifications "Off" -> "Immediate"'), 'preference change logged old -> new')
+
+    // delivery: without SMTP the outbox records "Not sent"
+    ok(!config.SMTP_HOST, 'test run starts without SMTP configuration')
+    let d = await deliverDue()
+    out = await mails()
+    ok(d.notSent > 0 && out.every((m) => m.status === 'Not sent' && !!m.lastError?.includes('not configured')), 'without SMTP e-mails are recorded as Not sent')
+    ok((await call('POST', `/admin/emails/${out[0].id}/retry`, {}, QA)).status === 422, 'retry refused while delivery is not configured')
+    // ... with SMTP they are delivered
+    Object.assign(config, { SMTP_HOST: '127.0.0.1', SMTP_PORT: smtp.port, MAIL_FROM: 'Qualigrafo <noreply@qualigrafo.test>' })
+    resetTransport()
+    ok((await call('GET', '/admin/notifications', undefined, C)).status === 403, 'only administrators see e-mail and reminder settings')
+    const info = (await call('GET', '/admin/notifications', undefined, QA)).json
+    ok(info.delivery.configured && info.delivery.host === '127.0.0.1' && !JSON.stringify(info.delivery).toLowerCase().includes('pass') && info.settings.enabled === false, 'delivery status shown without secrets; fixtures keep the daily run off')
+    ok((await call('POST', `/admin/emails/${out[0].id}/retry`, {}, QA)).json.email?.status === 'Queued', 'administrator re-queues an unsent e-mail')
+    d = await deliverDue()
+    let m0 = (await mails({ id: out[0].id }))[0]
+    ok(d.sent === 1 && m0.status === 'Sent' && !!m0.sentAt && smtp.mails.length === 1, 'queued e-mail delivered over SMTP')
+    ok(smtp.mails[0]?.to.some((t) => t.includes(m0.toEmail)) && smtp.mails[0].data.includes('X-Qualigrafo-Kind: Assignment') && /Subject: \[PRJ-026\]/.test(smtp.mails[0].data), 'the SMTP server received recipient, subject and kind header')
+    ok((await call('POST', '/admin/notifications/test', {}, QA)).status === 200 && (await deliverDue()).sent === 1 && !!smtp.mails[1]?.to.some((t) => t.includes(EMAIL['Owner / QA'])), 'test e-mail goes to the administrator')
+    // ... temporary failures are retried, then marked Failed
+    smtp.refuse = true
+    await call('POST', '/admin/notifications/test', {}, QA)
+    d = await deliverDue()
+    m0 = (await mails({ kind: 'Test', status: { not: 'Sent' } }))[0]
+    ok(d.retry === 1 && m0?.status === 'Queued' && m0.attempts === 1 && !!m0.lastError?.includes('451') && m0.nextAttemptAt > new Date(), 'a refused e-mail is retried later with the error kept')
+    await prisma.emailMessage.update({ where: { id: m0.id }, data: { attempts: MAX_ATTEMPTS - 1, nextAttemptAt: new Date(Date.now() - 1000) } })
+    d = await deliverDue()
+    ok(d.failed === 1 && (await mails({ id: m0.id }))[0].status === 'Failed', `after ${MAX_ATTEMPTS} attempts the e-mail is Failed`)
+    ok((await call('GET', '/admin/emails?status=Failed', undefined, QA)).json.emails.some((e: any) => e.id === m0.id && e.error.includes('451')), 'outbox lists failed e-mails with the error')
+    smtp.refuse = false
+    await call('POST', `/admin/emails/${m0.id}/retry`, {}, QA)
+    ok((await deliverDue()).sent === 1 && (await mails({ id: m0.id }))[0].status === 'Sent', 'retried e-mail delivered')
+    ok((await call('POST', `/admin/emails/${m0.id}/retry`, {}, QA)).status === 422, 'a sent e-mail cannot be retried')
+    ok((await secEvents()).some((e) => e.type === 'email.retried'), 'retries are in the security log')
+
+    // reminder schedule settings
+    ok((await call('PUT', '/admin/notifications/settings', { enabled: true, time: '25:00', dueSoonDays: 3 }, QA)).status === 400, 'invalid reminder time rejected')
+    ok((await call('PUT', '/admin/notifications/settings', { enabled: true, time: '08:00', dueSoonDays: 99 }, QA)).status === 400, 'due-soon window limited to 14 days')
+    ok((await call('PUT', '/admin/notifications/settings', { enabled: true, time: '00:00', dueSoonDays: 3 }, C)).status === 403, 'only administrators change the schedule')
+    ok((await call('PUT', '/admin/notifications/settings', { enabled: false, time: '00:00', dueSoonDays: 3 }, QA)).json.settings?.time === '00:00', 'schedule saved')
+    ok((await secEvents()).some((e) => e.type === 'settings.updated' && e.detail.includes('time "08:00" -> "00:00"')), 'schedule change logged old -> new')
+    ok((await maybeRunDaily()) === null, 'no scheduled run while daily reminders are off')
+
+    // preferences for the run: Consultant daily digest, Owner / QA off
+    await call('PUT', '/auth/preferences', { emailPref: 'Daily digest' }, C)
+    await call('PUT', '/auth/preferences', { emailPref: 'Off' }, QA)
+    await prisma.emailMessage.deleteMany()
+    // a notice for the Consultant (submission routed for review) waits for the digest instead of going out immediately
+    as('Contractor')
+    ok(await upload(airDoc.id, 'mail-test.pdf', '%PDF-1.4 mail test') === null && await act(`/docs/${airDoc.id}/submit`, { note: 'For the digest' }) === null, 'document submitted for review')
+    ok((await mails({ toEmail: EMAIL.Consultant })).length === 0, 'digest users get no immediate e-mail')
+
+    await call('PUT', '/admin/notifications/settings', { enabled: true, time: '00:00', dueSoonDays: 3 }, QA)
+    const run = await maybeRunDaily()
+    ok(!!run && run.trigger === 'Scheduled' && run.status === 'Done' && run.items > 0 && run.emails > 0, `scheduled daily run: ${run?.items} item(s), ${run?.emails} e-mail(s)`)
+    ok((await maybeRunDaily()) === null, 'the scheduled run happens once per day')
+    pd = (await call('GET', P, undefined, K)).json.project
+    ok(pd.events.some((e) => e.category === 'Reminder' && e.forRole === 'Contractor' && e.text.startsWith('Daily reminder:')), 'in-app daily reminder for the Contractor')
+    ok(pd.events.some((e) => e.category === 'Reminder' && e.forRole === 'Consultant' && e.text.includes(airDoc.id)), 'in-app daily reminder for the Consultant names the waiting sign-off')
+    ok((await prisma.auditEvent.count({ where: { project: { code: 'PRJ-026' }, role: 'System', text: { startsWith: 'Reminders (daily run' } } })) === 1, 'the run is in the project audit trail')
+    out = await mails()
+    const cm = out.find((m) => m.toEmail === EMAIL.Contractor)
+    ok(cm?.kind === 'Reminder' && cm.subject.includes('Daily reminder') && cm.body.includes('Overdue:') && cm.body.includes('PRJ-026'), 'the contractor gets one reminder e-mail grouping overdue items per project')
+    ok(out.filter((m) => m.toEmail === EMAIL.Contractor).length === 1, 'one e-mail per person per run, across all projects')
+    const vm = out.find((m) => m.toEmail === 'vendor@qualigrafo.test')
+    const vCodes = [...(vm?.body ?? '').matchAll(/• (DOC-\d+)/g)].map((x) => x[1])
+    const docsAll = (await call('GET', P, undefined, QA)).json.project.docs as ProjectData['docs']
+    ok(!!vm && vCodes.length > 0 && vCodes.every((c) => docsAll.find((x) => x.id === c)?.owner === 'AirCo'), "the vendor's reminder lists only AirCo documents")
+    const dm = out.find((m) => m.toEmail === EMAIL.Consultant)
+    ok(dm?.kind === 'Digest' && dm.body.includes('Waiting for your sign-off') && dm.body.includes(`${airDoc.id} R`) && dm.body.includes('Notifications for you:') && dm.body.includes('submitted. Signature request routed'), 'digest users get reminders and their notifications in one daily e-mail')
+    ok(!out.some((m) => m.toEmail === EMAIL['Owner / QA']), 'people with notifications Off get no reminder e-mail')
+    ok(out.filter((m) => !/access review/i.test(m.subject)).every((m) => m.body.includes('never approves')), 'every reminder states that it approves nothing')
+
+    // manual run by an administrator; projects with the reminder rule off are skipped
+    await call('PUT', `${P}/settings/automation`, { key: 'reminders', value: false }, QA)
+    const count = () => prisma.auditEvent.count({ where: { project: { code: 'PRJ-026' }, text: { startsWith: 'Reminders (' } } })
+    const before = await count()
+    const manual = (await call('POST', '/admin/notifications/run', {}, QA)).json.run
+    ok(manual?.trigger === 'Manual' && manual.status === 'Done' && manual.startedBy === (await call('GET', '/auth/me', undefined, QA)).json.user.name, 'administrator runs the reminders on demand')
+    ok((await count()) === before, 'projects with the reminder rule off are skipped')
+    ok((await call('POST', '/admin/notifications/run', {}, C)).status === 403, 'only administrators run reminders on demand')
+    const runs = (await call('GET', '/admin/notifications', undefined, QA)).json.runs
+    ok(runs.length >= 2 && runs[0].trigger === 'Manual' && runs.some((r: any) => r.trigger === 'Scheduled'), 'run history lists scheduled and manual runs')
+    await call('PUT', `${P}/settings/automation`, { key: 'reminders', value: true }, QA)
+
+    // restore
+    await call('PUT', '/auth/preferences', { emailPref: 'Immediate' }, C)
+    await call('PUT', '/auth/preferences', { emailPref: 'Immediate' }, QA)
+    await call('PUT', '/admin/notifications/settings', { enabled: false, time: '08:00', dueSoonDays: 3 }, QA)
+    // "Send reminders now" on the project: one e-mail per waiting signer, never to the sender
+    await prisma.emailMessage.deleteMany()
+    ok((await call('POST', `${P}/reminders/send`, {}, QA)).status === 200, 'Owner / QA sends reminders now')
+    const rem = await mails({ kind: 'Reminder' })
+    ok(rem.filter((m) => m.toEmail === EMAIL.Consultant).length === 1 && rem.find((m) => m.toEmail === EMAIL.Consultant)!.body.includes(`${airDoc.id} R`) && !rem.some((m) => m.toEmail === EMAIL['Owner / QA']), 'the waiting signer gets one e-mail listing the documents; the sender gets none')
+    Object.assign(config, { SMTP_HOST: '', MAIL_FROM: '' })
+    resetTransport()
+    smtp.close()
+  }
+  // ======================================================== phase 2 / step 5: periodic user-access review (C6)
+  section('OQ-API-29')
+  {
+    const C = tokens.Consultant
+    const VEMAIL = 'vendor@qualigrafo.test'
+    const qa = (method: string, path: string, body?: unknown) => call(method, path, body, QA)
+    const secEvents = async () => (await qa('GET', '/admin/security-events?limit=40')).json.events as any[]
+
+    let ov = (await qa('GET', '/admin/access-reviews')).json
+    ok(ov.schedule.due === true && ov.schedule.intervalDays === 90 && !ov.schedule.lastCompleted && !ov.schedule.open, 'the first access review is due at once (default every 90 days)')
+    ok((await call('GET', '/admin/access-reviews', undefined, C)).status === 403, 'only administrators open access reviews')
+    ok((await qa('PUT', '/admin/access-reviews/settings', { intervalDays: 10 })).status === 400, 'review interval limited to 30–365 days')
+    ok((await qa('PUT', '/admin/access-reviews/settings', { intervalDays: 180 })).json.schedule.intervalDays === 180, 'review interval saved')
+    ok((await secEvents()).some((e) => e.type === 'settings.updated' && e.detail === 'Access review interval "90 days" -> "180 days"'), 'interval change logged old -> new')
+
+    // start: snapshot of every active account with findings
+    await prisma.user.update({ where: { email: VEMAIL }, data: { lastLoginAt: new Date(Date.now() - 200 * 86_400_000) } })
+    const active = await prisma.user.count({ where: { active: true } })
+    const st = await qa('POST', '/admin/access-reviews', {})
+    let rv = st.json.review
+    ok(st.status === 201 && rv.code === 'AR-001' && rv.status === 'Open' && rv.total === active && rv.decided === 0, `AR-001 started with ${rv.total} active account(s)`)
+    ok((await qa('POST', '/admin/access-reviews', {})).status === 422, 'only one review can be open at a time')
+    ok((await call('POST', '/admin/access-reviews', {}, C)).status === 403, 'only administrators start a review')
+    const item = (email: string) => rv.items.find((i: any) => i.email === email)
+    ok(item(VEMAIL).flags.includes('No sign-in for 90+ days') && item(VEMAIL).memberships.some((m: any) => m.scope === 'AirCo'), 'dormant account flagged; vendor scope captured')
+    ok(item(EMAIL['Owner / QA']).flags.includes('Administrator') && item(EMAIL.Consultant).memberships.length === await prisma.membership.count({ where: { user: { email: EMAIL.Consultant } } }), 'administrator rights flagged; project roles captured')
+    ok((await qa('GET', '/admin/access-reviews')).json.schedule.open?.code === 'AR-001', 'schedule shows the open review')
+
+    // completion needs every decision
+    ok(/still need a decision/.test((await qa('POST', `/admin/access-reviews/${rv.id}/complete`, { conclusion: 'x', password: PASSWORD })).json.error), 'a review cannot be completed with undecided accounts')
+
+    // decisions
+    const dec = (email: string, decision: string, note = '') => qa('PUT', `/admin/access-reviews/${rv.id}/items/${item(email).id}`, { decision, note })
+    ok((await dec(EMAIL.Contractor, 'Keep with changes')).status === 422, 'keep-with-changes needs a description of the change')
+    ok((await dec(EMAIL['Owner / QA'], 'Disable account', 'test')).json.error === 'You cannot disable your own account.', 'the reviewer cannot disable their own account')
+    ok((await dec(VEMAIL, 'Disable account')).status === 422, 'disabling needs a reason')
+    const dv = await dec(VEMAIL, 'Disable account', 'No longer working on AirCo package')
+    ok(dv.status === 200 && dv.json.review.disabled === 1, 'vendor account disabled through the review')
+    ok(!(await prisma.user.findUniqueOrThrow({ where: { email: VEMAIL } })).active && (await call('POST', '/auth/login', { email: VEMAIL, password: PASSWORD })).status === 401, 'the disabled account can no longer sign in')
+    ok((await prisma.emailMessage.count({ where: { toEmail: VEMAIL, subject: { contains: 'Your account was disabled' } } })) === 1, 'the account holder is e-mailed')
+    ok((await dec(VEMAIL, 'Keep')).status === 422, 'a disable decision cannot be silently reversed in the review')
+    ok((await dec(EMAIL.Contractor, 'Keep with changes', 'Removed PRJ-018 access under Users')).status === 200, 'keep with changes recorded')
+    for (const i of rv.items) if (!['Disable account', 'Keep with changes'].includes(item(i.email).decision ?? '') && i.email !== VEMAIL && i.email !== EMAIL.Contractor) rv = (await dec(i.email, 'Keep')).json.review
+    ok(rv.decided === rv.total && rv.items.find((i: any) => i.email === EMAIL['Owner / QA']).selfReview === true, 'all accounts decided; own account marked as self-review')
+    const sec = await secEvents()
+    ok(sec.some((e) => e.type === 'access.review.decided' && e.detail.includes('(self-review)')) && sec.some((e) => e.type === 'user.deactivated' && e.detail.includes('access review AR-001')), 'decisions and the deactivation are in the security log')
+
+    // completion = electronic signature
+    ok(/Password is incorrect/.test((await qa('POST', `/admin/access-reviews/${rv.id}/complete`, { conclusion: 'Access appropriate', password: 'wrong-password-1' })).json.error) && (await qa('GET', `/admin/access-reviews/${rv.id}`)).json.review.status === 'Open', 'wrong password: nothing signed')
+    ok((await qa('POST', `/admin/access-reviews/${rv.id}/complete`, { conclusion: ' ', password: PASSWORD })).status === 422, 'a conclusion is required')
+    const cp = await qa('POST', `/admin/access-reviews/${rv.id}/complete`, { conclusion: 'All remaining access is appropriate.', password: PASSWORD })
+    rv = cp.json.review
+    ok(cp.status === 200 && rv.status === 'Completed' && rv.signature === 'Valid' && /^[0-9a-f]{64}$/.test(rv.sigHash) && rv.meaning.startsWith('Access review completed'), 'review completed with a valid electronic signature and meaning')
+    ok((await dec(EMAIL.Consultant, 'Keep')).status === 422, 'a completed review cannot change')
+    const row = await prisma.accessReviewItem.findFirstOrThrow({ where: { reviewId: rv.id, email: EMAIL.Contractor } })
+    await prisma.accessReviewItem.update({ where: { id: row.id }, data: { note: 'edited outside the app' } })
+    ok((await qa('GET', `/admin/access-reviews/${rv.id}`)).json.review.signature === 'Altered', 'a decision changed outside the application breaks the signature')
+    await prisma.accessReviewItem.update({ where: { id: row.id }, data: { note: row.note } })
+    ok((await secEvents()).some((e) => e.type === 'access.review.completed' && e.detail.includes('1 disabled')), 'completion in the security log with the outcome')
+
+    // report
+    const pr = await fetch(`${base}/admin/access-reviews/${rv.id}/report.pdf`, { headers: { authorization: `Bearer ${QA}` } })
+    const buf = Buffer.from(await pr.arrayBuffer())
+    if (process.env.REPORT_OUT) (await import('node:fs')).writeFileSync(`${process.env.REPORT_OUT}/access-review.pdf`, buf)
+    ok(pr.status === 200 && buf.subarray(0, 5).toString() === '%PDF-' && pr.headers.get('x-content-sha256') === createHash('sha256').update(buf).digest('hex'), 'access review PDF with SHA-256 header')
+    ok((await secEvents()).some((e) => e.type === 'report.generated' && e.detail.includes(pr.headers.get('x-content-sha256')!)), 'report generation logged with its SHA-256')
+    ok((await call('GET', `/admin/access-reviews/${rv.id}/report.pdf`, undefined, C)).status === 403, 'only administrators download the report')
+
+    // schedule after completion, reminder when due again
+    ov = (await qa('GET', '/admin/access-reviews')).json
+    ok(ov.schedule.lastCompleted?.code === 'AR-001' && ov.schedule.due === false && ov.reviews[0].status === 'Completed', 'next review not due until the interval has passed')
+    await prisma.accessReview.update({ where: { id: rv.id }, data: { completedAt: new Date(Date.now() - 200 * 86_400_000) } })
+    ok((await qa('GET', '/admin/access-reviews')).json.schedule.due === true, 'review due again after the interval')
+    await prisma.emailMessage.deleteMany()
+    await runReminders({ trigger: 'Manual', startedBy: 'API test' })
+    const due = await prisma.emailMessage.findMany({ where: { subject: { contains: 'User-access review due' } } })
+    ok(due.some((m) => m.toEmail === EMAIL['Owner / QA']) && !due.some((m) => m.toEmail === EMAIL.Consultant), 'the daily run reminds administrators (only) that a review is due')
+
+    // cancel
+    const r2 = (await qa('POST', '/admin/access-reviews', {})).json.review
+    ok(r2.code === 'AR-002' && !r2.items.some((i: any) => i.email === VEMAIL), 'AR-002 lists only active accounts')
+    ok((await qa('POST', `/admin/access-reviews/${r2.id}/cancel`, { reason: '' })).status === 422, 'cancelling needs a reason')
+    ok((await qa('POST', `/admin/access-reviews/${r2.id}/cancel`, { reason: 'Started by mistake' })).json.review.status === 'Cancelled', 'review cancelled with a reason')
+
+    // restore
+    const v = await prisma.user.findUniqueOrThrow({ where: { email: VEMAIL } })
+    await qa('PATCH', `/admin/users/${v.id}`, { active: true })
+    await qa('PUT', '/admin/access-reviews/settings', { intervalDays: 90 })
+  }
+  // ======================================================== phase 2 / step 6: installation check and validation catalogue (C7)
+  section('OQ-API-30')
+  {
+    const C = tokens.Consultant
+    // catalogue: every requirement traced, every test case verifies something, risk method as specified
+    ok(catalogueProblems().length === 0, `validation catalogue consistent${catalogueProblems().length ? ': ' + catalogueProblems().join('; ') : ''}`)
+    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 34, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
+    ok(riskPriority('High', 'High', 'Low') === 'High' && riskPriority('High', 'Medium', 'Medium') === 'High' && riskPriority('Medium', 'Medium', 'High') === 'Low' && riskPriority('Low', 'Low', 'Low') === 'Medium', 'GAMP 5 risk priority: class from severity x probability, priority from class x detectability')
+    const t = traceability(null)
+    ok(t.every((u) => u.verdict === 'Not executed' || u.verdict === 'Procedural') && t.length === URS.length, 'traceability without results: Not executed / Procedural, never Pass')
+    const src = (await import('node:fs')).readFileSync(new URL(import.meta.url), 'utf8')
+    ok(OQ_CASES.filter((c) => c.suite === 'api').every((c) => src.includes(`section('${c.id}')`)), 'every API test case has its section in this suite')
+
+    // installation check
+    ok((await call('POST', '/admin/validation/iq', {}, C)).status === 403, 'only administrators run the installation check')
+    const r = await call('POST', '/admin/validation/iq', {}, QA)
+    const iq = r.json.iq
+    const chk = (id: string) => iq.checks.find((c: any) => c.id === id)
+    ok(r.status === 200 && iq.checks.length >= 15 && /^[0-9a-f]{64}$/.test(iq.fingerprint), `installation check executed: ${iq.checks.length} checks, overall ${iq.overall}`)
+    ok(chk('IQ-05').status === 'Pass' && /applied/.test(chk('IQ-05').actual), 'all database migrations applied')
+    ok(chk('IQ-04').status === 'Pass' && chk('IQ-11').status === 'Pass' && chk('IQ-12').status === 'Pass' && chk('IQ-06').status === 'Pass', 'database, file storage, administrator and dependencies pass')
+    ok(chk('IQ-13').status === 'Warning' && chk('IQ-14').status === 'Warning', 'test accounts and missing SMTP are warnings outside production')
+    ok(iq.overall === 'Pass', 'installation check passes in the test environment')
+    const again = await runIq('API test')
+    ok(again.fingerprint === iq.fingerprint, 'code fingerprint is stable')
+    const v = (await call('GET', '/admin/validation', undefined, QA)).json
+    ok(v.iq?.executedAt === iq.executedAt && v.version === iq.version && v.catalogue.urs === URS.length && Array.isArray(v.packs), 'latest installation check, version and validation packs listed')
+    ok((await call('GET', '/admin/validation', undefined, C)).status === 403, 'only administrators see system & validation')
+    const pr = await fetch(`${base}/admin/validation/iq.pdf`, { headers: { authorization: `Bearer ${QA}` } })
+    const buf = Buffer.from(await pr.arrayBuffer())
+    if (process.env.REPORT_OUT) (await import('node:fs')).writeFileSync(`${process.env.REPORT_OUT}/iq.pdf`, buf)
+    ok(pr.status === 200 && buf.subarray(0, 5).toString() === '%PDF-' && pr.headers.get('x-content-sha256') === createHash('sha256').update(buf).digest('hex'), 'IQ record PDF with SHA-256 header')
+    const sec = (await call('GET', '/admin/security-events?limit=10', undefined, QA)).json.events
+    ok(sec.some((e: any) => e.type === 'iq.executed' && e.detail.includes(iq.fingerprint)) && sec.some((e: any) => e.type === 'report.generated' && e.detail.startsWith('Installation qualification record')), 'installation check and its PDF in the security log')
+    ok((await call('GET', '/admin/validation/packs/..%2F..%2Fpackage.json', undefined, QA)).status === 404 && (await call('GET', '/admin/validation/packs/missing.pdf', undefined, QA)).status === 404, 'pack download refuses unknown names and path tricks')
+  }
+  // ======================================================== phase 3 / step 3: backups and tested restore (P3)
+  section('OQ-API-31')
+  {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const pg = (await import('pg')).default
+    const BK = await import('../src/services/backups.ts')
+    const C = tokens.Consultant
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qbk-'))
+    const savedDir = config.BACKUP_DIR
+    Object.assign(config, { BACKUP_DIR: path.join(tmp, 'sets') })
+    const ov = async () => (await call('GET', '/admin/backups', undefined, QA)).json
+    const waitIdle = async () => { for (let i = 0; i < 240 && (await ov()).busy; i++) await new Promise((r) => setTimeout(r, 250)) }
+    const sets = () => fs.existsSync(BK.backupDir()) ? fs.readdirSync(BK.backupDir()).sort() : []
+
+    let o = await ov()
+    ok((await call('GET', '/admin/backups', undefined, C)).status === 403, 'only administrators manage backups')
+    ok(o.tools.ok && /pg_dump/.test(o.tools.pgDump) && o.settings.enabled === false && o.settings.keep === 14, `backup tools usable (${o.tools.pgDump}); fixtures keep the schedule off`)
+    ok((await call('PUT', '/admin/backups/settings', { enabled: true, time: '2:00', keep: 14, verify: true }, QA)).status === 400 && (await call('PUT', '/admin/backups/settings', { enabled: true, time: '02:00', keep: 1, verify: true }, QA)).status === 400, 'schedule validated (HH:MM, keep 3–90)')
+    ok((await call('PUT', '/admin/backups/settings', { enabled: false, time: '02:30', keep: 14, verify: true }, QA)).json.settings.time === '02:30', 'schedule saved')
+
+    // back up now (background) -> done and verified by a test restore
+    ok((await call('POST', '/admin/backups', {}, QA)).status === 202, 'backup started')
+    await waitIdle()
+    o = await ov()
+    const b1 = o.runs[0]
+    ok(b1?.status === 'Done' && b1.verifyStatus === 'Verified' && b1.files > 0 && b1.sizeBytes > 0 && /^[0-9a-f]{64}$/.test(b1.manifestSha), `backup ${b1?.name} done: ${b1?.files} file(s), test restore ${b1?.verifyStatus}`)
+    const dir1 = path.join(BK.backupDir(), b1.name)
+    const m1 = JSON.parse(fs.readFileSync(path.join(dir1, 'manifest.json'), 'utf8'))
+    ok(m1.counts.User === await prisma.user.count() && m1.counts.StoredFile === await prisma.storedFile.count() && m1.migrations.length === fs.readdirSync('prisma/migrations').filter((d) => d.startsWith('2')).length, 'manifest: record counts and migration history of the snapshot')
+    ok(/Test restore into a temporary database/.test(b1.verifyDetail) && !(await (async () => { const c = new pg.Client({ connectionString: BK.libpqUrl(config.DATABASE_URL, 'postgres') }); await c.connect(); const n = (await c.query("SELECT count(*)::int n FROM pg_database WHERE datname LIKE 'qualigrafo_verify_%'")).rows[0].n; await c.end(); return n })()), 'test restore detail recorded; temporary database removed')
+    const sec = (await call('GET', '/admin/security-events?limit=10', undefined, QA)).json.events
+    ok(sec.some((e: any) => e.type === 'backup.created' && e.detail.includes(b1.manifestSha)) && sec.some((e: any) => e.type === 'backup.verified' && e.detail.includes('Verified')), 'backup and test restore in the security log')
+
+    // second backup hard-links unchanged files
+    const b2 = await BK.createBackup({ trigger: 'Manual', startedBy: 'API test' })
+    const f2 = (fs.readdirSync(path.join(BK.backupDir(), b2!.name, 'files'), { recursive: true }) as string[]).map((f) => path.join(BK.backupDir(), b2!.name, 'files', f)).find((f) => fs.statSync(f).isFile())!
+    ok(fs.statSync(f2).nlink >= 2, 'unchanged files are hard-linked to the previous set (no second copy)')
+
+    // tamper detection
+    const orig = fs.readFileSync(f2)
+    fs.unlinkSync(f2); fs.writeFileSync(f2, Buffer.concat([orig, Buffer.from('x')]))
+    let v = await BK.verifyBackup(b2!.id, 'API test')
+    ok(v.verifyStatus === 'Failed' && /damaged/.test(v.verifyDetail ?? ''), 'a changed file fails the verification')
+    ok((await prisma.emailMessage.count({ where: { subject: { contains: 'test restore FAILED' } } })) > 0, 'administrators are e-mailed about a failed test restore')
+    fs.writeFileSync(f2, orig)
+    const mf = path.join(BK.backupDir(), b2!.name, 'manifest.json')
+    const mtext = fs.readFileSync(mf, 'utf8')
+    fs.writeFileSync(mf, mtext.replace('"format": 1', '"format": 1 '))
+    v = await BK.verifyBackup(b2!.id, 'API test')
+    ok(v.verifyStatus === 'Failed' && /manifest/.test(v.verifyDetail ?? ''), 'a changed manifest fails the verification')
+    fs.writeFileSync(mf, mtext)
+    ok((await BK.verifyBackup(b2!.id, 'API test')).verifyStatus === 'Verified', 'the repaired set verifies again')
+
+    // disaster recovery: restore into another database and storage folder
+    const target = BK.libpqUrl(config.DATABASE_URL, 'qualigrafo_restore_test')
+    const store = path.join(tmp, 'restored-storage')
+    const rr = await BK.restoreBackup({ dir: dir1, databaseUrl: target, storageDir: store })
+    const restoredFiles = (fs.readdirSync(path.join(store, 'objects'), { recursive: true }) as string[]).filter((f) => /[0-9a-f]{64}$/.test(f)).length
+    ok(rr.counts.Document === m1.counts.Document && rr.counts.AuditEvent === m1.counts.AuditEvent && restoredFiles === m1.files.count, `restore into an empty database: ${rr.counts.Document} documents, ${rr.counts.AuditEvent} audit entries, ${restoredFiles} files`)
+    const rr2 = await BK.restoreBackup({ dir: dir1, databaseUrl: target, storageDir: store })
+    ok(rr2.counts.User === m1.counts.User && rr2.filesCopied === 0, 'restoring again over existing data replaces it (files already present are kept)')
+    { const c = new pg.Client({ connectionString: BK.libpqUrl(config.DATABASE_URL, 'postgres') }); await c.connect(); await c.query('DROP DATABASE IF EXISTS qualigrafo_restore_test WITH (FORCE)'); await c.end() }
+
+    // retention keeps the newest sets, never the last verified one
+    await call('PUT', '/admin/backups/settings', { enabled: false, time: '02:30', keep: 3, verify: false }, QA)
+    await BK.createBackup({ trigger: 'Manual', startedBy: 'API test' })
+    await BK.createBackup({ trigger: 'Manual', startedBy: 'API test' })
+    const kept = sets()
+    ok(kept.length === 3 && !kept.includes(b1.name) && kept.includes(b2!.name), `retention keeps the newest 3 sets incl. the newest verified one (${kept.length} kept)`)
+    ok((await prisma.backupRun.count({ where: { status: 'Deleted' } })) >= 1 && !fs.existsSync(path.join(BK.backupDir(), (await prisma.backupRun.findFirstOrThrow({ where: { status: 'Deleted' } })).name)), 'older sets are deleted from disk and marked Deleted')
+
+    // schedule: once per day
+    await call('PUT', '/admin/backups/settings', { enabled: true, time: '00:00', keep: 14, verify: true }, QA)
+    const s1 = await BK.maybeRunDailyBackup()
+    ok(!!s1 && s1.trigger === 'Scheduled' && (await prisma.backupRun.findUniqueOrThrow({ where: { id: s1.id } })).verifyStatus === 'Verified', 'scheduled backup runs and is verified')
+    ok((await BK.maybeRunDailyBackup()) === null, 'the scheduled backup runs once per day')
+
+    // installation check
+    const iq = (await call('POST', '/admin/validation/iq', {}, QA)).json.iq
+    ok(iq.checks.find((c: any) => c.id === 'IQ-17')?.status === 'Pass' && iq.checks.find((c: any) => c.id === 'IQ-18')?.status === 'Pass', 'installation check: backup tools and a verified backup less than 48 h old')
+
+    await call('PUT', '/admin/backups/settings', { enabled: false, time: '02:00', keep: 14, verify: true }, QA)
+    Object.assign(config, { BACKUP_DIR: savedDir })
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+  // ======================================================== phase 3 / step 4: portfolio summaries at scale (P1)
+  section('OQ-API-32')
+  {
+    const { loadProject } = await import('../src/services/loadProject.ts')
+    const { projectSummary } = await import('../src/domain/work.ts')
+    const VND = (await call('POST', '/auth/login', { email: 'vendor@qualigrafo.test', password: PASSWORD })).json.token as string
+    const who: [string, string, string][] = [['Consultant', EMAIL.Consultant, tokens.Consultant], ['Contractor', EMAIL.Contractor, tokens.Contractor], ['Owner / QA', EMAIL['Owner / QA'], QA], ['Vendor (AirCo)', 'vendor@qualigrafo.test', VND]]
+    for (const [label, email, token] of who) {
+      const got = (await call('GET', '/projects', undefined, token)).json.projects as any[]
+      const u = await prisma.user.findUniqueOrThrow({ where: { email } })
+      const ms = await prisma.membership.findMany({ where: { userId: u.id }, include: { project: true }, orderBy: { project: { code: 'asc' } } })
+      const expected = await Promise.all(ms.map(async (m) => {
+        const full = await loadProject(m.projectId, u.id, m.companyScope, m.role)
+        return JSON.parse(JSON.stringify(projectSummary(full, m.role as Role, m.companyScope, full.audit)))
+      }))
+      const diff = got.map((g, i) => JSON.stringify(g) === JSON.stringify(expected[i]) ? null : g.profile.id).filter(Boolean)
+      ok(got.length === ms.length && !diff.length, `${label}: ${got.length} portfolio summaries equal the full project computation${diff.length ? ` (differs: ${diff.join(', ')})` : ''}`)
+    }
+    const all = (await call('GET', '/projects', undefined, QA)).json.projects as any[]
+    const p26 = all.find((p) => p.profile.id === 'PRJ-026')
+    ok(['role', 'scope', 'profile', 'markets', 'baseline', 'stats', 'work', 'updates', 'deadlines', 'recent'].every((k) => k in p26) && !('docs' in p26) && !('audit' in p26) && !('events' in p26), 'summaries carry no full project data (no documents, audit trail or notifications)')
+    ok(p26.recent.length === 4 && p26.deadlines.length <= 7 && p26.stats.gates.length === 10 && p26.work.every((w: any) => w.project === 'PRJ-026'), 'summary: 4 latest audit entries, up to 7 deadlines, 10 gates, work items of this project')
+    const vend = (await call('GET', '/projects', undefined, VND)).json.projects.find((p: any) => p.profile.id === 'PRJ-026')
+    const docs = (await call('GET', '/projects/PRJ-026', undefined, QA)).json.project.docs as any[]
+    ok(vend.scope === 'AirCo' && vend.deadlines.every((d: any) => docs.find((x) => x.id === d.id)?.owner === 'AirCo') && vend.work.every((w: any) => w.detail.includes('AirCo')), "vendor summary contains only the company's documents")
+    ok(vend.stats.required === 0 && vend.updates.length === 0, 'vendor summary has no requirements or regulatory updates')
+  }
+
+  section('OQ-API-33')
+  {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const MON = await import('../src/services/monitoring.ts')
+    const LOG = await import('../src/lib/logger.ts')
+    const { errorHandler } = await import('../src/middleware/errors.ts')
+    const C = tokens.Consultant
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qmon-'))
+    const logs = path.join(tmp, 'logs')
+    Object.assign(config, { LOG_DIR: logs, LOG_LEVEL: 'info', METRICS_TOKEN: 'oq-metrics-token' })
+    MON.resetRequestStats()
+    MON.resetAlertThrottle()
+
+    // 1. structured request log, traceable by request id
+    const resp = await fetch(`${base}/reference/markets`)
+    const rid = resp.headers.get('x-request-id') ?? ''
+    await wait(50)
+    const reqLine = LOG.tailLog(50).find((l) => l.includes('request') && l.includes(rid))
+    ok(/^[0-9a-f-]{36}$/.test(rid) && !!reqLine && /status=200/.test(reqLine!) && /ms=\d+/.test(reqLine!) && /path=.*reference\/markets/.test(reqLine!), 'every request is logged with its request id, path, status and duration')
+    const target = LOG.logTarget()
+    ok(target.writable && target.file === path.join(logs, `qualigrafo-${new Date().toISOString().slice(0, 10)}.log`) && target.keepDays === config.LOG_KEEP_DAYS, `log file ${path.basename(target.file!)} writable, kept ${target.keepDays} days`)
+
+    // 2. JSON lines for a log collector; no credentials in the log
+    Object.assign(config, { LOG_FORMAT: 'json' })
+    await call('POST', '/auth/login', { email: EMAIL.Consultant, password: PASSWORD })
+    await wait(50)
+    const jsonLine = LOG.tailLog(10).reverse().find((l) => l.startsWith('{') && l.includes('"event":"request"'))
+    const parsed = jsonLine ? JSON.parse(jsonLine) : {}
+    ok(parsed.event === 'request' && parsed.level === 'info' && /^\d{4}-/.test(parsed.ts) && parsed.path === '/api/auth/login' && !jsonLine!.includes(PASSWORD) && !/password|token|authorization/i.test(jsonLine!), 'JSON log line per request; passwords, tokens and bodies are never logged')
+    Object.assign(config, { LOG_FORMAT: 'auto' })
+
+    // 3. daily file with retention
+    const oldFile = path.join(logs, 'qualigrafo-2020-01-01.log')
+    fs.writeFileSync(oldFile, 'old\n')
+    LOG.rotate()
+    ok(!fs.existsSync(oldFile) && fs.existsSync(target.file!), 'log files older than LOG_KEEP_DAYS are deleted at the daily rotation')
+
+    // 4. request figures
+    const before = MON.requestStats().total
+    for (let i = 0; i < 5; i++) await call('GET', '/reference/config')
+    const st = MON.requestStats()
+    ok(st.total >= before + 5 && st.byClass['2xx'] > 0 && st.p95ms >= 0 && !!st.slowest, `request figures: ${st.total} requests, p95 ${st.p95ms} ms`)
+
+    // 5. errors are grouped, not repeated
+    await prisma.errorEvent.deleteMany({})
+    await MON.captureError({ kind: 'Job', place: 'oq-test', error: new Error('Widget 17 could not be read') })
+    const g2 = await MON.captureError({ kind: 'Job', place: 'oq-test', error: new Error('Widget 4711 could not be read') })
+    const other = await MON.captureError({ kind: 'Job', place: 'oq-other', error: new Error('Widget 17 could not be read') })
+    ok(g2?.count === 2 && !g2.isNew && other?.count === 1 && other.fingerprint !== g2.fingerprint, 'the same error from the same place is counted in one group; another place is its own group')
+
+    // 6. a request that fails with 500 is recorded with its request id and user
+    let status = 0
+    let payload: any = null
+    const req: any = { method: 'POST', path: '/api/projects/PRJ-026/docs', requestId: 'oq-33-request', user: { email: EMAIL['Owner / QA'] } }
+    const res: any = { status(c: number) { status = c; return this }, json(b: unknown) { payload = b; return this } }
+    errorHandler(new Error('Simulated unexpected failure'), req, res, () => undefined)
+    await wait(300)
+    const reqGroup = await prisma.errorEvent.findFirst({ where: { message: 'Simulated unexpected failure' } })
+    ok(status === 500 && payload?.error === 'Internal server error.' && payload?.requestId === 'oq-33-request' && reqGroup?.kind === 'Request' && reqGroup.place === 'POST /api/projects/PRJ-026/docs' && reqGroup.lastRequestId === 'oq-33-request' && reqGroup.lastUser === EMAIL['Owner / QA'], 'a 500 answers with its request id and is recorded as an error group with route and user')
+
+    // 7. the monitoring page: health, jobs, error groups, log tail
+    ok((await call('GET', '/admin/monitoring', undefined, C)).status === 403 && (await call('GET', '/admin/monitoring/log', undefined, C)).status === 403, 'only administrators see monitoring')
+    const overview = (await call('GET', '/admin/monitoring', undefined, QA)).json
+    ok(overview.health.version === (await import('../src/services/iq.ts')).APP_VERSION && overview.health.db.ok && overview.health.db.latencyMs > 0 && overview.health.log.level === 'info' && overview.health.metrics.enabled && overview.jobs.length === 4, `health: version ${overview.health.version}, database ${overview.health.db.latencyMs} ms, 4 background jobs, log level ${overview.health.log.level}`)
+    ok(overview.errors.length === 3 && overview.errors.some((e: any) => e.place === 'oq-test' && e.count === 2 && e.status === 'New' && e.kind === 'Job'), 'monitoring lists the error groups with their count and state')
+    ok((await call('GET', '/admin/monitoring/log?lines=20', undefined, QA)).json.lines.length > 0, 'administrators can read the tail of the server log')
+
+    // 8. alert settings
+    ok((await call('PUT', '/admin/monitoring/settings', { alerts: true, onNewError: true, errorBurst: 25, staleJobMin: 1, diskMinFreePct: 10 }, QA)).status === 400, 'alert settings validated (stale-job time 5-1440 minutes)')
+    ok((await call('PUT', '/admin/monitoring/settings', { alerts: true, onNewError: true, errorBurst: 25, staleJobMin: 30, diskMinFreePct: 5 }, QA)).json.settings.staleJobMin === 30, 'alert settings saved')
+    const secs = async () => (await call('GET', '/admin/security-events?limit=20', undefined, QA)).json.events as any[]
+    ok((await secs()).some((e) => e.type === 'settings.updated' && /Monitoring:/.test(e.detail) && /stale-job time \(minutes\) "90" -> "30"/.test(e.detail)), 'changed alert settings are in the security log with old -> new values')
+
+    // 9. an error group is acknowledged and resolved; a resolved error that happens again is reopened
+    const grp = (await call('GET', '/admin/monitoring', undefined, QA)).json.errors.find((e: any) => e.place === 'oq-test')
+    ok((await call('POST', `/admin/monitoring/errors/${grp.id}`, { status: 'Resolved' }, QA)).status === 422, 'acknowledging or resolving an error needs a note')
+    const resolved = (await call('POST', `/admin/monitoring/errors/${grp.id}`, { status: 'Resolved', note: 'Fixed in 0.1.1' }, QA)).json.error
+    ok(resolved.status === 'Resolved' && !!resolved.handledBy && resolved.note === 'Fixed in 0.1.1' && (await secs()).some((e) => e.type === 'monitor.handled' && e.detail.includes('Resolved')), 'an error group is resolved with a note, recorded in the security log')
+    const again = await MON.captureError({ kind: 'Job', place: 'oq-test', error: new Error('Widget 99 could not be read') })
+    const reopened = await prisma.errorEvent.findUnique({ where: { id: grp.id } })
+    ok(again?.isNew === true && reopened?.status === 'New' && reopened.count === 3 && reopened.handledBy === null, 'an error that happens again after it was resolved is reopened')
+    ok((await prisma.emailMessage.count({ where: { subject: { contains: 'Error happened again' } } })) > 0, 'administrators are e-mailed about a new or returning error')
+
+    // 10. background-job health, stale-job alert, throttling
+    await MON.heartbeat('mailer', { ok: true, detail: 'oq test' })
+    const mailerJob = async () => (await MON.jobHealth()).find((j) => j.name === 'mailer')!
+    ok((await mailerJob()).status === 'Running' && (await mailerJob()).detail === 'oq test', 'a background job that ran is shown as running')
+    await prisma.jobHeartbeat.update({ where: { name: 'mailer' }, data: { lastRunAt: new Date(Date.now() - 120 * 60_000) } })
+    const stale = await mailerJob()
+    ok(stale.status === 'Stale' && stale.ageMin! >= 120, `a job that stopped running is shown as stale (${stale.ageMin} minutes)`)
+    MON.resetAlertThrottle()
+    await MON.watchdog()
+    ok((await prisma.emailMessage.count({ where: { subject: { contains: 'is stale' } } })) > 0 && (await secs()).some((e) => e.type === 'monitor.alert'), 'the watchdog e-mails the administrators about a stale background job and logs the alert')
+    ok((await MON.alert('oq-throttle', 'Throttle check', ['once per hour'])) === true && (await MON.alert('oq-throttle', 'Throttle check', ['once per hour'])) === false && (await MON.alert('oq-throttle', 'Throttle check', ['forced'], true)) === true, 'the same alert is sent at most once per hour; a test alert is forced')
+
+    // 11. a gap in the API heartbeat is an outage
+    await prisma.outage.deleteMany({})
+    await prisma.jobHeartbeat.upsert({ where: { name: 'api' }, update: { lastRunAt: new Date(Date.now() - 30 * 60_000) }, create: { name: 'api', lastRunAt: new Date(Date.now() - 30 * 60_000) } })
+    MON.resetAlertThrottle()
+    const w = await MON.watchdog()
+    const outage = await prisma.outage.findFirst()
+    ok(w.outage?.minutes === 30 && outage?.minutes === 30 && (await prisma.emailMessage.count({ where: { subject: { contains: 'was not running' } } })) > 0, 'a 30-minute gap in the API heartbeat is recorded as an outage and alerted')
+    ok((await call('GET', '/admin/monitoring', undefined, QA)).json.outages[0]?.minutes === 30, 'outages are listed on the monitoring page')
+    ok((await call('POST', '/admin/monitoring/test-alert', {}, QA)).json.sent === true, 'the test alert reaches the administrators')
+
+    // 12. metrics endpoint for an external uptime tool
+    const metrics = await fetch(`${base}/metrics`, { headers: { authorization: 'Bearer oq-metrics-token' } })
+    const text = await metrics.text()
+    ok(metrics.status === 200 && /qualigrafo_up 1/.test(text) && /qualigrafo_requests_total\{class="2xx"\}/.test(text) && /qualigrafo_job_age_seconds\{job="mailer"\}/.test(text) && /qualigrafo_errors_open \d+/.test(text), 'GET /api/metrics returns up, request, error and job figures')
+    ok((await fetch(`${base}/metrics`, { headers: { authorization: 'Bearer wrong' } })).status === 401 && (await fetch(`${base}/metrics?token=oq-metrics-token`)).status === 200, 'the metrics endpoint needs its token')
+    Object.assign(config, { METRICS_TOKEN: '' })
+    ok((await fetch(`${base}/metrics`)).status === 404, 'without METRICS_TOKEN the metrics endpoint does not exist')
+
+    // 13. the installation check covers monitoring (the stale job above runs again first)
+    await prisma.jobHeartbeat.update({ where: { name: 'mailer' }, data: { lastRunAt: new Date(), lastOkAt: new Date() } })
+    const monIq = await runIq('API test')
+    const chk = (id: string) => monIq.checks.find((c) => c.id === id)!
+    ok(chk('IQ-19').status === 'Pass' && chk('IQ-20').status === 'Pass' && ['Pass', 'Warning'].includes(chk('IQ-21').status) && !!chk('IQ-22'), `installation check: logging ${chk('IQ-19').status}, alerts ${chk('IQ-20').status}, jobs ${chk('IQ-21').status}, free space ${chk('IQ-22').status}`)
+    Object.assign(config, { LOG_DIR: '' })
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+
+  section('OQ-API-34')
+  {
+    resetApiRate()
+    const C = tokens.Consultant
+    const me = (await call('GET', '/auth/me', undefined, C)).json
+    ok(me.user.email === EMAIL.Consultant && Array.isArray(me.memberships) && me.memberships.length > 0, `own account read back with ${me.memberships.length} project role(s)`)
+    ok(typeof me.account?.createdAt === 'string' && me.account.idleMinutes === config.IDLE_TIMEOUT_MIN && me.account.sessionMaxHours >= 1, `account facts: created ${me.account?.createdAt?.slice(0, 10)}, lock after ${me.account?.idleMinutes} min, session ${me.account?.sessionMaxHours} h`)
+    ok(me.memberships.every((m: any) => m.project && m.role && 'scope' in m), 'each membership states the project, the role and the record access')
+    const vendorToken = (await call('POST', '/auth/login', { email: 'vendor@qualigrafo.test', password: PASSWORD })).json.token as string
+    const vendorMe = (await call('GET', '/auth/me', undefined, vendorToken)).json
+    ok(vendorMe.memberships.every((m: any) => m.scope === 'AirCo'), 'a vendor account sees its company scope on every project role')
+
+    // own activity: this account's security events and the audit entries it wrote, nothing else
+    const act34 = (await call('GET', '/auth/activity?limit=25', undefined, C)).json.items as any[]
+    ok(act34.length > 0 && act34.every((a) => ['Account', 'Project'].includes(a.kind)), `${act34.length} recent entries of my own (account + project work)`)
+    ok(act34.some((a) => a.kind === 'Account' && a.what === 'login.success'), 'my sign-ins are listed')
+    const mine = act34.filter((a) => a.kind === 'Project')
+    const trail = (await call('GET', `${P}/audit?limit=500`, undefined, C)).json.events as any[]
+    ok(mine.every((a) => trail.some((e: any) => e.text === a.detail)), 'project entries in my activity come from the project audit trail')
+    const consultantName = (await call('GET', '/auth/me', undefined, C)).json.user.name as string
+    ok(mine.every((a) => trail.some((e: any) => e.text === a.detail && e.user === consultantName)), 'my activity shows only the records I changed, not another role\'s')
+    ok((await call('GET', '/auth/activity')).status === 401, 'activity needs a session')
+
+    // sign out of all devices: every token issued so far is refused afterwards
+    loginLimiter.reset()
+    const extra = (await call('POST', '/auth/login', { email: EMAIL.Consultant, password: PASSWORD })).json.token as string
+    ok((await call('GET', '/auth/me', undefined, extra)).status === 200, 'a second session of the same account works')
+    ok((await call('POST', '/auth/sign-out-everywhere', {}, extra)).json.ok === true, 'the account holder signs out of all devices')
+    const afterExtra = (await call('GET', '/auth/me', undefined, extra)).status
+    const afterC = (await call('GET', '/auth/me', undefined, C)).status
+    ok(afterExtra === 401 && afterC === 401, `every token of that account is refused, including the one that asked (extra ${afterExtra}, first session ${afterC})`)
+    const sec34 = (await call('GET', '/admin/security-events?limit=10', undefined, QA)).json.events as any[]
+    ok(sec34.some((e) => e.type === 'sessions.revoked' && e.email === EMAIL.Consultant), 'signing out of all devices is in the security log')
+    ok((await prisma.emailMessage.count({ where: { subject: { contains: 'Signed out of all devices' } } })) > 0, 'the account holder is e-mailed about it')
+    loginLimiter.reset()
+    tokens.Consultant = (await call('POST', '/auth/login', { email: EMAIL.Consultant, password: PASSWORD })).json.token
   }
 } finally {
   server.close()

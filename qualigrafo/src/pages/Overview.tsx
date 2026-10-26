@@ -3,6 +3,7 @@ import { coverage, evidenceState, handoverGates, isOverdue, TODAY, useRegisters,
 import { ballInCourt } from '../work'
 import type { Holder } from '../work'
 import { Applic, Badge, DocBadge, MarketChip, PageHead, Stat, StateBadge, fmtDate, go, useUI } from '../components/ui'
+import { Check, Circle } from 'lucide-react'
 
 export default function Overview() {
   const { allDisciplines } = useRegisters()
@@ -14,12 +15,38 @@ export default function Overview() {
   const overdue = docs.filter(isOverdue)
   const queue = docs.filter((d) => (role === 'Contractor' ? ['Missing', 'Draft', 'Changes requested'].includes(d.status) : d.status === 'Under review' && (d.signStage === 0 ? 'Consultant' : 'Owner / QA') === role))
   const gates = handoverGates(s)
+  // A new project opens empty: say what still has to be set up instead of letting the first RFI or
+  // evidence link fail. The card disappears by itself once the four steps are done.
+  const setup = [
+    { done: !!s.systems.filter((x) => x.active).length, label: 'Register the systems and equipment', hint: 'RFIs, inspections and non-conformances are raised against a registered system.', page: 'registers' as const },
+    { done: !!scoped.length, label: 'Bring the requirements in', hint: 'Approve the market pack in the requirement library, then apply the update to this project.', page: 'updates' as const },
+    { done: !!scoped.length && !scoped.every((r) => r.applicability === 'Assessment pending'), label: 'Decide applicability', hint: 'Select the requirements in the register and record one decision with its rationale.', page: 'requirements' as const },
+    { done: !!docs.length, label: 'Register the expected documents', hint: 'Each deliverable with its responsible company and due date; the contractor then uploads the file.', page: 'documents' as const },
+  ]
+  const todo = setup.filter((x) => !x.done)
   const balls = ballInCourt(s)
   const holders: Holder[] = ['Contractor', 'Consultant', 'Owner / QA']
 
   return (
     <>
       <PageHead title={profile.name} sub={`${profile.client} · ${profile.site} · ${profile.facility} · ${profile.scope} · ${profile.phase}`} actions={<><Badge tone="blue">Baseline B{baseline}</Badge><button className="btn" onClick={() => go('handover')}>Handover readiness</button><button className="btn pri" onClick={() => go('inspector')}>Inspector Mode</button></>} />
+
+      {role !== 'Contractor' && !!todo.length && (
+        <section className="card setup" aria-label="Project set-up">
+          <h2 style={{ marginTop: 0 }}>Finish the project set-up <span className="muted small" style={{ fontWeight: 400 }}>{setup.length - todo.length} of {setup.length} done</span></h2>
+          <ul className="setuplist">
+            {setup.map((x) => (
+              <li key={x.label} className={x.done ? 'done' : ''}>
+                {x.done ? <Check size={14} /> : <Circle size={14} />}
+                <span>
+                  {x.done ? x.label : <button className="link" onClick={() => go(x.page)}>{x.label}</button>}
+                  <small>{x.hint}</small>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="grid g4">
         <Stat label="Evidence accepted" value={c.pct === null ? 'N/A' : `${c.accepted.length}/${c.required.length}`} sub="Required topics with accepted, current evidence" />

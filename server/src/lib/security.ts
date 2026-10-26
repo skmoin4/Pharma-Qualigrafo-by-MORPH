@@ -81,6 +81,9 @@ export function apiRateLimit(limitPerMinute: number) {
   }
 }
 
+/** Clears the per-IP API counters (used by the API suite, which calls thousands of times from one address). */
+export const resetApiRate = () => hits.clear()
+
 /** Drop expired buckets so long-running processes do not accumulate one entry per IP / email forever. */
 setInterval(() => {
   const now = Date.now()
@@ -97,6 +100,11 @@ export type SecurityType =
   | 'membership.set' | 'membership.removed'
   | 'library.draft' | 'library.edit' | 'library.import' | 'library.approved' | 'library.discarded'
   | 'esign.signed' | 'esign.failure' | 'esign.locked'
+  | 'settings.updated' | 'reminders.run' | 'email.retried'
+  | 'access.review.started' | 'access.review.decided' | 'access.review.completed' | 'access.review.cancelled' | 'report.generated' | 'iq.executed'
+  | 'backup.created' | 'backup.verified' | 'backup.restored'
+  | 'monitor.alert' | 'monitor.handled'
+  | 'sessions.revoked'
 
 export async function securityLog(type: SecurityType, e: { email?: string; userId?: string; actorId?: string; actorName?: string; ip?: string; detail?: string }) {
   await prisma.securityEvent.create({ data: { type, ...e, detail: e.detail ?? '' } })

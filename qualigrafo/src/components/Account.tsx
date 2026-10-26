@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Boxes, Check, Circle, KeyRound, X } from 'lucide-react'
+import { Check, Circle, KeyRound, Mail, ShieldCheck, X } from 'lucide-react'
 import { useStore } from '../store'
+import { AuthShell, PasswordField } from './Login'
+import type { EmailPref } from '../types'
 
 /** Mirrors the server policy in server/src/lib/security.ts so the user sees problems before submitting. */
 function checks(pw: string, email: string) {
@@ -13,7 +15,7 @@ function checks(pw: string, email: string) {
   ]
 }
 
-function PasswordForm({ forced, onDone }: { forced?: boolean; onDone?: () => void }) {
+export function PasswordForm({ forced, onDone }: { forced?: boolean; onDone?: () => void }) {
   const { changePassword, session, toast } = useStore()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -21,6 +23,8 @@ function PasswordForm({ forced, onDone }: { forced?: boolean; onDone?: () => voi
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const rules = checks(next, session?.email ?? '')
+  // ids must stay unique: the same form is used on the forced screen and in the dialog
+  const idp = forced ? 'pw-forced' : 'pw-dialog'
   const valid = rules.every((r) => r.ok) && next === confirm && !!current
 
   const submit = async (e: FormEvent) => {
@@ -36,16 +40,13 @@ function PasswordForm({ forced, onDone }: { forced?: boolean; onDone?: () => voi
 
   return (
     <form onSubmit={submit}>
-      <label className="lab">{forced ? 'Temporary password' : 'Current password'}</label>
-      <input className="input" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
-      <label className="lab">New password</label>
-      <input className="input" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required />
+      <PasswordField id={`${idp}-current`} label={forced ? 'Temporary password' : 'Current password'} value={current} onChange={setCurrent} autoFocus />
+      <PasswordField id={`${idp}-next`} label="New password" value={next} onChange={setNext} autoComplete="new-password" />
       <ul className="pwrules">{rules.map((r) => <li key={r.text} className={r.ok ? 'ok' : ''}>{r.ok ? <Check size={12} /> : <Circle size={12} />}{r.text}</li>)}</ul>
-      <label className="lab">Confirm new password</label>
-      <input className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+      <PasswordField id={`${idp}-confirm`} label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
       {confirm && next !== confirm && <div className="muted small" style={{ marginTop: 4, color: 'var(--red)' }}>Passwords do not match.</div>}
       {error && <div className="notice err" role="alert" style={{ marginTop: 12 }}>{error}</div>}
-      <button className="btn pri" type="submit" disabled={busy || !valid} style={{ marginTop: 14, width: '100%', justifyContent: 'center' }}>{busy ? 'Saving…' : 'Change password'}</button>
+      <button className="btn pri lg" type="submit" disabled={busy || !valid}>{busy ? 'Saving…' : 'Change password'}</button>
     </form>
   )
 }
@@ -54,17 +55,86 @@ function PasswordForm({ forced, onDone }: { forced?: boolean; onDone?: () => voi
 export function ForcedPasswordChange() {
   const { session, logout } = useStore()
   return (
-    <div className="login-wrap">
+    <AuthShell>
       <div className="card login">
-        <div className="row" style={{ gap: 10, marginBottom: 14 }}>
-          <div className="logo"><Boxes size={16} /></div>
-          <div><b style={{ fontSize: 15 }}>Qualigrafo</b><div className="muted small">{session?.email}</div></div>
-        </div>
-        <h2 style={{ margin: '0 0 4px' }}>Set a new password</h2>
-        <p className="muted small" style={{ margin: 0 }}>You signed in with a temporary password. Choose your own password to continue.</p>
+        <h2>Set a new password</h2>
+        <p className="muted small auth-sub">You signed in with a temporary password. Choose your own password to continue as <b>{session?.email}</b>.</p>
         <PasswordForm forced />
-        <button className="link small" type="button" style={{ marginTop: 12 }} onClick={logout}>Sign out</button>
+        <button className="link small" type="button" style={{ marginTop: 14 }} onClick={logout}>Sign out</button>
       </div>
+    </AuthShell>
+  )
+}
+
+const PREFS: { v: EmailPref; t: string; d: string }[] = [
+  { v: 'Immediate', t: 'Immediate', d: 'An e-mail for each item addressed to your role (assignments, signature requests, returns, NCRs, transmittals), plus the daily reminder.' },
+  { v: 'Daily digest', t: 'Daily digest', d: 'One e-mail a day with your reminders and the notifications addressed to you since the previous digest.' },
+  { v: 'Off', t: 'Off', d: 'No e-mail about project work. You still see everything in the app.' },
+]
+
+function PrefList({ pref, setPref }: { pref: EmailPref; setPref: (p: EmailPref) => void }) {
+  return (
+    <>
+      {PREFS.map((p) => (
+        <label key={p.v} className="row" style={{ alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
+          <input type="radio" name="emailPref" value={p.v} checked={pref === p.v} onChange={() => setPref(p.v)} style={{ marginTop: 3 }} />
+          <span><b>{p.t}</b><span className="muted small" style={{ display: 'block' }}>{p.d}</span></span>
+        </label>
+      ))}
+      <div className="notice info" style={{ marginTop: 12 }}><ShieldCheck size={13} style={{ verticalAlign: -2 }} /> Security alerts (password changed or reset, account locked, administrator rights) are always e-mailed.</div>
+    </>
+  )
+}
+
+/** The same preference, inline on the profile page. */
+export function EmailPrefForm() {
+  const { session, setEmailPref, toast } = useStore()
+  const [pref, setPref] = useState<EmailPref>(session?.emailPref ?? 'Immediate')
+  const [busy, setBusy] = useState(false)
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    const er = await setEmailPref(pref)
+    setBusy(false)
+    toast(er ?? 'E-mail preference saved', er ? 'warn' : 'ok')
+  }
+  return (
+    <form onSubmit={save}>
+      <p className="muted small" style={{ margin: '0 0 6px' }}>E-mails go to <b>{session?.email}</b>.</p>
+      <PrefList pref={pref} setPref={setPref} />
+      <button className="btn pri" type="submit" disabled={busy || pref === session?.emailPref} style={{ marginTop: 12 }}>{busy ? 'Saving…' : 'Save preference'}</button>
+    </form>
+  )
+}
+
+/** Own e-mail notification preference, opened from the sidebar. */
+export function NotificationDialog({ onClose }: { onClose: () => void }) {
+  const { session, setEmailPref, toast } = useStore()
+  const [pref, setPref] = useState<EmailPref>(session?.emailPref ?? 'Immediate')
+  const [busy, setBusy] = useState(false)
+  const box = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', k)
+    box.current?.querySelector('input')?.focus()
+    return () => window.removeEventListener('keydown', k)
+  }, [onClose])
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    const er = await setEmailPref(pref)
+    setBusy(false)
+    toast(er ?? `E-mail notifications: ${pref}`, er ? 'warn' : 'ok')
+    if (!er) onClose()
+  }
+  return (
+    <div className="scrim center" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form className="card modal" role="dialog" aria-modal="true" aria-label="E-mail notifications" ref={box} onSubmit={save}>
+        <div className="row sb"><h2 style={{ margin: 0 }}><Mail size={15} style={{ verticalAlign: -2 }} /> E-mail notifications</h2><button className="iconbtn" type="button" onClick={onClose} aria-label="Close"><X size={14} /></button></div>
+        <p className="muted small" style={{ margin: '6px 0 10px' }}>E-mails go to <b>{session?.email}</b>.</p>
+        <PrefList pref={pref} setPref={setPref} />
+        <button className="btn pri" type="submit" disabled={busy || pref === session?.emailPref} style={{ marginTop: 14, width: '100%', justifyContent: 'center' }}>{busy ? 'Saving…' : 'Save'}</button>
+      </form>
     </div>
   )
 }

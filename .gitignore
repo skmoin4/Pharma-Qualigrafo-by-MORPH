@@ -21,3 +21,13 @@ lerna-debug.log*
 *.sw?
 
 qualigrafo/e2e-out/
+qualigrafo/design-out*/
+qualigrafo/uat-out/
+
+# Deployment secrets and certificates
+deploy/.env
+deploy/certs/*.pem
+deploy/certs/*.key
+.neon
+
+.claude/

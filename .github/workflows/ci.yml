@@ -1,0 +1,182 @@
+# Continuous integration (Phase 3 / P7): every push and pull request is type-checked, linted and built, then the full
+# operational qualification runs (API suite + all browser suites against PostgreSQL) and the validation pack is built,
+# and the Docker deployment (P2) is built and tested over HTTPS in production mode.
+# Results: job summary (per OQ test case), artifacts "validation" (oq-results.json + validation pack PDF) and, on
+# failure, "e2e-screenshots" / "deploy-logs".
+name: CI
+
+on:
+  push:
+    branches: [main, production-backend]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, lint, build, audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # prisma.config.ts needs a URL to load; generating the client never connects to it.
+      DATABASE_URL: postgresql://build:build@localhost:5432/build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            qualigrafo/package-lock.json
+
+      - name: Server — install (exact lock file)
+        working-directory: server
+        run: npm ci
+      - name: Server — generate Prisma client
+        working-directory: server
+        run: npx prisma generate
+      - name: Server — typecheck
+        working-directory: server
+        run: npm run typecheck
+      - name: Server — known vulnerabilities in runtime dependencies (high and critical)
+        working-directory: server
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Web — install (exact lock file)
+        working-directory: qualigrafo
+        run: npm ci
+      - name: Web — lint
+        working-directory: qualigrafo
+        run: npm run lint
+      - name: Web — typecheck and build
+        working-directory: qualigrafo
+        run: npm run build
+      - name: Web — known vulnerabilities in runtime dependencies (high and critical)
+        working-directory: qualigrafo
+        run: npm audit --omit=dev --audit-level=high
+
+  oq:
+    name: OQ (API + browser suites) and validation pack
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: qualigrafo
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Test-only values: a throw-away database in the CI container, never a real installation.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/qualigrafo?schema=public
+      JWT_SECRET: ci-only-test-secret-not-used-anywhere-else-0123456789abcdef0123456789
+      APP_TIMEZONE: Asia/Riyadh
+      CORS_ORIGIN: http://localhost:5173
+      CHROME_PATH: /usr/bin/google-chrome
+      PG_BIN_DIR: /usr/lib/postgresql/18/bin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            qualigrafo/package-lock.json
+
+      - name: Server — install, generate client, apply migrations
+        working-directory: server
+        run: |
+          npm ci
+          npx prisma generate
+          npx prisma migrate deploy
+      - name: Web — install
+        working-directory: qualigrafo
+        run: npm ci
+      - name: Chrome version
+        run: google-chrome --version
+      - name: PostgreSQL 18 client tools (backups; the runner's own client is older than the server)
+        run: |
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-18
+          /usr/lib/postgresql/18/bin/pg_dump --version
+
+      - name: OQ run (API suite + all browser suites)
+        working-directory: server
+        run: npm run validation:oq -- --by "GitHub Actions run ${{ github.run_number }} (${{ github.sha }})"
+      - name: Validation pack
+        if: ${{ !cancelled() && hashFiles('server/validation/out/oq-results.json') != '' }}
+        working-directory: server
+        run: npm run validation:pack -- --by "GitHub Actions run ${{ github.run_number }}"
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        working-directory: server
+        run: npx tsx scripts/oq-summary.ts >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload OQ results and validation pack
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation
+          path: server/validation/out/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload browser screenshots (on failure)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: qualigrafo/e2e-out/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  deploy:
+    name: Docker deployment (HTTPS, production mode)
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: qualigrafo/package-lock.json
+      - name: Web — install (browser suites)
+        working-directory: qualigrafo
+        run: npm ci
+      - name: Build images, test the stack (suites, fresh installation, restart)
+        run: bash deploy/ci-test.sh
+      - name: Container logs (on failure)
+        if: ${{ failure() }}
+        run: docker compose -f deploy/docker-compose.yml logs --no-color > deploy-logs.txt 2>&1 || true
+      - name: Upload logs and screenshots (on failure)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-logs
+          path: |
+            deploy-logs.txt
+            qualigrafo/e2e-out/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop the stack
+        if: ${{ always() }}
+        run: docker compose -f deploy/docker-compose.yml down -v || true

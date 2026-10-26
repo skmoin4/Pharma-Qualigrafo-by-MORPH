@@ -50,6 +50,7 @@ server/
       types.ts         Shared types (copy of frontend types + ProjectData)
       enums.ts         Allowed values for roles, statuses, markets... (Zod)
       rules.ts         Derived logic: evidenceState, coverage, handoverGates, stats
+      work.ts          Work items per role (moved from the browser) and the portfolio project summary
       reference.ts     Markets + disciplines (product reference data)
       starterLibrary.ts  Unverified starter template (topic level, no clauses)
     middleware/
@@ -63,6 +64,14 @@ server/
       edits.ts         Edit RFIs, risks, NCRs, corrective actions (reason + old -> new audit); raise findings manually
       reports.ts       PDF reports (PDFKit): handover dossier, audit evidence package, transmittal
       transmittals.ts  Document transmittals: issue (frozen items), acknowledge receipt
+      mail.ts          E-mail outbox (queued in the action's transaction), SMTP delivery with retries, security alerts
+      reminders.ts     Daily reminder job (items per role, digest, one e-mail per person), schedule settings, scheduler
+      accessReview.ts  Periodic user-access review: snapshot + findings, decisions (disable applied), e-signed completion
+      iq.ts            Installation check (IQ): 18 checks incl. code fingerprint, migrations, dependencies, backups
+      backups.ts       Backup sets (snapshot dump + files + manifest), test restore, retention, schedule, restore
+      portfolio.ts     Portfolio summaries: batch queries for all projects (vendor scopes via loadProject)
+    validation/
+      catalogue.ts     URS, GAMP 5 risk assessment, OQ test cases, traceability (validation pack source)
       requirements.ts  profile/baseline, applicability, source ref, evidence, actions, reg. updates, snapshots
       site.ts          RFIs, inspections, findings, change impact, anchored comments
       quality.ts       risks, NCRs
@@ -82,6 +91,10 @@ server/
   scripts/
     api.test.ts        End-to-end API test (ported from qualigrafo/scripts/workflow.test.ts)
     create-admin.ts    Creates an administrator on a new installation
+    validation-oq.ts   OQ run: API + browser suites -> validation/out/oq-results.json
+    validation-pack.ts Validation pack PDF (URS, risk, IQ, OQ, traceability) -> validation/out/
+    oq-summary.ts      Markdown summary of the latest OQ run (CI job summary)
+    backup-restore.ts  Disaster recovery: restore a backup set (npm run backup:restore -- --name … --confirm-wipe)
 ```
 
 ## 4. Key design decisions
@@ -142,18 +155,22 @@ All project responses also carry `scope` (vendor company or `null`).
 
 | Method | Path | Body |
 |---|---|---|
-| GET | `/health` | |
+| GET | `/health` | readiness: API + database, `{ ok, db, version, time }` |
+| GET | `/health/live` | liveness: process only |
+| GET | `/metrics` | monitoring figures (Prometheus text) — needs `METRICS_TOKEN` as `Authorization: Bearer` or `?token=`; 404 when unset |
 | GET | `/reference/markets` | |
 | GET | `/reference/config` | working date (`today`) + upload policy (types, max size) |
 | POST | `/auth/login` | `{ email, password }` -> `{ token, user }` (429 after repeated failures) |
-| GET | `/auth/me` | -> `{ user, memberships[] }` (works while a password change is pending) |
+| GET | `/auth/me` | -> `{ user, memberships[], account }` — `account`: created, last sign-in, password changed, idle minutes, session hours (works while a password change is pending) |
+| GET | `/auth/activity?limit=` | my own security events and audit entries, newest first |
+| POST | `/auth/sign-out-everywhere` | ends every session of my account (token version bumped, logged, e-mailed) |
 | POST | `/auth/password` | `{ current, next }` -> new `{ token, user }`; other sessions revoked |
 
 **Reads**
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/projects` | `{ projects: [{ role, project, stats }] }` for portfolio / my work |
+| GET | `/projects` | `{ projects: ProjectSummary[] }` — per project: `role, scope, profile, markets, baseline, stats (incl. gates, upcoming, flags), work (for the user's role), updates, deadlines (7), recent (4 audit)`; no full project data (P1) |
 | GET | `/projects/:code` | `{ role, project }` |
 | GET | `/projects/:code/audit?limit=&before=&format=json\|csv` | full audit trail |
 
@@ -231,6 +248,58 @@ All project responses also carry `scope` (vendor company or `null`).
 | DELETE | `/library/items/:id` | |
 | POST | `/library/versions/:id/approve` | `{ reason }`; four-eyes (403 for creator / last editor); -> `{ market, version, notified }` |
 
+Phase 3 / step 3 (backups, administrators only):
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/backups` | `{ settings: { enabled, time, keep, verify }, runs[], tools: { pgDump, server, ok, problem }, dir, busy }` |
+| PUT | `/admin/backups/settings` | `{ enabled, time "HH:MM", keep 3–90, verify }` |
+| POST | `/admin/backups` | starts a backup (+ test restore when `verify`) in the background -> 202; 422 while one runs |
+| POST | `/admin/backups/:id/verify` | starts a test restore of a completed set -> 202 |
+
+Env: `BACKUP_DIR`, `PG_BIN_DIR`. CLI: `npm run backup:restore -- --name <set> --confirm-wipe`.
+
+Phase 2 / step 6 (validation, administrators only):
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/validation` | `{ version, fingerprint, iq (latest result or null), packs: [{ name, size, at, sha256 }], catalogue: { urs, oqCases } }` |
+| POST | `/admin/validation/iq` | runs the installation check -> `{ iq: { overall, checks[{ id, title, expected, actual, status }] … } }`; security log `iq.executed` |
+| GET | `/admin/validation/iq.pdf` | IQ record of the latest check (422 before the first); `report.generated` |
+| GET | `/admin/validation/packs/:name` | validation pack PDF from `VALIDATION_DIR` (name `[\w.-]+.pdf` only) |
+
+Env: `VALIDATION_DIR` (default `validation/out`). Scripts: `npm run validation:oq -- --by "Name"`,
+`npm run validation:pack -- --by "Name"`.
+
+Phase 2 / step 5 (periodic user-access review, administrators only):
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/access-reviews` | `{ schedule: { intervalDays, lastCompleted, nextDue, due, open }, reviews[] (summaries), meaning, decisions }` |
+| PUT | `/admin/access-reviews/settings` | `{ intervalDays: 30–365 }` |
+| POST | `/admin/access-reviews` | start (snapshot of active accounts) -> `201 { review }`; 422 when one is open |
+| GET | `/admin/access-reviews/:id` | `{ review }` with items and `signature: Valid / Altered / null` |
+| PUT | `/admin/access-reviews/:id/items/:item` | `{ decision: Keep \| Keep with changes \| Disable account, note }`; disable is applied at once |
+| POST | `/admin/access-reviews/:id/complete` | `{ conclusion, password }` (re-authentication) -> signed, hash stored |
+| POST | `/admin/access-reviews/:id/cancel` | `{ reason }` |
+| GET | `/admin/access-reviews/:id/report.pdf` | PDF, `X-Content-SHA256`, logged as `report.generated` |
+
+Phase 2 / step 4 (e-mail, scheduled reminders):
+
+| Method | Path | Notes |
+|---|---|---|
+| PUT | `/auth/preferences` | `{ emailPref: Immediate \| Daily digest \| Off }` -> `{ user }`; `/auth/me` and login return `emailPref` |
+| GET | `/admin/notifications` | `{ delivery (no secrets), settings: { enabled, time, dueSoonDays }, runs[20], counts by status }` |
+| PUT | `/admin/notifications/settings` | `{ enabled, time: "HH:MM", dueSoonDays: 0–14 }`; security log `settings.updated` old -> new |
+| POST | `/admin/notifications/run` | runs the reminder job now -> `{ run }`; security log `reminders.run` |
+| POST | `/admin/notifications/test` | queues a test e-mail to the administrator |
+| GET | `/admin/emails?status=&limit=` | outbox, newest first (status Queued / Sending / Sent / Failed / Not sent) |
+| POST | `/admin/emails/:id/retry` | Failed / Not sent -> Queued (422 when delivery is not configured or already sent) |
+
+Background jobs (started in `src/index.ts`, not in the API test): mailer every 15 s, reminder scheduler every 60 s.
+`ctx.notify(category, text, doc?, forRole?, { company?, page?, email? })` e-mails role-targeted notices.
+Env: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `APP_URL`.
+
 Phase 2 / step 3 (PDF reports, transmittals) — every PDF response carries `X-Content-SHA256` and is logged in the audit trail:
 
 | Method | Path | Notes |
@@ -280,6 +349,10 @@ Rows: `{ number, title?, discipline?, system?, company?, due?, critical? }`, mat
 `number` and, when Void / Superseded, `voided: { reason, at, by, supersededBy? }`; evidence decisions add `Withdrawn`
 (ignored by the evidence state). Document statuses add `Void` and `Superseded`.
 
+`POST /projects/:id/reqs/applicability` `{ ids[], applicability, rationale }` decides applicability for several
+requirements at once (reviewers only); the rationale is written to each one and every requirement keeps its own
+audit entry, marked as part of the batch.
+
 Project routes added in step 4: `POST /projects/:id/reqs` (project-specific requirement), `PUT /projects/:id/reqs/:req/details`
 `{ system, owner, due }`. Requirements carry `libraryKey` / `libraryVersion`; regulatory updates carry `kind`
 (`Regulatory` | `Library`); applying a `Library` update applies the library version to the project.
@@ -301,6 +374,9 @@ npm run start                 # http://localhost:4000
 
 `create-admin` prints a one-time temporary password; the administrator must choose their own at first sign-in.
 Everything else (users, projects) is created in the application.
+
+**Docker installation:** see `deploy/README.md` (compose stack with HTTPS). New setting `TRUST_PROXY` (Express
+"trust proxy": `loopback` default, `uniquelocal` in Docker, hop count or address list).
 
 **Development and automated tests**
 
@@ -353,6 +429,16 @@ pins it for automated tests only.
 | 22 | **Phase 2 / step 1** — electronic signatures (password at each signing, meaning, checksum binding, signature hash + verification) and inactivity timeout (short tokens, refresh, lock screen). API 379 checks, browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 | Done (2026-10-21) |
 | 23 | **Phase 2 / step 2** — old -> new values and decision reasons in every audit / security-log entry (shared `lib/audit.ts`). API 390 checks, browser suites unchanged | Done (2026-10-21) |
 | 24 | **Phase 2 / step 3** — server-generated PDF reports (handover dossier, audit package, transmittal) with SHA-256 logging; document transmittals with frozen items and receipt acknowledgement. API 412 checks, browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 + 16 | Done (2026-10-21) |
+| 34 | **My profile** — personal account page: account facts, roles per project, password, sign out of all devices, e-mail preference, own activity (`/auth/activity`, `/auth/sign-out-everywhere`, URS-37, OQ-API-34 / OQ-UI-17). API 598 checks, browser 587 (new `e2e17.mjs`); OQ 1185 of 1185 in 51 test cases | Done (2026-10-25) |
+| 33 | **Readiness rehearsal on a clean installation** (`UAT_REPORT.md`) and the five first-day fixes: project set-up checklist, batch applicability decision (`POST /projects/:id/reqs/applicability`, audited per requirement), four-eyes hint in `create-admin` / library / install guide, disabled actions with an inline reason instead of a toast error, acknowledge receipt in the transmittal row. API 584 checks, browser 566; OQ 1150 of 1150 in 49 test cases | Done (2026-10-25) |
+| 32 | **Phase 3 / step 5** — monitoring: structured request / error log with traceable request ids, grouped error tracking with acknowledge / resolve, job heartbeats + watchdog (outage, stale job, error burst, low disk) with throttled alert e-mails, `/api/metrics`, Monitoring page, IQ-19…22 (migration `monitoring`). API 578 checks, browser + 23 (e2e16); OQ 1130 of 1130 checks passed in 49 test cases (578 API + 552 browser) | Done (2026-10-25) |
+| 31 | **Phase 3 / step 4** — portfolio summaries: batch queries, `workFor` on the server, client loads a project only when opened, `today()` formatter cached; load-test fixtures + `npm run perf:portfolio`. 103 projects: 1010 ms / 11.9 MB → 102 ms / 447 kB. API 549 checks, browser + 18 (e2e15); OQ 1078 of 1078 checks passed in 47 test cases (549 API + 529 browser) | Done (2026-10-22) |
+| 30 | **Phase 3 / step 3** — backups: snapshot-consistent dump + hard-linked files + SHA-256 manifest, automatic test restore into a temporary database, retention, schedule, failure e-mails, restore CLI, Backups page, IQ-17/18; Docker / CI support (pending verification). API 541 checks, browser + 16 (e2e14); OQ 1052 of 1052 checks passed in 45 test cases (541 API + 511 browser) | Done (2026-10-22) |
+| 29 | **Phase 3 / step 2** — Docker deployment: api image (migrations on start, tini, non-root, health check), web image (Caddy: HTTPS auto / custom / internal, CSP + security headers, /api proxy), compose stack, `TRUST_PROXY` setting, `/api/health/live`, install guide `deploy/README.md`, CI deploy job (suites + smoke + restart over HTTPS). API 520 checks; Docker parts verified in CI at the first push | Done (2026-10-22) |
+| 28 | **Phase 3 / step 1** — CI (`.github/workflows/ci.yml`): typecheck, lint, build, npm audit; OQ (API + 13 browser suites on PostgreSQL 18) + validation pack as artifacts, job summary. Chrome path portable (`CHROME_PATH`). Local verification 1012 of 1012 checks passed (43 test cases); first GitHub run at the first push | Done (2026-10-22) |
+| 27 | **Phase 2 / step 6** — validation pack: URS + GAMP 5 risk catalogue, OQ section markers, installation check (IQ) in the app with PDF, OQ runner over all suites, validation pack PDF with traceability. Phase 2 complete. API 518 checks, browser … + 15 (e2e13); OQ 1012 of 1012 checks passed in 43 test cases (518 API + 494 browser) | Done (2026-10-22) |
+| 26 | **Phase 2 / step 5** — periodic user-access review: schedule + due reminders, snapshot with findings, decisions (disable applied), e-signed completion with hash, PDF report (migration `access_reviews`). API 501 checks, browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 + 16 + 29 + 23 | Done (2026-10-22) |
+| 25 | **Phase 2 / step 4** — e-mail (transactional outbox, SMTP via nodemailer 10.1.7, retries), immediate work e-mails, daily scheduled reminders + digest, personal preference, security alerts, admin schedule / run / outbox (migration `email_notifications_and_reminders`). API 464 checks, browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 + 16 + 29 | Done (2026-10-22) |
 
 ## 9. Frontend integration (step 11)
 
@@ -534,7 +620,36 @@ is open; select and show the element, then post the outcome. Success is shown to
 (author or reviewer; moves / remaps onto the current revision). Positions are 1-based page + normalised x / y (0..1).
 Only revisions whose current source is a PDF, PNG or JPEG can carry positioned comments.
 
-## 14. Open items / later
+## 14. Monitoring (Phase 3 / P6)
+
+Three parts, all in `server/src/services/monitoring.ts` plus `src/lib/logger.ts`:
+
+| Part | How it works |
+|---|---|
+| Structured log | One line per event: JSON (`LOG_FORMAT=json`, default in production) or readable text. Every request logs method, path, status, duration, response size, user and client address — never bodies, tokens or passwords. The line carries the **request id** that the answer returns in `X-Request-Id` and that every audit entry of that request stores, so a record can be traced back to the call that wrote it. `LOG_DIR` adds daily files (`qualigrafo-YYYY-MM-DD.log`), deleted after `LOG_KEEP_DAYS` at the first write of a new day. |
+| Error tracking | Every unexpected error (500 answers, background jobs, `unhandledRejection` / `uncaughtException`) is grouped by a fingerprint over kind + place + the message with numbers and ids masked, counted in `ErrorEvent`, and kept with the last request id and user. An administrator acknowledges or resolves a group with a note (security log `monitor.handled`); a resolved group that happens again is reopened and alerted. |
+| Health and alerts | Each background job writes a `JobHeartbeat` (at most one write a minute). The watchdog runs every minute: it writes the `api` heartbeat, records a gap of more than 5 minutes as an `Outage`, and alerts on stale / failing jobs, new errors, an error burst per hour and low free space. Alerts are e-mails to every active administrator plus a security-log entry (`monitor.alert`), at most one per subject per hour. |
+
+`GET /api/metrics` exposes up, uptime, build, database latency, requests by status class, p50 / p95, open errors, memory,
+free space, job age / failures and backup age in Prometheus text format for an external uptime tool. Installation
+checks IQ-19 (logging), IQ-20 (alerts), IQ-21 (background jobs) and IQ-22 (free space) cover the same ground.
+
+Settings (`AppSetting` key `monitoring`, Administration → Monitoring): alert e-mails on / off, alert on a new error,
+errors per hour before an alert, minutes before a job counts as stale, free-space warning percentage.
+
+Admin API:
+
+| Method | Path | Body / notes |
+|---|---|---|
+| GET | `/admin/monitoring` | `{ settings, health, jobs[], errors[], outages[] }` |
+| PUT | `/admin/monitoring/settings` | `{ alerts, onNewError, errorBurst, staleJobMin, diskMinFreePct }` |
+| POST | `/admin/monitoring/errors/:id` | `{ status: New \| Acknowledged \| Resolved, note }` (note required unless reopening) |
+| POST | `/admin/monitoring/test-alert` | sends the alert e-mail to every administrator (not throttled) |
+| GET | `/admin/monitoring/log?lines=` | tail of today's log file (only with `LOG_DIR`) |
+
+Environment: `LOG_LEVEL`, `LOG_FORMAT` (auto / json / text), `LOG_DIR`, `LOG_KEEP_DAYS`, `METRICS_TOKEN`.
+
+## 15. Open items / later
 
 - **Electronic signatures:** done in Phase 2 / step 1 (re-authentication, meaning, checksum binding, signature hash,
   verification). Still open for a customer's validation: a written e-signature policy and user certification letters

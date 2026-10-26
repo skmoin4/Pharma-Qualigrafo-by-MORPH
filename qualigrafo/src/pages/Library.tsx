@@ -22,7 +22,7 @@ function ItemEditor({ initial, keyLocked, onSave, onCancel }: { initial: ItemFor
   const save = async () => { setBusy(true); const er = await onSave(f); setBusy(false); setError(er) }
   const set = (k: keyof ItemForm, v: unknown) => setF({ ...f, [k]: v })
   return (
-    <div className="card" style={{ margin: '8px 0', background: '#fafcfd' }}>
+    <div className="card" style={{ margin: '8px 0', background: 'rgba(255, 255, 255, 0.55)' }}>
       <div className="grid g4">
         <div><label className="lab" style={{ marginTop: 0 }}>Key</label><input className="input" value={f.key} disabled={keyLocked} onChange={(e) => set('key', e.target.value)} placeholder="e.g. PREMISES-01" aria-label="Item key" /></div>
         <div style={{ gridColumn: 'span 2' }}><label className="lab" style={{ marginTop: 0 }}>Title</label><input className="input" value={f.title} onChange={(e) => set('title', e.target.value)} aria-label="Item title" /></div>
@@ -85,7 +85,7 @@ function ImportPanel({ versionId, onDone }: { versionId: string; onDone: (v: Lib
     } catch (e) { toast(errorText(e), 'warn') }
   }
   return (
-    <div className="card" style={{ margin: '8px 0', background: '#fafcfd' }}>
+    <div className="card" style={{ margin: '8px 0', background: 'rgba(255, 255, 255, 0.55)' }}>
       <div className="row sb"><b>Import items from CSV</b><button className="btn sm ghost" onClick={template}><Download size={12} /> CSV template</button></div>
       <p className="muted small">Columns: Key, Title, Topic, Discipline, Facilities (separate with |), Critical (yes/no), Clause, Source version, Effective (YYYY-MM-DD), Guidance. All-or-nothing: an invalid row stops the import and is reported.</p>
       <div className="row wrap">
@@ -166,10 +166,10 @@ function VersionView({ id, editor, onChanged }: { id: string; editor: boolean; o
       {v.removed.length > 0 && <p className="small" style={{ marginTop: 8 }}><b>Removed compared with v{v.comparedWith}:</b> {v.removed.map((r) => `${r.key} (${r.title})`).join(', ')}</p>}
 
       {editor && draft && (
-        <div className="card" style={{ marginTop: 14, background: '#fafcfd' }}>
+        <div className="card" style={{ marginTop: 14, background: 'rgba(255, 255, 255, 0.55)' }}>
           <h2 style={{ marginTop: 0 }}>Approve v{v.version}</h2>
           {mine
-            ? <div className="notice small">You prepared or last edited this draft. Under the four-eyes rule another library editor must approve it.</div>
+            ? <div className="notice small">You prepared or last edited this draft. Under the four-eyes rule another library editor must approve it. If nobody else can yet, ask an administrator to create a second administrator or Owner / QA account under <b>Users &amp; access</b>.</div>
             : <p className="muted small" style={{ marginTop: 0 }}>Approving freezes this version, supersedes the current one, and sends a "Library update" to every active project targeting {v.market}. Projects change only when their Owner / QA applies it.</p>}
           <textarea className="input" value={reason} disabled={mine} onChange={(e) => setReason(e.target.value)} placeholder="Basis of approval: what was verified, against which official text and edition" aria-label="Approval basis" />
           {!mine && <><label className="lab">Password (electronic signature)</label><input className="input" type="password" autoComplete="current-password" style={{ maxWidth: 320 }} value={password} onChange={(e) => setPassword(e.target.value)} aria-label="Approval password" /></>}

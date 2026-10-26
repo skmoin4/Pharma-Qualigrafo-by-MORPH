@@ -5,6 +5,7 @@ import { config, sessionMaxSeconds } from '../config.ts'
 import { prisma } from '../db.ts'
 import { HttpError, forbidden, rule, unauthorized } from '../lib/http.ts'
 import { loginLimiter, securityLog } from '../lib/security.ts'
+import { securityAlert } from '../services/mail.ts'
 
 export interface AuthUser {
   id: string
@@ -13,6 +14,8 @@ export interface AuthUser {
   company: string | null
   isAdmin: boolean
   mustChangePassword: boolean
+  /** E-mail notifications: Immediate | Daily digest | Off. */
+  emailPref: string
 }
 
 declare global {
@@ -35,7 +38,7 @@ export function signToken(userId: string, tokenVersion: number, sessionStart = M
   return jwt.sign({ tv: tokenVersion, ss: sessionStart }, config.JWT_SECRET, { subject: userId, expiresIn: config.IDLE_TIMEOUT_MIN * 60 })
 }
 
-export const publicUser = (u: AuthUser) => ({ id: u.id, email: u.email, name: u.name, company: u.company, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword })
+export const publicUser = (u: AuthUser) => ({ id: u.id, email: u.email, name: u.name, company: u.company, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword, emailPref: u.emailPref })
 
 async function authenticate(req: Request) {
   const h = req.headers.authorization
@@ -52,7 +55,7 @@ async function authenticate(req: Request) {
   const start = typeof payload.ss === 'number' ? payload.ss : payload.iat ?? 0
   if (Date.now() / 1000 - start > sessionMaxSeconds) throw unauthorized('Your session reached its maximum length. Sign in again.')
   req.sessionStart = start
-  req.user = { id: u.id, email: u.email, name: u.name, company: u.company, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword }
+  req.user = { id: u.id, email: u.email, name: u.name, company: u.company, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword, emailPref: u.emailPref }
 }
 
 /** Normal API access. Blocked while the account still has to replace a temporary password. */
@@ -94,6 +97,7 @@ export async function reauthenticate(req: Request, password: string | undefined,
   if (!password || !(await bcrypt.compare(password, u.passwordHash))) {
     loginLimiter.fail(ip, user.email)
     await securityLog('esign.failure', { email: user.email, userId: user.id, ip, detail: purpose })
+    if (loginLimiter.blockedFor(ip, user.email)) await securityAlert(user, 'Electronic signing blocked after failed password attempts', [`Electronic signing with your account was blocked for 15 minutes after repeated wrong passwords (${purpose.trim()}, address ${ip}).`, 'Nothing was signed with a wrong password.'])
     throw rule('Password is incorrect. The signature was not recorded.')
   }
   loginLimiter.succeed(ip, user.email)

@@ -47,7 +47,7 @@ export async function createTransmittal(c: Ctx, b: { to: string; purpose: string
     data: { projectId: c.project.id, code, toCompany: b.to, purpose: b.purpose, note: b.note.trim(), items: items as object[], createdByUserId: c.user.id, createdByName: c.user.name, createdByRole: c.role },
   })
   await c.log(`${code} issued to ${b.to} (${b.purpose}): ${items.map((i) => `${i.doc} R${String(i.rev).padStart(2, '0')}`).join(', ')}`)
-  await c.notify('Issue', `${code}: ${items.length} document(s) transmitted to ${b.to} ${b.purpose.toLowerCase()}.`, undefined, 'Contractor')
+  await c.notify('Issue', `${code}: ${items.length} document(s) transmitted to ${b.to} ${b.purpose.toLowerCase()}.`, undefined, 'Contractor', { company: b.to, page: 'transmittals' })
   return code
 }
 

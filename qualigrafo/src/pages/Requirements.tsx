@@ -4,6 +4,7 @@ import { markets } from '../data/reference'
 import { evidenceState, plusDays, useStore } from '../store'
 import type { MarketKey } from '../types'
 import { Applic, Badge, Empty, MarketChip, PageHead, R, StateBadge, useUI } from '../components/ui'
+import type { Applicability } from '../types'
 import { DisciplineSelect, SystemSelect } from '../components/Pickers'
 
 function AddRequirement({ onClose }: { onClose: () => void }) {
@@ -30,7 +31,11 @@ function AddRequirement({ onClose }: { onClose: () => void }) {
 }
 
 export default function Requirements() {
-  const { reqs, docs, markets: sel, pins, role } = useStore()
+  const { reqs, docs, markets: sel, pins, role, decideApplicabilityBulk, toast } = useStore()
+  // Deciding applicability one by one is right for a few items; a freshly applied market pack brings dozens.
+  const [picked, setPicked] = useState<string[]>([])
+  const [bulk, setBulk] = useState<{ a: Applicability; rationale: string }>({ a: 'Required', rationale: '' })
+  const [busy, setBusy] = useState(false)
   const [adding, setAdding] = useState(false)
   const open = useUI((s) => s.open)
   const [tab, setTab] = useState<'register' | 'reuse'>('register')
@@ -64,6 +69,9 @@ export default function Requirements() {
     { label: 'Applicability pending', n: scoped.filter((r) => r.applicability === 'Assessment pending').length, tone: 'violet', ap: 'Assessment pending' },
     { label: 'Open comments on evidence', n: openCmts, tone: 'amber' },
   ]
+  // Only reviewers decide applicability, so only they get the selection column.
+  const reviewer = role !== 'Contractor'
+  const allPicked = !!rows.length && rows.every((r) => picked.includes(r.id))
   const reuse = docs.map((d) => ({ d, links: reqs.filter((r) => sel.includes(r.market) && r.evidence.some((e) => e.doc === d.id && e.decision !== 'Withdrawn')) })).filter((x) => x.links.length).sort((a, b) => b.links.length - a.links.length)
 
   return (
@@ -77,7 +85,7 @@ export default function Requirements() {
       {tab === 'register' ? (
         <>
           {adding && <AddRequirement onClose={() => setAdding(false)} />}
-          <div className="row wrap" style={{ marginBottom: 12 }} aria-label="Gap breakdown">{gaps.map((g) => g.st || g.ap ? <button key={g.label} className="btn sm" onClick={() => { if (g.st) setSt(st === g.st ? 'all' : g.st); if (g.ap) setAp(ap === g.ap ? 'all' : g.ap) }} style={st === g.st || ap === g.ap ? { borderColor: 'var(--teal)', background: '#e8f5f5' } : undefined}><span className={`badge ${g.tone}`} style={{ padding: '0 6px' }}>{g.n}</span> {g.label}</button> : <span key={g.label} className="small muted" style={{ padding: '0 6px' }}><span className={`badge ${g.tone}`} style={{ padding: '0 6px' }}>{g.n}</span> {g.label}</span>)}<span className="muted small">Click a gap type to filter.</span></div>
+          <div className="row wrap" style={{ marginBottom: 12 }} aria-label="Gap breakdown">{gaps.map((g) => g.st || g.ap ? <button key={g.label} className="btn sm" onClick={() => { if (g.st) setSt(st === g.st ? 'all' : g.st); if (g.ap) setAp(ap === g.ap ? 'all' : g.ap) }} style={st === g.st || ap === g.ap ? { borderColor: 'var(--teal)', background: 'var(--brand-bg)' } : undefined}><span className={`badge ${g.tone}`} style={{ padding: '0 6px' }}>{g.n}</span> {g.label}</button> : <span key={g.label} className="small muted" style={{ padding: '0 6px' }}><span className={`badge ${g.tone}`} style={{ padding: '0 6px' }}>{g.n}</span> {g.label}</span>)}<span className="muted small">Click a gap type to filter.</span></div>
           <div className="filters">
             <input className="input grow" placeholder="Search requirement, system or discipline…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search requirements" />
             <select className="input" value={mk} onChange={(e) => setMk(e.target.value as 'all' | MarketKey)} aria-label="Market"><option value="all">All markets</option>{sel.map((m) => <option key={m} value={m}>{markets[m].name}</option>)}</select>
@@ -85,12 +93,38 @@ export default function Requirements() {
             <select className="input" value={st} onChange={(e) => setSt(e.target.value)} aria-label="Evidence state"><option value="all">Any evidence state</option>{['Evidence missing', 'Under assessment', 'Evidence accepted', 'Revision changed', 'Correction required'].map((x) => <option key={x}>{x}</option>)}</select>
             <span className="muted small">{rows.length} of {reqs.filter((r) => sel.includes(r.market)).length}</span>
           </div>
+          {reviewer && !!picked.length && (
+            <section className="card bulkbar" aria-label="Batch decision">
+              <div className="row wrap" style={{ gap: 10 }}>
+                <b>{picked.length} selected</b>
+                <select className="input" style={{ width: 'auto' }} value={bulk.a} onChange={(e) => setBulk({ ...bulk, a: e.target.value as Applicability })} aria-label="Applicability for the selected requirements">
+                  {(['Required', 'Not applicable', 'Assessment pending'] as Applicability[]).map((x) => <option key={x}>{x}</option>)}
+                </select>
+                <input className="input grow" style={{ minWidth: 260 }} placeholder="Reviewer rationale for this decision" value={bulk.rationale} onChange={(e) => setBulk({ ...bulk, rationale: e.target.value })} aria-label="Rationale for the selected requirements" />
+                <button
+                  className="btn pri" type="button" disabled={busy || !bulk.rationale.trim()}
+                  onClick={async () => {
+                    setBusy(true)
+                    const er = await decideApplicabilityBulk(picked, bulk.a, bulk.rationale)
+                    setBusy(false)
+                    if (er) return toast(er, 'warn')
+                    toast(`${picked.length} requirement(s) set to ${bulk.a}`)
+                    setPicked([])
+                    setBulk({ ...bulk, rationale: '' })
+                  }}
+                >{busy ? 'Recording…' : `Record decision for ${picked.length}`}</button>
+                <button className="btn" type="button" onClick={() => setPicked([])}>Clear</button>
+              </div>
+              <p className="muted small" style={{ margin: '8px 0 0' }}>The rationale is written to every selected requirement and each one keeps its own audit entry.</p>
+            </section>
+          )}
           <div className="tablewrap">
             <table>
-              <thead><tr><th>Requirement</th><th>Mkt</th><th>System / discipline</th><th>Source reference</th><th>Applicability</th><th>Evidence status</th><th>Linked</th><th>Owner · due</th></tr></thead>
+              <thead><tr>{reviewer && <th style={{ width: 34 }}><input type="checkbox" aria-label="Select all shown requirements" checked={allPicked} onChange={(e) => setPicked(e.target.checked ? rows.map((r) => r.id) : [])} /></th>}<th>Requirement</th><th>Mkt</th><th>System / discipline</th><th>Source reference</th><th>Applicability</th><th>Evidence status</th><th>Linked</th><th>Owner · due</th></tr></thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id}>
+                  <tr key={r.id} className={picked.includes(r.id) ? 'sel' : undefined}>
+                    {reviewer && <td><input type="checkbox" aria-label={`Select ${r.id}`} checked={picked.includes(r.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, r.id] : picked.filter((x) => x !== r.id))} /></td>}
                     <td><button className="link" onClick={() => open('req', r.id)}>{r.title}</button><small>{r.id}{r.critical ? ' · Critical' : ''} · {r.libraryKey ? `Library v${r.libraryVersion} · ${r.libraryKey}` : 'Project-specific'}</small></td>
                     <td><MarketChip m={r.market} /></td>
                     <td>{r.system || <span className="muted">System not assigned</span>}<small>{r.discipline}</small></td>
@@ -101,7 +135,7 @@ export default function Requirements() {
                     <td>{r.owner}<small>{r.due}</small></td>
                   </tr>
                 ))}
-                {!rows.length && <tr><td colSpan={8}><Empty title="No requirements match">Change the filters, or add reviewed requirements if a newly selected market has none mapped.</Empty></td></tr>}
+                {!rows.length && <tr><td colSpan={reviewer ? 9 : 8}><Empty title="No requirements match">Change the filters, or add reviewed requirements if a newly selected market has none mapped.</Empty></td></tr>}
               </tbody>
             </table>
           </div>

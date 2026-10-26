@@ -9,7 +9,7 @@ export type PageKey =
   | 'overview' | 'setup' | 'registers' | 'requirements' | 'evidence' | 'inspector' | 'documents' | 'reviews' | 'comments'
   | 'rfis' | 'inspections' | 'findings' | 'changes' | 'actions' | 'handover' | 'packages' | 'updates' | 'activity' | 'sources' | 'schedule' | 'audit' | 'templates' | 'team' | 'risks' | 'ncrs' | 'vendor' | 'rehearsal' | 'transmittals'
 
-export type HomeKey = 'portfolio' | 'work' | 'watch' | 'admin' | 'new' | 'library'
+export type HomeKey = 'portfolio' | 'work' | 'watch' | 'admin' | 'new' | 'library' | 'profile'
 
 export const PAGE_KEYS: PageKey[] = ['overview', 'setup', 'registers', 'requirements', 'evidence', 'inspector', 'documents', 'reviews', 'comments', 'rfis', 'inspections', 'findings', 'changes', 'actions', 'handover', 'packages', 'updates', 'activity', 'sources', 'schedule', 'audit', 'templates', 'team', 'risks', 'ncrs', 'vendor', 'rehearsal', 'transmittals']
 
@@ -17,7 +17,7 @@ export const PAGE_KEYS: PageKey[] = ['overview', 'setup', 'registers', 'requirem
 export function parseHash(): { project: string | null; page: PageKey; home: HomeKey } {
   const h = window.location.hash
   const m = h.match(/^#\/p\/([^/]+)\/?([^/]*)/)
-  if (!m) return { project: null, page: 'overview', home: h === '#/work' ? 'work' : h === '#/watch' ? 'watch' : h === '#/admin' ? 'admin' : h === '#/library' ? 'library' : h === '#/new-project' ? 'new' : 'portfolio' }
+  if (!m) return { project: null, page: 'overview', home: h === '#/work' ? 'work' : h === '#/watch' ? 'watch' : h === '#/admin' ? 'admin' : h === '#/library' ? 'library' : h === '#/new-project' ? 'new' : h === '#/profile' ? 'profile' : 'portfolio' }
   const page = (PAGE_KEYS as string[]).includes(m[2]) ? (m[2] as PageKey) : 'overview'
   return { project: decodeURIComponent(m[1]), page, home: 'portfolio' }
 }

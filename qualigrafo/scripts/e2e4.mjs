@@ -1,7 +1,7 @@
 // Run (fixtures loaded + preview server on :8081): node scripts/e2e4.mjs  - project lifecycle through the real UI
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -9,8 +9,8 @@ fs.mkdirSync(OUT, { recursive: true })
 let fail = 0
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage()
+const browser = await chromium.launch({ executablePath: CHROME })
+const page = await (await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 } })).newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !isNoise(m.text()) && errors.push(m.text()))
@@ -63,6 +63,14 @@ await page.screenshot({ path: `${OUT}/s15-wizard-review.png` })
 await page.getByRole('button', { name: 'Create project' }).click()
 ok(await vis(page.getByRole('heading', { name: 'Companies & systems' })), 'created project opens on its registers')
 ok(await vis(page.locator('.crumb').getByText('Dammam Sterile Fill-Finish')), 'new project is the open workspace')
+// a new project is empty: the overview says what still has to be set up
+await page.goto(BASE + '#/p/PRJ-032/overview'); await page.waitForTimeout(500)
+const setup = page.locator('section', { has: page.getByRole('heading', { name: /Finish the project set-up/ }) })
+ok(await vis(setup), 'new project: the overview lists the remaining set-up steps')
+ok(await vis(setup.getByText('Register the systems and equipment')) && await vis(setup.getByText('Decide applicability')), 'new project: systems and applicability are named as open steps')
+await page.goto(BASE + '#/p/PRJ-026/overview'); await page.waitForTimeout(500)
+ok(!(await vis(page.getByRole('heading', { name: /Finish the project set-up/ }), 800)), 'a project in use does not show the set-up checklist')
+await page.goto(BASE + '#/p/PRJ-032/registers'); await page.waitForTimeout(400)
 await page.getByRole('button', { name: /Disciplines/ }).click()
 ok(!(await page.locator('tbody').getByText('Fire & Life Safety').isVisible()) && await vis(page.locator('tbody').getByText('CQV')), 'only the chosen disciplines were created')
 

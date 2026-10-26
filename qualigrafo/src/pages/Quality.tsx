@@ -66,7 +66,7 @@ export function Risks() {
             <thead><tr><th>Risk</th><th>Rating</th><th>Owner · due</th><th>Status</th></tr></thead>
             <tbody>
               {[...risks].sort((a, b) => b.likelihood * b.impact - a.likelihood * a.impact).map((r) => (
-                <tr key={r.id} className="clickrow" onClick={() => { setSel(r.id); setNote(''); setEditing(false) }} style={r.id === sel ? { background: '#f0f8f8' } : undefined}>
+                <tr key={r.id} className="clickrow" onClick={() => { setSel(r.id); setNote(''); setEditing(false) }} style={r.id === sel ? { background: 'rgba(37, 99, 235, 0.08)' } : undefined}>
                   <td><b>{r.title}</b><small>{r.id} · {r.system}</small></td>
                   <td><Badge tone={bandTone(r.likelihood * r.impact)}>{band(r.likelihood * r.impact)} · {r.likelihood * r.impact}</Badge><small>L{r.likelihood} × I{r.impact}</small></td>
                   <td>{r.owner}<small>{r.due}</small></td>

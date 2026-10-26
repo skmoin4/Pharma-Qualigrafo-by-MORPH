@@ -1,25 +1,27 @@
 import { useState } from 'react'
 import { ArrowRight, ExternalLink, Plus } from 'lucide-react'
 import { markets } from '../data/reference'
-import { TODAY, isActiveDoc, useProjectList, useStore } from '../store'
-import { stats, workFor } from '../work'
-import type { WorkItem } from '../work'
+import { TODAY, useStore } from '../store'
 import { Badge, Empty, MarketChip, PageHead, Stat, fmtDate, openProjectRoute } from '../components/ui'
-import type { MarketKey } from '../types'
+import type { PageKey } from '../components/ui'
+import type { MarketKey, WorkItem } from '../types'
 
-/** Every project the user belongs to (archived ones only on request). Work is derived with the user's role in *that* project. */
+/**
+ * Every project the user belongs to (archived ones only on request), from the server's portfolio summaries: figures and
+ * work are computed on the server with the user's role in *that* project (P1 — no full project payloads here).
+ */
 export function useAll(includeArchived = false) {
-  const store = useStore() // subscribe to everything so every project card stays live
-  return useProjectList()
-    .filter((m) => includeArchived || m.status !== 'Archived')
-    .map((m) => { const p = store.snapshotOf(m.id); return { meta: m, p, st: stats(p), work: workFor(m.id, p, store.projects[m.id]?.role ?? store.role) } })
+  const summaries = useStore((s) => s.summaries)
+  return summaries
+    .filter((s) => includeArchived || s.profile.status !== 'Archived')
+    .map((s) => ({ meta: s.profile, s, st: s.stats, work: s.work }))
 }
 
 function WorkRow({ w, name }: { w: WorkItem; name: string }) {
   return (
     <tr>
       <td style={{ width: 130 }}><Badge tone={w.overdue ? 'red' : 'blue'} dot={false}>{w.kind}</Badge></td>
-      <td><button className="link" onClick={() => openProjectRoute(w.project, w.page)}>{w.title}</button><small>{name} · {w.detail}</small></td>
+      <td><button className="link" onClick={() => openProjectRoute(w.project, w.page as PageKey)}>{w.title}</button><small>{name} · {w.detail}</small></td>
       <td className="muted" style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>{w.due ? <span style={w.overdue ? { color: 'var(--red)', fontWeight: 600 } : undefined}>{w.overdue ? 'Overdue · ' : 'Due '}{w.due}</span> : ''}</td>
     </tr>
   )
@@ -34,13 +36,12 @@ export default function Portfolio() {
   const role = useStore((s) => s.role)
   const session = useStore((s) => s.session)
   const canCreate = !!session?.canCreateProjects
-  const events = all.flatMap((a) => a.p.events.map((e) => ({ ...e, project: a.meta.id, name: a.meta.name })))
   const work = all.flatMap((a) => a.work.map((w) => ({ w, name: a.meta.name })))
-  const overdue = all.reduce((n, a) => n + a.st.overdue.length, 0)
-  const regs = all.flatMap((a) => a.p.updates.filter((u) => u.status === 'Awaiting assessment').map((u) => ({ u, a })))
-  const open = all.reduce((n, a) => n + a.st.cov.gaps.length, 0)
-  const deadlines = all.flatMap((a) => a.p.docs.filter((d) => d.status !== 'Accepted' && isActiveDoc(d)).map((d) => ({ d, a }))).sort((x, y) => x.d.due.localeCompare(y.d.due)).slice(0, 7)
-  const recent = all.flatMap((a) => a.p.audit.slice(0, 4).map((e) => ({ ...e, name: a.meta.name }))).sort((x, y) => y.at.localeCompare(x.at)).slice(0, 7)
+  const overdue = all.reduce((n, a) => n + a.st.overdue, 0)
+  const regs = all.flatMap((a) => a.s.updates.filter((u) => u.status === 'Awaiting assessment').map((u) => ({ u, a })))
+  const open = all.reduce((n, a) => n + a.st.gaps, 0)
+  const deadlines = all.flatMap((a) => a.s.deadlines.map((d) => ({ d, a }))).sort((x, y) => x.d.due.localeCompare(y.d.due)).slice(0, 7)
+  const recent = all.flatMap((a) => a.s.recent.map((e) => ({ ...e, name: a.meta.name }))).sort((x, y) => y.at.localeCompare(x.at)).slice(0, 7)
 
   return (
     <>
@@ -75,19 +76,19 @@ export default function Portfolio() {
           <table>
             <thead><tr><th>Project</th><th>Phase</th><th style={{ width: 200 }}>Evidence accepted</th><th>Handover gates</th><th>Next due</th><th>Attention</th><th /></tr></thead>
             <tbody>
-              {rows.map(({ meta, p, st }) => {
-                const pct = st.cov.required.length ? (100 * st.cov.accepted.length) / st.cov.required.length : 0
+              {rows.map(({ meta, s, st }) => {
+                const pct = st.required ? (100 * st.accepted) / st.required : 0
                 return (
                   <tr key={meta.id} className="clickrow" onClick={() => openProjectRoute(meta.id)}>
                     <td>
                       <b style={{ color: 'var(--teal-d)', fontSize: 14 }}>{meta.name}</b>{meta.status === 'Archived' && <> <Badge dot={false}>Archived</Badge></>}
                       <small>{meta.id} · {meta.client} · {meta.site}</small>
-                      <div className="row wrap" style={{ gap: 5, marginTop: 5 }}><Badge tone="blue" dot={false}>{meta.facility}</Badge><Badge dot={false}>{meta.scope}</Badge>{p.markets.map((m) => <span key={m} title={markets[m].name}><MarketChip m={m} /></span>)}</div>
+                      <div className="row wrap" style={{ gap: 5, marginTop: 5 }}><Badge tone="blue" dot={false}>{meta.facility}</Badge><Badge dot={false}>{meta.scope}</Badge>{s.markets.map((m) => <span key={m} title={markets[m].name}><MarketChip m={m} /></span>)}</div>
                     </td>
-                    <td>{meta.phase}<small>Baseline B{p.baseline}</small></td>
-                    <td><div className="row sb small"><b>{st.cov.accepted.length}</b><span className="muted">of {st.cov.required.length} required</span></div><div className="bar" style={{ marginTop: 5 }}><i style={{ width: `${pct}%` }} /></div></td>
+                    <td>{meta.phase}<small>Baseline B{s.baseline}</small></td>
+                    <td><div className="row sb small"><b>{st.accepted}</b><span className="muted">of {st.required} required</span></div><div className="bar" style={{ marginTop: 5 }}><i style={{ width: `${pct}%` }} /></div></td>
                     <td><div className="pips" title="Document-gate conditions">{st.gates.map((g) => <i key={g.key} className={g.n === 0 ? 'ok' : 'open'} title={`${g.label}: ${g.n === 0 ? 'clear' : g.n + ' open'}`} />)}</div><small>{st.gates.filter((g) => g.n === 0).length} of {st.gates.length} clear</small></td>
-                    <td>{st.upcoming ?? <span className="muted">—</span>}{st.upcoming && st.upcoming < TODAY && <small style={{ color: 'var(--red)' }}>Overdue</small>}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{st.upcoming ?? <span className="muted">—</span>}{st.upcoming && st.upcoming < TODAY && <small style={{ color: 'var(--red)' }}>Overdue</small>}</td>
                     <td>{st.flags.length ? <div className="row wrap" style={{ gap: 4 }}>{st.flags.slice(0, 3).map((f) => <Badge key={f} tone={/overdue|critical|stale/.test(f) ? 'red' : 'amber'} dot={false}>{f}</Badge>)}</div> : <Badge tone="green">No flags</Badge>}</td>
                     <td style={{ textAlign: 'right' }}><ArrowRight size={16} color="#6c808c" /></td>
                   </tr>
@@ -130,7 +131,7 @@ export default function Portfolio() {
         <h2>Recent activity across projects</h2>
         <div className="tablewrap" style={{ border: 0, borderRadius: 0 }}><table><tbody>
           {recent.map((e, i) => <tr key={i}><td>{e.text}<small>{e.name}</small></td><td className="muted" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{e.role} · {fmtDate(e.at)}</td></tr>)}
-          {!events.length && <tr><td><Empty title="No activity yet" /></td></tr>}
+          {!recent.length && <tr><td><Empty title="No activity yet" /></td></tr>}
         </tbody></table></div>
       </section>
     </>
@@ -162,7 +163,7 @@ export function MyWork() {
 
 export function Watch() {
   const all = useAll()
-  const items = all.flatMap((a) => a.p.updates.map((u) => ({ u, a })))
+  const items = all.flatMap((a) => a.s.updates.map((u) => ({ u, a })))
   return (
     <>
       <PageHead title="Regulatory watch" sub="Source inventory and change inbox across projects. No live monitoring is connected: an update is only ever a prompt for a qualified reviewer, never an automatic change to a project baseline." />
@@ -178,7 +179,7 @@ export function Watch() {
         <section className="card flush" style={{ alignSelf: 'start' }}>
           <h2>Source inventory</h2>
           <div className="tablewrap" style={{ border: 0, borderRadius: 0 }}><table><tbody>
-            {(Object.keys(markets) as MarketKey[]).map((k) => { const inScope = all.filter((a) => a.p.markets.includes(k)).length; return <tr key={k}><td><MarketChip m={k} /> <b>{markets[k].name}</b><small>{markets[k].authority} · in scope for {inScope} project(s)</small></td><td style={{ textAlign: 'right' }}><a href={markets[k].url} target="_blank" rel="noopener noreferrer" className="link small">Source <ExternalLink size={11} /></a><small>Last reviewed: none recorded</small></td></tr> })}
+            {(Object.keys(markets) as MarketKey[]).map((k) => { const inScope = all.filter((a) => a.s.markets.includes(k)).length; return <tr key={k}><td><MarketChip m={k} /> <b>{markets[k].name}</b><small>{markets[k].authority} · in scope for {inScope} project(s)</small></td><td style={{ textAlign: 'right' }}><a href={markets[k].url} target="_blank" rel="noopener noreferrer" className="link small">Source <ExternalLink size={11} /></a><small>Last reviewed: none recorded</small></td></tr> })}
           </tbody></table></div>
         </section>
       </div>

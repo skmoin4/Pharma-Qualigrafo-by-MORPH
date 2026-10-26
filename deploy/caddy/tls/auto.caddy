@@ -1,0 +1,2 @@
+# TLS_MODE=auto: certificate from Let's Encrypt for {$DOMAIN} (public DNS name, ports 80 and 443 reachable).
+tls {$ACME_EMAIL}

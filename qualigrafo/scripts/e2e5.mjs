@@ -2,7 +2,7 @@
 // Drawing-anchored comments on a real PDF, and the Revit connector round trip (the add-in is played by this script).
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -28,8 +28,8 @@ function samplePdf() {
   return Buffer.from(out, 'latin1')
 }
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage()
+const browser = await chromium.launch({ executablePath: CHROME })
+const page = await (await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 } })).newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !isNoise(m.text()) && errors.push(m.text()))

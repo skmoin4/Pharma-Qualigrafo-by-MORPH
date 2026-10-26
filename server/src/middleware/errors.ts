@@ -4,6 +4,7 @@ import multer from 'multer'
 import { ZodError } from 'zod'
 import { config } from '../config.ts'
 import { HttpError } from '../lib/http.ts'
+import { captureError } from '../services/monitoring.ts'
 
 export function requestId(req: Request, res: Response, next: NextFunction) {
   req.requestId = randomUUID()
@@ -28,6 +29,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   }
   const code = (err as { code?: string }).code
   if (code === 'P2002') return res.status(409).json({ error: 'Conflicting update, please retry.' })
-  console.error(`[${req.requestId}]`, err)
+  // Unexpected: log it, group it for the Monitoring page and alert the administrators (P6).
+  void captureError({ kind: 'Request', place: `${req.method} ${req.path}`, error: err, requestId: req.requestId, user: req.user?.email })
   res.status(500).json({ error: 'Internal server error.', requestId: req.requestId })
 }

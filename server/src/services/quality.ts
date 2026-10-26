@@ -34,7 +34,7 @@ export async function raiseNcr(c: Ctx, n: { title: string; description: string; 
   const code = nextCode('NCR', codes)
   await c.tx.ncr.create({ data: { projectId: c.project.id, code, title: n.title, description: n.description, system: n.system, severity: n.severity, documentId: doc?.id, due: toDate(n.due), raisedBy: c.role, raisedByUserId: c.user.id } })
   await c.log(`${code} raised (${n.severity})`)
-  await c.notify('Issue status', `${code} (${n.severity}) raised against ${n.system}. Contractor response required.`, doc?.code, 'Contractor')
+  await c.notify('Issue status', `${code} (${n.severity}) raised against ${n.system}. Contractor response required.`, doc?.code, 'Contractor', { page: 'ncrs' })
 }
 
 export async function respondNcr(c: Ctx, code: string, r: { rootCause: string; containment: string; correctiveAction: string }) {

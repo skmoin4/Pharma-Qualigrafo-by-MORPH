@@ -4,7 +4,7 @@
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
 import { strToU8, zipSync } from 'fflate'
-import { ACCOUNTS, PASSWORD, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, ACCOUNTS, PASSWORD, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -49,8 +49,8 @@ const REQ = pd.reqs.find((r) => r.evidence.some((e) => e.doc === OLD.id))
 const company = pd.docs.find((d) => d.owner !== 'Consult Partners').owner
 const existing = pd.docs.find((d) => d.id !== OLD.id && d.number)
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage()
+const browser = await chromium.launch({ executablePath: CHROME })
+const page = await (await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 } })).newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !isNoise(m.text()) && errors.push(m.text()))

@@ -1,0 +1,52 @@
+# Qualigrafo — web client and HTTPS reverse proxy. Values come from deploy/.env through docker compose:
+#   DOMAIN          host name users open, e.g. qualigrafo.customer.com
+#   TLS_MODE        auto (Let's Encrypt, public DNS + ports 80/443 reachable) | custom (your certificate in
+#                   deploy/certs/cert.pem + key.pem) | internal (Caddy's own CA, for tests or closed networks)
+#   ACME_EMAIL      contact for Let's Encrypt (TLS_MODE=auto)
+#   MAX_REQUEST_MB  largest request body (uploads); keep above the API's MAX_UPLOAD_MB
+{
+	admin off
+}
+
+{$DOMAIN} {
+	import /etc/caddy/tls/{$TLS_MODE}.caddy
+
+	encode zstd gzip
+	request_body {
+		max_size {$MAX_REQUEST_MB:100}MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		# Everything is served from this origin (no eval, no inline scripts). Inline styles: React style attributes.
+		# blob:/data: for drawing previews, downloads and pdf.js fonts; pdf.js runs its worker from this origin.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# API: Caddy replaces any client-sent X-Forwarded-For with the real client address (the API trusts this proxy).
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+
+	# Web client: hashed assets are cached for a year, index.html always revalidated (routes are #/hash based).
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@page not path /assets/*
+		header @page Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

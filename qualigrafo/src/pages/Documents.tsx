@@ -193,7 +193,7 @@ export function Reviews() {
   return (
     <>
       <PageHead title="Reviews & approvals" sub="Two-stage review: Consultant, then Owner / QA. Each sign-off is bound to one revision. A deadline never approves a document." />
-      <div className="notice info" style={{ marginBottom: 14 }}>Each sign-off records the signed-in user, their project role, the reason and an explicit confirmation, bound to one revision. Re-authentication at signing (21 CFR Part 11 / EU Annex 11 electronic signature) is planned and not yet active.</div>
+      <div className="notice info" style={{ marginBottom: 14 }}>Each sign-off is an electronic signature: your password is entered again, the meaning of the signature is shown and recorded with your name, role and the reason, and the signature is bound to this revision and the checksum of its file.</div>
       <div className="grid g2">
         <section className="card flush">
           <h2>Awaiting sign-off</h2>

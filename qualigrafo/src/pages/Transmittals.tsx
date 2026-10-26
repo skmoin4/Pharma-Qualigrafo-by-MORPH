@@ -47,7 +47,9 @@ function NewTransmittal({ onClose }: { onClose: () => void }) {
         </tbody>
       </table></div>
       <div className="row" style={{ marginTop: 10 }}>
-        <button className="btn pri" disabled={busy || !sel.length} onClick={issue}><Send size={13} /> Issue transmittal</button>
+        <button className="btn pri" disabled={busy || !sel.length || !purpose} onClick={issue}><Send size={13} /> Issue transmittal</button>
+        {!purpose && <span className="muted small">Choose the purpose of the transmittal.</span>}
+        {purpose && !sel.length && <span className="muted small">Tick at least one document revision to send.</span>}
         <button className="btn" onClick={onClose}>Cancel</button>
       </div>
     </section>
@@ -58,6 +60,8 @@ export default function Transmittals() {
   const { transmittals, role, scope, downloadReport, acknowledgeTransmittal, toast } = useStore()
   const [form, setForm] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
+  /** The receiving company confirms receipt; a vendor account only for its own company. */
+  const canAck = (to: string) => role === 'Contractor' && (!scope || scope === to)
   const [ack, setAck] = useState('')
   const reviewer = role !== 'Contractor'
   return (
@@ -77,7 +81,9 @@ export default function Transmittals() {
                   <td>{t.purpose}</td>
                   <td>{t.items.length}</td>
                   <td>{fmtDate(t.at)}<small>{t.by} · {t.byRole}</small></td>
-                  <td>{t.ack ? <><Badge tone="green" dot={false}>Acknowledged</Badge><small>{t.ack.by} · {fmtDate(t.ack.at)}</small></> : <Badge tone="amber" dot={false}>Awaiting receipt</Badge>}</td>
+                  <td>{t.ack
+                    ? <><Badge tone="green" dot={false}>Acknowledged</Badge><small>{t.ack.by} · {fmtDate(t.ack.at)}</small></>
+                    : <><Badge tone="amber" dot={false}>Awaiting receipt</Badge>{canAck(t.to) && <button className="btn sm" style={{ marginTop: 6 }} onClick={() => { setOpen(t.id); setAck('') }}><Check size={12} /> Acknowledge</button>}</>}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}><button className="btn sm" onClick={() => downloadReport(`/transmittals/${t.id}/report.pdf`, `${t.id}.pdf`)}><Download size={12} /> PDF</button></td>
                 </tr>
                 {open === t.id && (
@@ -86,7 +92,7 @@ export default function Transmittals() {
                       {t.items.map((i) => <tr key={i.doc}><td>{i.title}<small>{i.number ? `${i.number} · ` : ''}{i.doc}{i.fileName ? ` · ${i.fileName}` : ''}</small></td><td><span className="rev">{R(i.rev)}</span></td><td>{i.status}</td><td><small>{i.checksum ? `SHA-256 ${i.checksum.slice(0, 16)}…` : 'No source file on this revision'}</small></td><td>{i.signatures.length ? i.signatures.map((s) => `${s.name} (${s.meaning || s.role})`).join('; ') : <span className="muted small">Not signed</span>}</td></tr>)}
                     </tbody></table></div>
                     {t.ack?.note && <p className="small" style={{ marginTop: 6 }}><b>Receipt remark:</b> {t.ack.note}</p>}
-                    {!t.ack && role === 'Contractor' && (!scope || scope === t.to) && (
+                    {!t.ack && canAck(t.to) && (
                       <div className="row" style={{ marginTop: 8 }}>
                         <input className="input" value={ack} onChange={(e) => setAck(e.target.value)} placeholder="Remark (optional), e.g. received complete" aria-label="Receipt remark" />
                         <button className="btn pri sm" onClick={async () => { const er = await acknowledgeTransmittal(t.id, ack); if (er) toast(er, 'warn'); else { toast(`${t.id} receipt acknowledged`); setAck('') } }}><Check size={12} /> Acknowledge receipt</button>

@@ -3,7 +3,7 @@
 // "Library update", applying it, project-specific requirements and the requirement details editor.
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { ACCOUNTS, PASSWORD, forget, isNoise, loginAs, signIn, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, ACCOUNTS, PASSWORD, forget, isNoise, loginAs, signIn, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -25,8 +25,8 @@ if (made.status === 201) {
 }
 ok(made.status === 201, 'second library editor created for the four-eyes rule')
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage()
+const browser = await chromium.launch({ executablePath: CHROME })
+const page = await (await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 } })).newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !isNoise(m.text()) && errors.push(m.text()))

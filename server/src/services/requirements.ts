@@ -74,6 +74,24 @@ export async function decideApplicability(c: Ctx, code: string, a: Applicability
   await c.log(`${r.code} ${changeList([['applicability', r.applicability, a]])[0] ?? `applicability "${a}" confirmed`}. Rationale: ${rationale.trim()}`)
 }
 
+/**
+ * The same decision for several requirements at once (first set-up of a project: a market pack arrives with dozens of
+ * topics). The rationale is written to every requirement and every one gets its own audit entry, marked as part of
+ * the batch, so the trail stays per record.
+ */
+export async function decideApplicabilityBulk(c: Ctx, codes: string[], a: Applicability, rationale: string) {
+  if (c.role === 'Contractor') throw forbidden('A contractor cannot decide applicability.')
+  if (!rationale.trim()) throw rule('Decision rationale is required.')
+  const unique = [...new Set(codes)]
+  if (!unique.length) throw rule('Select at least one requirement.')
+  if (unique.length > 500) throw rule('Decide at most 500 requirements at a time.')
+  const reqs = await Promise.all(unique.map((code) => getReq(c, code)))
+  for (const r of reqs) {
+    await c.tx.requirement.update({ where: { id: r.id }, data: { applicability: a, rationale } })
+    await c.log(`${r.code} ${changeList([['applicability', r.applicability, a]])[0] ?? `applicability "${a}" confirmed`} (one of ${reqs.length} decided together). Rationale: ${rationale.trim()}`)
+  }
+}
+
 export async function setSourceRef(c: Ctx, code: string, s: { clause: string; version: string; effective: string; attest: boolean }) {
   const r = await getReq(c, code)
   if (c.role === 'Contractor') throw forbidden('Only a reviewer can record source references.')

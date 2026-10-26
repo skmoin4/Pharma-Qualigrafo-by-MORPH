@@ -32,6 +32,11 @@ model User {
   createdAt    DateTime     @default(now())
   memberships  Membership[]
   noticeReads  NoticeRead[]
+  /// E-mail notifications for project work: Immediate | Daily digest | Off. Security alerts are always sent.
+  emailPref    String       @default("Immediate")
+  /// End of the window covered by the last daily digest (digest users only).
+  lastDigestAt DateTime?
+  emails       EmailMessage[]
 }
 
 /// A user's role is per project (the same person can be Consultant on one project, Owner / QA on another).
@@ -788,4 +793,190 @@ model Transmittal {
   project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, code])
+}
+
+/// ---------------------------------------------------------------- e-mail and scheduled reminders (Phase 2 / C5)
+
+/// Outgoing e-mail (transactional outbox). Written in the same transaction as the action that caused it, delivered
+/// afterwards by the mailer with retries. Rows are kept as delivery evidence.
+model EmailMessage {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  /// Assignment | Reminder | Digest | Security | Test
+  kind          String
+  userId        String?
+  toEmail       String
+  toName        String
+  projectCode   String?
+  subject       String
+  body          String
+  /// Queued | Sending | Sent | Failed | Not sent
+  status        String    @default("Queued")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?
+  sentAt        DateTime?
+  messageId     String?
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([createdAt])
+}
+
+/// One execution of the reminder job. The scheduled run is unique per working date (slot "daily:YYYY-MM-DD"),
+/// so several API instances or a restart never send the same day's reminders twice.
+model ReminderRun {
+  id         String    @id @default(cuid())
+  runDate    String
+  /// Scheduled | Manual
+  trigger    String
+  slot       String?   @unique
+  startedBy  String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  /// Running | Done | Failed
+  status     String    @default("Running")
+  projects   Int       @default(0)
+  items      Int       @default(0)
+  emails     Int       @default(0)
+  error      String?
+
+  @@index([startedAt])
+}
+
+/// Installation-wide settings changed by administrators (e.g. the reminder schedule).
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+/// ---------------------------------------------------------------- periodic user-access review (Phase 2 / C6)
+
+/// One periodic review of who has access. Items are a snapshot of every active account when the review started;
+/// an administrator decides each one and completes the review with an electronic signature.
+model AccessReview {
+  id            String    @id @default(cuid())
+  /// AR-001, AR-002 ...
+  code          String    @unique
+  /// Open | Completed | Cancelled
+  status        String    @default("Open")
+  startedById   String?
+  startedBy     String
+  startedAt     DateTime  @default(now())
+  /// Target completion date (YYYY-MM-DD).
+  dueDate       String
+  completedById String?
+  completedBy   String?
+  completedByEmail String?
+  completedAt   DateTime?
+  conclusion    String?
+  meaning       String?
+  /// SHA-256 over review code, every decision, signer, meaning, conclusion and time (tamper evidence).
+  sigHash       String?
+  cancelReason  String?
+  items         AccessReviewItem[]
+}
+
+model AccessReviewItem {
+  id                 String       @id @default(cuid())
+  reviewId           String
+  userId             String
+  email              String
+  name               String
+  company            String?
+  isAdmin            Boolean
+  mustChangePassword Boolean
+  lastLoginAt        DateTime?
+  accountCreatedAt   DateTime
+  /// [{ project, name, role, scope, archived }] at review start
+  memberships        Json
+  /// Findings that need attention, e.g. "No sign-in for 90+ days"
+  flags              Json
+  /// Keep | Keep with changes | Disable account
+  decision           String?
+  note               String       @default("")
+  decidedById        String?
+  decidedBy          String?
+  decidedAt          DateTime?
+  review             AccessReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+}
+
+/// ---------------------------------------------------------------- backups (Phase 3 / P3)
+
+/// One backup set (database dump + stored files + manifest) in BACKUP_DIR, and the result of its test restore.
+model BackupRun {
+  id           String    @id @default(cuid())
+  /// Folder name of the set, e.g. qualigrafo-20261022-020000
+  name         String    @unique
+  /// Scheduled | Manual
+  trigger      String
+  /// "backup:YYYY-MM-DD" for the scheduled run (once per day), null otherwise.
+  slot         String?   @unique
+  startedBy    String?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  /// Running | Done | Failed | Deleted (removed by retention)
+  status       String    @default("Running")
+  sizeBytes    BigInt?
+  files        Int       @default(0)
+  manifestSha  String?
+  error        String?
+  /// Test restore: Running | Verified | Failed
+  verifyStatus String?
+  verifiedAt   DateTime?
+  verifyDetail String?
+
+  @@index([startedAt])
+}
+
+/// Grouped server error (Phase 3 / P6): one row per distinct error, counted instead of repeated.
+model ErrorEvent {
+  id            String    @id @default(cuid())
+  /// SHA-256 over kind + place + the message with numbers and ids masked.
+  fingerprint   String    @unique
+  /// Request | Job | Process
+  kind          String
+  /// Route (METHOD /path) or background job name.
+  place         String
+  message       String
+  stack         String?
+  count         Int       @default(1)
+  firstAt       DateTime  @default(now())
+  lastAt        DateTime  @default(now())
+  lastRequestId String?
+  lastUser      String?
+  /// New | Acknowledged | Resolved (a resolved error that happens again is reopened)
+  status        String    @default("New")
+  note          String?
+  handledBy     String?
+  handledAt     DateTime?
+
+  @@index([lastAt])
+}
+
+/// Last run of a background job and of the API process itself (Phase 3 / P6): basis for the stale-job alerts.
+model JobHeartbeat {
+  name      String    @id
+  lastRunAt DateTime
+  lastOkAt  DateTime?
+  lastError String?
+  runs      Int       @default(0)
+  failures  Int       @default(0)
+  detail    String?
+}
+
+/// A gap in the API heartbeat: the application was not running or could not reach its database (Phase 3 / P6).
+model Outage {
+  id        String   @id @default(cuid())
+  from      DateTime
+  to        DateTime
+  minutes   Int
+  noticedAt DateTime @default(now())
+  detail    String   @default("")
+
+  @@index([from])
 }

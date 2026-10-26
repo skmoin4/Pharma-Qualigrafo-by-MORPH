@@ -1,0 +1,10 @@
+node_modules
+src/generated
+storage
+validation
+.env
+.env.*
+!.env.example
+*.log
+Dockerfile
+.dockerignore

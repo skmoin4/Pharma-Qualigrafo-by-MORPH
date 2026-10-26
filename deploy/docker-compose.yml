@@ -1,0 +1,95 @@
+# Qualigrafo — one installation per customer (Phase 3 / P2).
+#   cp .env.example .env   # fill in DOMAIN, TLS_MODE, passwords, SMTP ...
+#   docker compose up -d --build
+# Services: db (PostgreSQL, internal only) · api (Node, migrations on start) · web (Caddy: HTTPS, web client, /api proxy).
+# Only the web container publishes ports. Data lives in named volumes (db-data, api-data, caddy-data); backup sets in
+# BACKUP_VOLUME (named volume "backups" unless a host folder is given).
+name: qualigrafo
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: qualigrafo
+      POSTGRES_USER: qualigrafo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qualigrafo -d qualigrafo"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [backend]
+
+  api:
+    build: ../server
+    image: qualigrafo-api:${QUALIGRAFO_VERSION:-local}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://qualigrafo:${POSTGRES_PASSWORD}@db:5432/qualigrafo?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in deploy/.env (48+ random characters)}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      IDLE_TIMEOUT_MIN: ${IDLE_TIMEOUT_MIN:-15}
+      APP_TIMEZONE: ${APP_TIMEZONE:?Set APP_TIMEZONE in deploy/.env, e.g. Asia/Riyadh}
+      APP_URL: ${APP_URL:-https://${DOMAIN}}
+      CORS_ORIGIN: ${APP_URL:-https://${DOMAIN}}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # The web container (Caddy) is the only proxy, in this private network.
+      TRUST_PROXY: uniquelocal
+      # Monitoring (P6): JSON log lines on stdout (docker compose logs api / your log collector) and, when a folder is
+      # given, daily log files under /data/logs. METRICS_TOKEN switches GET /api/metrics on for an uptime tool.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_DIR: ${LOG_DIR:-/data/logs}
+      LOG_KEEP_DAYS: ${LOG_KEEP_DAYS:-90}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    volumes:
+      - api-data:/data
+      # Backup sets. Point BACKUP_VOLUME at separate storage (e.g. a NAS mount such as /mnt/nas/qualigrafo).
+      - ${BACKUP_VOLUME:-backups}:/backups
+    networks: [backend]
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    image: qualigrafo-web:${QUALIGRAFO_VERSION:-local}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in deploy/.env}
+      TLS_MODE: ${TLS_MODE:-auto}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      MAX_REQUEST_MB: ${MAX_REQUEST_MB:-100}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./certs:/certs:ro
+    networks: [backend]
+
+volumes:
+  db-data:
+  api-data:
+  backups:
+  caddy-data:
+  caddy-config:
+
+networks:
+  backend:

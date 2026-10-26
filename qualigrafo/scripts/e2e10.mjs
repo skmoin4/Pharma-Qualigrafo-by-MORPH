@@ -2,7 +2,7 @@
 // PDF reports (handover dossier, audit package) and document transmittals (issue, vendor receipt, PDF).
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -10,8 +10,8 @@ fs.mkdirSync(OUT, { recursive: true })
 let fail = 0
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true })).newPage()
+const browser = await chromium.launch({ executablePath: CHROME })
+const page = await (await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 }, acceptDownloads: true })).newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !isNoise(m.text()) && errors.push(m.text()))
@@ -51,6 +51,8 @@ ok(ap.pdf && /^PRJ-026_AUD-\d{3}_B\d+\.pdf$/.test(ap.name), `audit package PDF d
 await go('transmittals')
 await page.getByRole('button', { name: 'New transmittal' }).click()
 await page.getByLabel('Transmittal recipient').selectOption('AirCo')
+ok(await page.getByRole('button', { name: 'Issue transmittal' }).isDisabled(), 'transmittal: issuing is blocked until the purpose is chosen')
+ok(await vis(page.getByText('Choose the purpose of the transmittal.')), 'transmittal: the missing purpose is explained in place')
 await page.getByLabel('Transmittal purpose').selectOption('For construction')
 await page.getByLabel('Transmittal remarks').fill('Issued for AHU installation')
 ok(await page.getByRole('button', { name: 'Issue transmittal' }).isDisabled(), 'transmittal needs at least one document')
@@ -69,7 +71,9 @@ await page.screenshot({ path: `${OUT}/e10-transmittals.png`, fullPage: true })
 await switchRole(page, 'Vendor')
 await go('transmittals')
 ok(await vis(page.locator('.side').getByText('Transmittals')), 'vendor navigation includes Transmittals')
-await page.getByRole('button', { name: 'TRN-001' }).click()
+const ackRow = page.locator('tr', { hasText: 'TRN-001' })
+ok(await vis(ackRow.getByRole('button', { name: 'Acknowledge' })), 'transmittal: the recipient sees the acknowledgement in the list')
+await ackRow.getByRole('button', { name: 'Acknowledge' }).click()
 await page.getByLabel('Receipt remark').fill('Received complete')
 await page.getByRole('button', { name: 'Acknowledge receipt' }).click()
 ok(await toast('TRN-001 receipt acknowledged'), 'vendor acknowledged receipt')

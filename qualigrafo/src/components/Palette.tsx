@@ -43,7 +43,7 @@ export function Palette({ labels, inProject }: { labels: Record<PageKey, string>
   return (
     <div className="scrim" style={{ justifyContent: 'center', alignItems: 'flex-start', paddingTop: '12vh' }} onMouseDown={(e) => e.target === e.currentTarget && setPalette(false)}>
       <div className="palette" role="dialog" aria-label="Search" onKeyDown={onKey}>
-        <input ref={ref} autoFocus className="pin" value={q} onChange={(e) => { setQ(e.target.value); setI(0) }} placeholder={inProject ? 'Search pages, documents, requirements, projects…' : 'Search projects and pages…'} aria-label="Search" />
+        <input ref={ref} autoFocus className="pal-input" value={q} onChange={(e) => { setQ(e.target.value); setI(0) }} placeholder={inProject ? 'Search pages, documents, requirements, projects…' : 'Search projects and pages…'} aria-label="Search" />
         <div className="pres">
           {hits.map((h, k) => {
             const head = h.group !== last ? <div className="pgroup">{h.group}</div> : null

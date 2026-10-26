@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/e2e-out
+.git
+.github
+.claude
+server
+deploy/certs
+deploy/.env
+*.log

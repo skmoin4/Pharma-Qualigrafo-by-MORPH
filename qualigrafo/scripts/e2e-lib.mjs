@@ -1,5 +1,9 @@
 // Shared helpers for the browser suites. They sign in through the real login form with the test-fixture accounts
 // loaded by `npm run fixtures:load` in server/.
+/** Chrome used by every suite: CHROME_PATH, else the usual install location of the platform (CI: Linux). */
+export const CHROME = process.env.CHROME_PATH ?? (process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/google-chrome')
+/** E2E_IGNORE_HTTPS_ERRORS=1: accept a test certificate (CI run against the Docker stack with Caddy's internal CA). */
+export const INSECURE = process.env.E2E_IGNORE_HTTPS_ERRORS === '1'
 export const PASSWORD = process.env.FIXTURE_PASSWORD ?? 'Demo@12345'
 export const ACCOUNTS = {
   Consultant: 'consultant@qualigrafo.test',

@@ -5,10 +5,11 @@ import { coverage, useProjectList, useStore, VENDOR_PAGES } from './store'
 import { Loading, Login } from './components/Login'
 import { IdleWarning, LockScreen, useIdleSession } from './components/Session'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ForcedPasswordChange, PasswordDialog } from './components/Account'
+import { ForcedPasswordChange, NotificationDialog, PasswordDialog } from './components/Account'
 // Rarely used screens load on demand to keep the main bundle small.
 const Admin = lazy(() => import('./pages/Admin'))
 const NewProject = lazy(() => import('./pages/NewProject'))
+const Profile = lazy(() => import('./pages/Profile'))
 import { Toast } from './components/Toast'
 import { DocDrawer, ReqDrawer } from './components/Drawers'
 import { Palette } from './components/Palette'
@@ -59,7 +60,7 @@ const PAGES: Record<PageKey, ComponentType> = {
   changes: Changes, handover: Handover, packages: Packages, transmittals: Transmittals, audit: Audit,
   risks: Risks, ncrs: Ncrs, vendor: Vendor, rehearsal: Rehearsal,
 }
-const HOME_LABEL: Record<HomeKey, string> = { portfolio: 'Portfolio', work: 'My work', watch: 'Regulatory watch', admin: 'Users & access', new: 'New project', library: 'Requirement library' }
+const HOME_LABEL: Record<HomeKey, string> = { portfolio: 'Portfolio', work: 'My work', watch: 'Regulatory watch', admin: 'Users & access', new: 'New project', library: 'Requirement library', profile: 'My profile' }
 
 function Notifications() {
   const { events, role, markAllRead } = useStore()
@@ -74,7 +75,7 @@ function Notifications() {
           <div style={{ position: 'fixed', inset: 0, zIndex: 30 }} onClick={() => setOpen(false)} />
           <div className="pop" role="dialog" aria-label="Notifications">
             <div className="row sb" style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)' }}><b>Updates for {role}</b><button className="link small" onClick={markAllRead}>Mark all read</button></div>
-            {mine.slice(0, 6).map((e) => <div key={e.id} className="pitem" style={e.read ? undefined : { background: '#f4fafa' }}><div className="small">{e.text}</div><div className="muted small">{e.category} · {fmtDate(e.at)}</div></div>)}
+            {mine.slice(0, 6).map((e) => <div key={e.id} className="pitem" style={e.read ? undefined : { background: 'rgba(37, 99, 235, 0.06)' }}><div className="small">{e.text}</div><div className="muted small">{e.category} · {fmtDate(e.at)}</div></div>)}
             {!mine.length && <div className="empty">No updates</div>}
             <div style={{ padding: '8px 14px', borderTop: '1px solid var(--line)' }}><button className="link small" onClick={() => { setOpen(false); go('activity') }}>Open updates &amp; automation →</button></div>
           </div>
@@ -87,10 +88,14 @@ function Notifications() {
 export default function App() {
   const route = useRoute()
   const { drawer, menu, setMenu, setPalette } = useUI()
-  const { role, current, openProject, profile, docs, reqs, markets, updates, rfis, revitMode, events, ncrs, risks, session, status, loadError, restore, refresh, logout, scope } = useStore()
+  const { role, current, openProject, profile: loadedProfile, docs, reqs, markets, updates, rfis, revitMode, events, ncrs, risks, session, status, loadError, restore, refresh, loadAll, logout, scope, projectLoading, summaries } = useStore()
+  // While the opened project loads, the sidebar and breadcrumb show its portfolio summary.
+  const profile = projectLoading ? summaries.find((p) => p.profile.id === current)?.profile ?? loadedProfile : loadedProfile
   const [pwOpen, setPwOpen] = useState(false)
   // Stable callback: the dialog's Escape listener must not be re-registered on every App render.
   const closePw = useCallback(() => setPwOpen(false), [])
+  const [mailOpen, setMailOpen] = useState(false)
+  const closeMail = useCallback(() => setMailOpen(false), [])
   const all = useAll()
   const projectList = useProjectList()
   const idle = useIdleSession()
@@ -98,12 +103,15 @@ export default function App() {
   useEffect(() => { void restore() }, [restore])
   // Other people change the same project; pull a fresh copy whenever the tab regains focus.
   useEffect(() => {
-    const f = () => { void refresh() }
+    const f = () => { if (useStore.getState().current) void refresh(); else void loadAll() }
     window.addEventListener('focus', f)
     return () => window.removeEventListener('focus', f)
-  }, [refresh])
+  }, [refresh, loadAll])
 
   useEffect(() => { if (status === 'ready' && route.project !== current) openProject(route.project) }, [route.project, current, openProject, status])
+  // Back on a workspace page: fetch fresh portfolio summaries (work done inside a project changes the figures).
+  const atHome = route.project === null
+  useEffect(() => { if (atHome && status === 'ready') void loadAll() }, [atHome, route.home]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (e.key === 'Escape') useUI.getState().close()
@@ -149,7 +157,7 @@ export default function App() {
   const page: PageKey = allowed(route.page) ? route.page : 'vendor'
   const Page = PAGES[page]
   const workN = all.reduce((n, a) => n + a.work.length, 0)
-  const regN = all.reduce((n, a) => n + a.p.updates.filter((u) => u.status === 'Awaiting assessment').length, 0)
+  const regN = all.reduce((n, a) => n + a.s.updates.filter((u) => u.status === 'Awaiting assessment').length, 0)
   const nav = (on: boolean, onClick: () => void, icon: ReactNode, label: string, n?: number, hot?: boolean) => (
     <button key={label} className={on ? 'on' : ''} onClick={onClick}>{icon}<span>{label}</span>{!!n && n > 0 && <span className={`cnt ${hot ? 'hot' : ''}`}>{n}</span>}</button>
   )
@@ -195,10 +203,12 @@ export default function App() {
           </nav>
         )}
         <div className="sidefoot">
-          <div className="row" style={{ gap: 9 }}><span className="avatar">{session.name[0]}</span><div><b style={{ color: '#e6eef3', fontSize: 12.5 }}>{session.name}</b><div>{role}{session.company ? ` · ${session.company}` : ''}</div></div></div>
-          <div className="row" style={{ gap: 14, marginTop: 8 }}>
-            <button className="link small" style={{ color: '#8fb4c4', fontWeight: 400 }} onClick={() => setPwOpen(true)}>Change password</button>
-            <button className="link small" style={{ color: '#8fb4c4', fontWeight: 400 }} onClick={() => { logout(); window.location.hash = '#/' }}>Sign out</button>
+          <button className="row me" onClick={() => home('profile')} aria-label="My profile"><span className="avatar">{session.name[0]}</span><span><b style={{ color: '#e8eefb', fontSize: 12.5 }}>{session.name}</b><span style={{ display: 'block' }}>{role}{session.company ? ` · ${session.company}` : ''}</span></span></button>
+          <div className="row wrap" style={{ gap: '4px 14px', marginTop: 8 }}>
+            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => home('profile')}>My profile</button>
+            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => setMailOpen(true)}>E-mail notifications</button>
+            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => setPwOpen(true)}>Change password</button>
+            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => { logout(); window.location.hash = '#/' }}>Sign out</button>
           </div>
         </div>
       </aside>
@@ -218,13 +228,14 @@ export default function App() {
         </header>
         {loadError && <div className="notice err" style={{ margin: '12px 24px 0' }}>{loadError}</div>}
         {inProject && profile.status === 'Archived' && <div className="notice" style={{ margin: '12px 24px 0' }}><b>Archived · read-only.</b> {profile.archivedReason}{role === 'Owner / QA' && <> <button className="link small" onClick={() => go('setup')}>Restore under Setup →</button></>}</div>}
-        <main className="page"><ErrorBoundary resetKey={`${route.project}/${page}/${route.home}`}><Suspense fallback={<div className="empty"><b>Loading…</b></div>}>{inProject ? <Page /> : route.home === 'work' ? <MyWork /> : route.home === 'watch' ? <Watch /> : route.home === 'admin' && session.isAdmin ? <Admin /> : route.home === 'new' && session.canCreateProjects ? <NewProject /> : route.home === 'library' ? <Library /> : <Portfolio />}</Suspense></ErrorBoundary></main>
+        <main className="page"><ErrorBoundary resetKey={`${route.project}/${page}/${route.home}`}><Suspense fallback={<div className="empty"><b>Loading…</b></div>}>{inProject ? (projectLoading ? <div className="empty"><b>Loading project…</b></div> : <Page />) : route.home === 'work' ? <MyWork /> : route.home === 'watch' ? <Watch /> : route.home === 'admin' && session.isAdmin ? <Admin /> : route.home === 'new' && session.canCreateProjects ? <NewProject /> : route.home === 'library' ? <Library /> : route.home === 'profile' ? <Profile /> : <Portfolio />}</Suspense></ErrorBoundary></main>
       </div>
 
       {inProject && drawer?.kind === 'doc' && <DocDrawer key={drawer.id} id={drawer.id} />}
       {inProject && drawer?.kind === 'req' && <ReqDrawer key={drawer.id} id={drawer.id} />}
       <Palette labels={scope ? (Object.fromEntries(Object.entries(LABEL).filter(([k]) => allowed(k as PageKey))) as Record<PageKey, string>) : LABEL} inProject={inProject} />
       {pwOpen && <PasswordDialog onClose={closePw} />}
+      {mailOpen && <NotificationDialog onClose={closeMail} />}
       <Toast />
       <LockScreen />
       {idle.warn && <IdleWarning onStay={idle.stay} />}

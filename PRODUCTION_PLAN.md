@@ -8,19 +8,27 @@ engineering teams can run real projects on, and the order in which to build it.
 
 ## 1. Where we stand
 
-> **Resume here (updated 2026-10-21).** Branch `production-backend`. Phase 1 is complete; Phase 2 steps 1–3 are
-> complete. **Next: Phase 2 / step 4 — C5 scheduled reminders + e-mail notifications** (then C6 access review, C7
-> validation pack). Each finished step is described in section 5. Session guide: `CLAUDE.md` (repo root).
+> **Resume here (updated 2026-10-25).** Branch `production-backend`. **Phase 1 and Phase 2 are complete.** Phase 3
+> steps 1–5 are done: P7 CI, P2 Docker deployment (both not yet run on GitHub — see "Pending verification"), P3
+> backups with a tested restore, P1 portfolio at scale, P6 monitoring. **Next: Phase 3 / step 6 — P4 object storage
+> (S3 / Azure Blob) + virus scan on upload**, then P5 SSO / MFA. Each finished step is described in section 5.
+> Session guide: `CLAUDE.md`.
+
+> **Pending verification (user decision 2026-10-22: keep pending, continue with the next steps):** the Docker
+> deployment (`server/Dockerfile`, `deploy/web.Dockerfile`, `deploy/docker-compose.yml`, real Caddy) and the GitHub
+> Actions workflow have **never run** — no Docker on the development machine, branch not pushed. They are tested by the
+> CI jobs `checks`, `oq` and `deploy` at the first push of `production-backend`; expect small Linux / Docker fixes then.
+> Everything else was verified locally (Caddy stand-in over HTTPS + CSP, API in production mode).
 
 | Phase | Status |
 |---|---|
 | Backend + integration (BACKEND_NOTES steps 1–14) | Done |
 | **Phase 1** — a customer can run a real project (B1–B9) | **Done** (steps 1–6, section 5) |
-| **Phase 2** — GxP supplier-audit readiness (C1–C7) | Steps 1–3 done: C1 e-signatures, C3 inactivity timeout, C2 old → new audit, C4 PDF reports + transmittals. **Open: C5, C6, C7** |
-| Phase 3 — platform and operations (P1–P7) | Not started |
+| **Phase 2** — GxP supplier-audit readiness (C1–C7) | **Done**: C1 e-signatures, C3 inactivity timeout, C2 old → new audit, C4 PDF reports + transmittals, C5 e-mail + scheduled reminders, C6 periodic access review, C7 validation pack (IQ / OQ / traceability) |
+| **Phase 3** — platform and operations (P1–P7) | Steps 1–5 done: P7 CI, P2 Docker deployment (GitHub / Docker runs pending), P3 backups + tested restore, P1 scale, P6 monitoring. **Next: P4 object storage + virus scan**, then P5 |
 | Phase 4 — integrations (real Revit add-in) | Connector API done (BACKEND_NOTES §13); add-in itself not started |
 
-Tests at this point: API 412 checks; browser suites e2e … e2e10 with 427 checks; all passing.
+Tests at this point: API 598 checks; browser suites e2e … e2e17 with 587 checks; all passing. Full OQ run (`npm run validation:oq`): 1185 of 1185 checks passed in 51 test cases (598 API + 587 browser).
 
 *Original analysis (2026-10-20), kept for context:* the workflow engine, login / roles / vendor isolation and file
 storage were solid, but every project, document, requirement and finding came from fictional sample data — a customer
@@ -99,9 +107,18 @@ Phase 2 order:
 1. ~~E-signatures with re-authentication + inactivity timeout (C1, C3)~~ — **done 2026-10-21**
 2. ~~Old → new values everywhere in the audit trail (C2)~~ — **done 2026-10-21**
 3. ~~PDF reports: handover dossier, audit package, document transmittal (C4)~~ — **done 2026-10-21**
-4. **Scheduled reminders + e-mail notifications (C5)** ← next
-5. Periodic user-access review report (C6)
-6. Validation pack for the software (C7)
+4. ~~Scheduled reminders + e-mail notifications (C5)~~ — **done 2026-10-22**
+5. ~~Periodic user-access review report (C6)~~ — **done 2026-10-22**
+6. ~~Validation pack for the software (C7)~~ — **done 2026-10-22**
+
+Phase 3 order (user started Phase 3 with this order on 2026-10-22):
+1. ~~P7 CI (API + browser suites + OQ on every change)~~ — **done 2026-10-22** (first GitHub run at the first push)
+2. ~~P2 deployment (Docker, HTTPS proxy, health checks)~~ — **done 2026-10-22** (Docker parts verified in CI at the first push)
+3. ~~P3 backups + tested restore (closes URS-34)~~ — **done 2026-10-22**
+4. ~~P1 scale (portfolio summary endpoint)~~ — **done 2026-10-22**
+5. ~~P6 monitoring (structured logs, error tracking, uptime / job alerts)~~ — **done 2026-10-25**
+6. **P4 object storage + virus scan** ← next
+7. P5 SSO / MFA
 
 ## 4. Decisions (taken 2026-10-20)
 
@@ -350,3 +367,340 @@ page.
 
 Next: **Phase 2 / step 4 — scheduled reminders and e-mail notifications (C5).**
 
+### Phase 2 / step 4 — e-mail notifications and scheduled reminders (C5) (done 2026-10-22)
+
+Decisions (user, 2026-10-22): delivery over **SMTP** (customer's own server / Office 365 / any relay); e-mails for
+**sign-offs waiting, overdue / due-soon items, new work assigned, and security alerts**; daily run at **08:00** site
+time, changeable by an administrator.
+
+| Area | How it works |
+|---|---|
+| Outbox | Every e-mail is a row in `EmailMessage`, written **in the same transaction** as the action that caused it (a rolled-back action never sends mail). A background mailer delivers due messages every 15 s (and ~1 s after new mail); rows are claimed with `FOR UPDATE SKIP LOCKED`, so several API instances are safe. Failures are retried after 1, 5, 15 and 60 minutes, then marked **Failed**; an administrator can **Retry**. Without `SMTP_HOST` messages are recorded as **Not sent** (never silently dropped). Rows are kept as delivery evidence. Plain-text mail only. |
+| Work e-mails ("Immediate") | Every in-app notice addressed to a role (document registered / reassigned / returned, signature request routed, NCR raised or changed, action reassigned, transmittal issued …) is e-mailed to that role's members — never to the person acting; vendor accounts only for their own company's documents (transmittals: the receiving company). Link straight to the page (`APP_URL`). |
+| Daily reminders | Once a day (default 08:00, `APP_TIMEZONE`) for every active project with the Reminders rule on: sign-offs waiting per stage (Consultant / Owner / QA); documents (Missing / Draft / Changes requested), RFIs awaiting response, open NCRs and open corrective actions that are **overdue or due within N days** (default 3). One in-app reminder per role, one audit entry per project (`role System`), and **one e-mail per person across all projects**, grouped by project and by Waiting for sign-off / Overdue / Due by. Vendor accounts see only their company's items. The scheduled run is unique per date (`ReminderRun.slot`), so restarts and several instances never send twice; a missed 08:00 (server down) runs at the next start the same day. Every e-mail and notice states that a reminder approves nothing. |
+| Personal preference | Sidebar → **E-mail notifications**: *Immediate* (default), *Daily digest* (one e-mail a day: reminders + the notices addressed to you since the previous digest) or *Off*. Change logged old -> new in the security log. |
+| Security alerts | Always sent to the account holder: account created (never the temporary password), password changed, password reset by an administrator, account disabled / enabled, administrator rights granted / removed, sign-in locked and electronic signing locked after wrong passwords (once per lockout). |
+| Administration | Users & access → **E-mail & reminders**: delivery status (host, port, TLS, sender, link address — never the password), outbox counts, **Send test e-mail to me**; schedule (on/off, time, due-soon days) with old -> new in the security log; **Run reminders now** (`reminders.run` in the security log); run history; outbox with status filter, message text and Retry. |
+| Project button | Updates & automation → **Send reminders now** stays: in-app notice per document as before, plus **one e-mail per waiting signer** listing their documents. |
+
+Library: `nodemailer` **10.1.7**, pinned exactly (zero dependencies, SLSA provenance, registry signature verified).
+Every older release carries published advisories (address parser, SMTP DoS), fixed only in 10.1.4+, so the newest
+patched line was taken instead of an older release.
+
+Env (`server/.env.example`): `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE` (`true` = port 465 TLS), `SMTP_USER`,
+`SMTP_PASS`, `MAIL_FROM` (required with `SMTP_HOST`), `APP_URL` (links; default first `CORS_ORIGIN`). The test
+fixtures switch the scheduled run **off** so it never changes fixture data while a browser suite runs.
+
+Not included (later): HTML e-mail templates, per-project mute, reminders for requirements / risks / inspections,
+in-app history of a user's own e-mails, Microsoft Graph delivery.
+
+Tests: API **464** checks (+52: security alerts and no temporary passwords in mail, preference rules, immediate
+e-mail targeting incl. vendor scope and "not to the actor", Not sent without SMTP, delivery to an in-test SMTP server,
+retry / back-off / Failed / administrator retry, schedule validation and logging, once-per-day scheduled run, in-app
+reminders, audit entry, one e-mail per person, vendor-only items, digest content, Off, manual run, skipped projects,
+"Send reminders now" e-mail); browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 + 16 + **29 (new `e2e11.mjs`:
+preference dialog, admin schedule, run now, outbox Not sent / filter / message text, security log, in-app reminder,
+audit trail, mobile)**.
+
+Next: **Phase 2 / step 5 — periodic user-access review report (C6).**
+
+### Phase 2 / step 5 — periodic user-access review (C6) (done 2026-10-22)
+
+GxP control (EU GMP Annex 11 §12, 21 CFR 11.10(d)): access is reviewed at a fixed interval and the review is
+documented and signed. Page: Users & access → **Access review** (administrators).
+
+| Area | How it works |
+|---|---|
+| Schedule | Interval 30–365 days (default **90**), changed by an administrator (old -> new in the security log). Next due = last completed review + interval; a fresh installation is due at once. While a review is due, or an open one is past its target date (start + 14 days), the page shows a banner and the **daily reminder run e-mails every administrator** (C5). |
+| Start | Snapshot of every **active** account (AR-001, AR-002 …): name, e-mail, company, administrator right, last sign-in, every project role and vendor scope (archived projects marked). **Findings** flagged per account: Administrator, Never signed in, No sign-in for 90+ days, Temporary password not changed, No project access, Only archived projects, New since the previous review. One open review at a time. |
+| Decide | Per account: **Keep**; **Keep with changes** (note required: what was changed under Users); **Disable account** (reason required; applied at once with the same guards as Users — not yourself, one active administrator and the last Owner / QA of a project must remain; the user is signed out and e-mailed; cannot be reversed inside the review). Decisions can be changed while the review is open; each one is in the security log (old decision kept). Deciding on your own account is allowed but recorded as **self-review** (UI warning, report note). Filters: All / Undecided / Flagged. |
+| Complete | Only when every account has a decision. Conclusion + **password** (same re-authentication and lockout as other e-signatures) with the meaning "Access review completed — remaining user access confirmed appropriate". Stores signer, e-mail, time and a SHA-256 **signature hash over the review code, every decision and note, signer, meaning, conclusion and time**; the detail view recomputes it (*Valid* / *Altered*). A completed review never changes. Cancel needs a reason. |
+| Report | **PDF** per review (open, completed or cancelled): outcome counts, every account with access at review start, findings, decision, note, decider, self-review marks, signature block with hash. Generation is logged (`report.generated`, SHA-256) and the response carries `X-Content-SHA256`. |
+| Security log | `access.review.started / decided / completed / cancelled`, `user.deactivated` (with the review code), `esign.signed`, `settings.updated`, `report.generated`. |
+
+Tests: API **501** checks (+37: schedule and interval, snapshot and findings, one open review, decision rules, disable
+through the review incl. sign-in refused and e-mail, self-review, completion rules, wrong password, valid / altered
+signature, frozen after completion, PDF + hash log, due again after the interval, administrator reminder e-mail,
+cancel); browser 197 + 54 + 20 + 20 + 19 + 33 + 26 + 20 + 22 + 16 + 29 + **23 (new `e2e12.mjs`: due banner,
+interval, start, flags, own-account rules, decisions, disable, signature with wrong / right password, PDF, history,
+security log, disabled vendor cannot sign in, mobile)**. The PDF was rendered and checked.
+
+Next: **Phase 2 / step 6 — validation pack (C7)**: URS, risk assessment and IQ/OQ evidence generated from the API and
+browser suites.
+
+### Phase 2 / step 6 — validation pack (C7) (done 2026-10-22)
+
+Customers must validate Qualigrafo as a GxP computerised system (GAMP 5). The supplier evidence is now generated from
+the code and the automated tests, so it is repeatable for every release.
+
+| Part | How it works |
+|---|---|
+| Catalogue | `server/src/validation/catalogue.ts` — single source: **34 user requirements** (URS-01 … URS-34: area, text, GxP impact, related Part 11 / Annex 11 clause — "relates to", never a compliance claim), **risk assessment** per requirement (severity / probability / detectability → GAMP 5 risk class and priority, controls), and **43 OQ test cases** (OQ-API-01 … 30 = sections of the API suite, OQ-UI-01 … 13 = browser suites). Consistency is tested: every requirement has tests or a stated procedural control, every test case verifies a requirement. URS-34 (backup / restore) is procedural until Phase 3 / P3. |
+| OQ markers | The API suite prints `SECTION OQ-API-nn` before each block; every check after it belongs to that test case (none before the first). Titles come from the catalogue, unknown ids fail. |
+| IQ | `server/src/services/iq.ts` — 16 checks with expected / found / Pass-Fail-Warning-Info: version, **code fingerprint** (SHA-256 over server code, schema, migrations, lock file), Node ≥ 22, PostgreSQL ≥ 16, **all migrations applied**, runtime packages exactly as locked, session secret strength, session limits, time zone / no pinned clock, NODE_ENV, storage write-read-hash-delete, active administrator, no test accounts, SMTP, PDF font, upload limit. Failures that only matter in production are warnings elsewhere. |
+| In the app | Users & access → **System & validation** (administrators): version, fingerprint, catalogue size; **Run installation check** (result kept, `iq.executed` in the security log) with a results table and **IQ record (PDF)** with signature blocks; list of **validation packs** found in `VALIDATION_DIR` with SHA-256 and download (logged). |
+| OQ run | `npm run validation:oq -- --by "Name"` (server/, test database only — refuses production): loads fixtures, runs the API suite, builds the client, starts API + preview on free ports (4100 / 8082, configurable), runs all 13 browser suites with fresh fixtures, stops the servers, records environment (version, fingerprint, git revision, OS, Node, PostgreSQL, Chrome) and **every check** per test case in `validation/out/oq-results.json`. Exit code 1 when a check fails. ~8 minutes. |
+| Pack | `npm run validation:pack -- --by "Name"`: runs IQ on the same environment, refuses when the code fingerprint differs from the OQ run (`--force` for a draft), writes `Qualigrafo_Validation_Pack_<version>_<date>.pdf`: purpose and limits (supports, does not replace, the customer validation; GAMP category proposed 4), system description and test environment, URS, risk assessment with method, IQ, OQ summary per test case, **traceability matrix** (requirement → priority → test cases → checks → verdict), deviations (failed checks, procedural controls), approval page (supplier / customer QA), annex with every check. `validation/out/` is git-ignored. |
+
+First pack: 1012 of 1012 checks passed in 43 test cases (518 API + 494 browser), IQ Pass (test environment warnings: test accounts, no SMTP, NODE_ENV, UTC zone / secret
+length where applicable).
+
+Tests: API **518** checks (+17: catalogue consistency, risk method, traceability without results, every API test
+case has its section, IQ admin-only, migrations / database / storage / administrator / dependencies pass, warnings,
+stable fingerprint, latest result, IQ PDF + hash, security log, pack path tricks refused); browser 197 + 54 + 20 + 20 +
+19 + 33 + 26 + 20 + 22 + 16 + 29 + 23 + **15 (new `e2e13.mjs`: version / fingerprint, installation check, IQ PDF,
+validation pack download or empty state, kept after reload, security log, mobile)**.
+
+**Phase 2 is complete.** Next: **Phase 3 — platform and operations (P1–P7)**.
+
+### Phase 3 / step 1 — continuous integration (P7) (done 2026-10-22)
+
+`.github/workflows/ci.yml` (GitHub Actions; the repository's remote is GitHub) runs on every push to `main` /
+`production-backend`, on every pull request and on demand. A newer run on the same branch cancels the older one.
+
+| Job | Steps |
+|---|---|
+| **Typecheck, lint, build, audit** (Ubuntu 24.04, Node 24, ~5 min) | `npm ci` with the exact lock files (server, web); Prisma client; server typecheck; web lint (oxlint) and typecheck + build; `npm audit --omit=dev --audit-level=high` for both — a high / critical advisory in a runtime dependency fails the build. |
+| **OQ and validation pack** (after the first job; PostgreSQL 18 service container) | Migrations applied with `prisma migrate deploy` (the same path as a customer installation), then `npm run validation:oq` = API suite + all 13 browser suites with fresh fixtures (Chrome on the runner), then `npm run validation:pack`. The **job summary** shows every OQ test case and lists failed checks (`scripts/oq-summary.ts`). Artifacts: **validation** (oq-results.json + validation pack PDF, 30 days) and, on failure, **e2e-screenshots** (7 days). |
+
+Made portable for CI: the browser suites take Chrome from `CHROME_PATH` or the platform default
+(`qualigrafo/scripts/e2e-lib.mjs` exports `CHROME`; Windows / macOS / Linux paths), also used by the OQ runner. CI uses
+only throw-away test values (container database, test-only JWT secret); no repository secrets are needed.
+
+Verified locally: no tabs in the workflow, both audits 0 vulnerabilities, lint exit 0, summary script output, every
+suite parses, full OQ with the portable Chrome path 1012 of 1012 checks passed (43 test cases). **Not yet verified: the GitHub run itself** — it starts
+at the first push of the branch (pushing is the user's decision); Linux font rendering may need small fixes in layout
+checks then.
+
+Recommended on GitHub after the first green run: branch protection on `main` requiring both jobs; Dependabot for npm
+and GitHub Actions; pin actions to commit SHAs.
+
+Next: **Phase 3 / step 2 — P2 deployment** (Docker images, HTTPS reverse proxy, environment config, health checks).
+
+### Phase 3 / step 2 — Docker deployment with HTTPS (P2) (done 2026-10-22)
+
+Decisions (user, 2026-10-22): Docker is verified **in CI** (no Docker on the development machine); HTTPS supports
+**all three** certificate modes.
+
+| Part | How it works |
+|---|---|
+| Stack (`deploy/docker-compose.yml`) | **db** PostgreSQL 18 (internal network only, health check) · **api** (`server/Dockerfile`: Node 24 slim, tini as PID 1, unprivileged user, applies migrations at start via `docker-entrypoint.sh`, health check on `/api/health`, data volume `/data` for files + validation packs) · **web** (`deploy/web.Dockerfile`: client built in a Node stage, served by Caddy 2.10, the only container with ports 80/443). Named volumes for database, files and certificates. All settings from `deploy/.env` (`.env.example` documents each). |
+| HTTPS (`deploy/caddy/Caddyfile`) | `TLS_MODE=auto` (Let's Encrypt), `custom` (IT certificate in `deploy/certs/`), `internal` (Caddy CA). HTTP redirects to HTTPS. Headers: HSTS, **Content-Security-Policy without inline scripts or eval**, X-Frame-Options DENY, nosniff, no-referrer, Permissions-Policy, COOP, no Server banner. Hashed assets cached immutable, index.html revalidated, SPA fallback, request size limit, JSON access log. |
+| Client address | New setting `TRUST_PROXY` (default `loopback`; `uniquelocal` in Docker). Before, the API trusted only a proxy on the same host: behind a separate proxy container every user would have shared the proxy's address — the sign-in lockout (20 failures per address) would have locked everybody out at once. Caddy replaces any client-sent X-Forwarded-For, so the address cannot be forged (tested). |
+| Health | `/api/health` (API + database, now with the version) for readiness; new `/api/health/live` (no database) for liveness. |
+| Install guide | `deploy/README.md` for the customer's IT: requirements, install, certificate modes, first administrator, installation check (IQ) and fingerprint, update procedure, operations, **interim backup / restore commands** (until P3), security notes, troubleshooting. |
+| CI (`deploy` job, `deploy/ci-test.sh`) | Builds both images and starts the stack with `TLS_MODE=internal` and random secrets, trusts Caddy's root CA, then: 1. all 13 browser suites against the production stack (fixtures loaded inside the api container); 2. `down -v` → fresh installation → `deploy-smoke.mjs`; 3. restart → `deploy-smoke.mjs --after-restart`. Logs and screenshots uploaded on failure. |
+| Smoke test (`qualigrafo/scripts/deploy-smoke.mjs`, 30 checks) | HTTP→HTTPS, headers + CSP, caching, SPA fallback, health / version, 404 / 401, create-admin → temporary password → forced change, forged X-Forwarded-For not believed, **IQ Pass in production mode** (no test data, strong secret, storage volume), web client sign-in and administration pages **without CSP violations**; after restart: data and fingerprint kept. |
+
+Bugs found and fixed while building it: the CI `checks` job (written in step 1) would have failed — `prisma generate`
+needs a `DATABASE_URL` to load `prisma.config.ts` (dummy URL set; same in the image build); the api image would have
+started without `tsx` / `prisma` because `npm ci` skips dev dependencies under `NODE_ENV=production`
+(`--include=dev`); shell scripts forced to LF (`.gitattributes`).
+
+Verified locally without Docker, using a stand-in for Caddy (HTTPS with a self-signed certificate, the same headers and
+CSP read from the Caddyfile, `/api` proxy with forwarded address) and the API in `NODE_ENV=production`: all 13 browser
+suites pass over HTTPS under the CSP (e2e13 made environment-aware: with test fixtures in production mode IQ-13
+correctly fails), the smoke test passes on a fresh database (IQ Pass, only SMTP warning) and after a restart.
+**Not yet verified: the Dockerfiles, compose file and real Caddy** — they run in the CI `deploy` job at the first push.
+Browser suites accept test certificates only with `E2E_IGNORE_HTTPS_ERRORS=1`.
+
+Tests: API **520** checks (+2: health version + liveness, TRUST_PROXY parsing); browser suites unchanged in number.
+
+Next: **Phase 3 / step 3 — P3 scheduled backups and a tested restore** (closes URS-34).
+
+### Phase 3 / step 3 — backups with a tested restore (P3) (done 2026-10-22)
+
+Closes URS-34 (Annex 11 §7.2), which was a procedural control until now.
+
+| Part | How it works |
+|---|---|
+| Backup set | Folder `qualigrafo-YYYYMMDD-HHMMSS-mmm` in `BACKUP_DIR`: `database.dump` (`pg_dump` custom format), `files/<aa>/<sha256>` (every stored file; unchanged files are **hard links** to the previous set, so daily sets cost only the new files), `manifest.json` (release, code fingerprint, migration history, record counts of 9 key tables, dump SHA-256, file count / bytes) + `manifest.sha256`. |
+| Consistency | Counts and dump come from **one database snapshot** (`pg_export_snapshot` + `pg_dump --snapshot`); files are copied after the dump (objects are written before records refer to them and never change). |
+| Test restore | After each backup (setting) and on demand: checks the manifest checksum, the dump checksum and the SHA-256 of every file, restores into a **temporary database**, compares record counts and migration history with the manifest, resolves every file the database refers to, drops the database. Result *Verified* / *Failed* with the detail. |
+| Schedule, retention, alerts | Daily at a set time (default 02:00 site time; once per date, also with several instances), keep newest N sets (default 14, 3–90; the newest verified set is never removed). Administrators are e-mailed when a backup or a test restore fails. Interrupted runs are marked failed at start. |
+| Restore | `npm run backup:restore -- --name <set> --confirm-wipe` (or `--dir`): verifies the set, restores the database (`--clean`), adds the files, compares counts with the manifest, applies the migrations of the installed release, logs `backup.restored`. Docker: `docker compose run --rm api npm run backup:restore …` (install guide section 5). |
+| Administration | Users & access → **Backups**: tools and server version, last verified backup, backup folder, **Back up now** (runs in the background; the page refreshes while it runs), schedule, history with size, files, manifest checksum, test-restore result and **Test restore** per set. Security log: `backup.created`, `backup.verified`, `backup.restored`, `settings.updated`. |
+| Installation check | IQ-17 backup tools usable for the database server version (Fail otherwise); IQ-18 a verified backup younger than 48 hours (Warning otherwise). |
+| Deployment | api image: PostgreSQL 18 client from the PostgreSQL apt repository (Debian's is older than the server), `BACKUP_DIR=/backups`, `PG_BIN_DIR`; compose: `BACKUP_VOLUME` (named volume or a host / NAS folder); CI: PostgreSQL 18 client on the runner; smoke test runs a backup + test restore inside the container and expects IQ-17 / IQ-18 Pass. **These Docker / CI parts are pending verification like the rest of P2.** |
+
+Settings / env: `BACKUP_DIR` (default `backups`), `PG_BIN_DIR` (default: PATH; on Windows the newest
+`C:/Program Files/PostgreSQL/<n>/bin`). Fixtures switch the scheduled backup off. `pg` is now a direct dependency
+(same 8.23.1 Prisma already used — no new package).
+
+Verified locally with PostgreSQL 18.6: backup + test restore of the test database, restore CLI into an empty and into a
+filled scratch database (refuses without `--confirm-wipe`), tamper detection (file and manifest), retention, schedule.
+
+Tests: API **541** checks (+21, OQ-API-31); browser + **16 (new `e2e14.mjs`: tools, schedule, back up now with test
+restore, details, manual test restore, security log, IQ-18, mobile)**; OQ 1052 of 1052 checks passed in 45 test cases (541 API + 511 browser).
+
+Next: **Phase 3 / step 4 — P1 scale** (portfolio summary endpoint, per-project loading).
+
+### Phase 3 / step 4 — portfolio at scale (P1) (done 2026-10-22)
+
+Before, the portfolio loaded **every project in full** (about 25 queries and the complete payload — audit trail,
+notifications, comments, snapshots, signatures — per project) and the browser derived the figures itself.
+
+| Part | How it works |
+|---|---|
+| Summaries | `GET /api/projects` now returns one **summary** per project: profile, markets, baseline, figures (coverage, gates, overdue, critical gaps / NCRs, stale evidence, flags, next due), the **work items for the user's role**, regulatory updates, the 7 nearest deadlines and the 4 latest audit entries. `GET /api/projects/:code` (full) is unchanged and loaded only when a project is opened. |
+| Batch reading | Whole-project memberships are read with **one query per table for all projects** (`projectId IN …`), selecting only the needed columns; the latest audit entries with one window query. Vendor-scoped memberships (few) still go through `loadProject`, so the access rules stay in one place. |
+| One set of rules | `workFor` moved from the browser to `server/src/domain/work.ts`; figures use the server's existing `stats` / `handoverGates`. The browser's copies were removed (only the open project's "ball in court" stays client-side). The API test proves, for every role incl. the vendor, that each summary is **identical** to the one computed from the full project. |
+| Client | The store keeps summaries; opening a project loads it ("Loading project…", sidebar shows the summary meanwhile); returning to a workspace page re-fetches the summaries. |
+| Bug found | `today()` built a new `Intl.DateTimeFormat` on every call (once per document per figure): now one formatter per time zone — faster everywhere. |
+| Load-test tools | `npm run fixtures:load -- --projects 100` adds 100 projects with the history of a project in use (300 audit entries, 150 notifications each); `npm run perf:portfolio` times the portfolio and one project. |
+
+Measured with 103 projects (local PostgreSQL 18, API in-process, median of 5):
+
+| | Before | After |
+|---|---|---|
+| Portfolio `GET /api/projects` | 1010 ms, **11.9 MB** | **102 ms, 447 kB** |
+| Open one project `GET /api/projects/PRJ-026` | 11 ms, 36 kB | 16 ms, 36 kB (unchanged) |
+| Browser: sign-in to complete portfolio (103 rows) | — | 1.8 s (e2e15) |
+
+URS-35 "Portfolio at scale" added to the validation catalogue (OQ-API-32, OQ-UI-15); the OQ runner and the Docker CI
+test load the 100 load-test projects for e2e15.
+
+Tests: API **549** checks (+8, OQ-API-32: summary = full computation for Consultant, Contractor, Owner / QA and vendor;
+no full data in summaries; vendor sees only its company); browser + **18 (new `e2e15.mjs`)**; OQ 1078 of 1078 checks passed in 47 test cases (549 API + 529 browser).
+
+Next: **Phase 3 / step 5 — P6 monitoring** (done, see below).
+
+### Phase 3 / step 5 — monitoring (P6) (done 2026-10-25)
+
+Before, the server printed one-line request logs to the console and errors ended up only there: nobody could tell
+afterwards what had failed, whether the background jobs were still running, or whether the application had been down.
+
+| Part | How it works |
+|---|---|
+| Structured log | One event per line — JSON for a log collector (`LOG_FORMAT=json`, the default in production) or readable text while developing. Each request logs method, path, status, duration, size, user and client address, never bodies, tokens or passwords. The line carries the **request id** that the answer returns in `X-Request-Id` and that the audit entries of that request already store: an inspector's question "which call wrote this record" now has an answer. `LOG_DIR` keeps daily files and deletes them after `LOG_KEEP_DAYS`; administrators read the tail of today's file on the page. |
+| Error tracking | Every 500 answer, failed background job and unhandled process error is grouped by fingerprint (kind + place + the message with numbers and ids masked), counted, and kept with its last request id and user. An administrator acknowledges or resolves a group **with a note**; a resolved group that happens again is reopened and alerted — a fix that did not hold is not silently lost. |
+| Health and job watchdog | Each background job (e-mail delivery, reminders, backups) writes a heartbeat; a watchdog writes the API's own heartbeat every minute. A gap of more than 5 minutes is recorded as an **interruption** (the application was not running or could not reach its database) and reported. Stale or failing jobs, a burst of errors per hour and low free space raise alerts as well. |
+| Alerts | E-mail to every active administrator plus a security-log entry (`monitor.alert`), at most once per hour per subject so a failing installation cannot flood the outbox. Switchable per kind; "Send test alert" proves the path works. |
+| Metrics for an uptime tool | `GET /api/metrics` (Prometheus text, `METRICS_TOKEN` required, 404 without it): up, uptime, build, database latency, requests by status class, p50 / p95, open errors, memory, free space, job age and failures, backup age. |
+| Monitoring page | Administration → Monitoring: health (version, runtime, database round trip, memory, free space, requests and response times, log destination, metrics state), background jobs, error groups with acknowledge / resolve / reopen, interruptions, alert settings and the server-log tail. |
+| Installation check | IQ-19 logging destination, IQ-20 alert configuration, IQ-21 background jobs, IQ-22 free space. |
+
+URS-36 "Monitoring and alerting" added to the validation catalogue (OQ-API-33, OQ-UI-16). New settings
+`LOG_LEVEL`, `LOG_FORMAT`, `LOG_DIR`, `LOG_KEEP_DAYS`, `METRICS_TOKEN` (server `.env.example`, `deploy/.env.example`
+and the compose stack, which writes daily files into the api volume). Migration `monitoring`
+(`ErrorEvent`, `JobHeartbeat`, `Outage`); `morgan` removed — the request log is now our own.
+
+Tests: API **578** checks (+29, OQ-API-33: request log with its request id, JSON lines without credentials, daily
+rotation with retention, request figures, error grouping and reopening, a 500 recorded with route / request id / user,
+alert settings and their security-log entry, stale-job and outage alerts with the once-per-hour throttle, metrics
+endpoint with and without its token, IQ-19…22); browser + **23 (new `e2e16.mjs`)**; OQ 1130 of 1130 checks passed in
+49 test cases (578 API + 552 browser).
+
+### My profile — the personal account page (done 2026-10-25)
+
+Until now a person could only change their password and their e-mail preference, through two small links in the
+sidebar; nobody could see **their own roles**, and an inspector's question "what does this account have access to"
+had no answer in the application. A profile page closes that, without moving account data out of the administrator's
+hands.
+
+| Section | What it shows / does |
+|---|---|
+| Account | Name, e-mail, company, administrator rights, account created, last sign-in, when the password was last changed — read-only, with a line saying the administrator maintains them (a GxP account record stays controlled). |
+| My access | Every project with the role held there and the record access (whole project, or limited to one company for a vendor account). |
+| Security | Inactivity lock and maximum session length, the password form inline, and **Sign out of all devices** — bumps the token version so every token of the account is refused, logged as `sessions.revoked` and e-mailed to the account holder. |
+| E-mail notifications | The same preference as the dialog (Immediate / Daily digest / Off), now editable on the page; security alerts stay always-on. |
+| My recent activity | The account's own security events and the audit entries it wrote, newest first — nobody else's. |
+
+API: `GET /api/auth/me` now also returns `account` (created, last sign-in, password changed, idle minutes, session
+hours); new `GET /api/auth/activity?limit=` and `POST /api/auth/sign-out-everywhere`. The sidebar footer became a
+button to the page (`#/profile`), the quick links stay.
+
+URS-37 "Personal account page" added to the validation catalogue (OQ-API-34, OQ-UI-17). Also fixed while testing:
+a verification whose process was killed left its temporary database behind and made the next test restore fail —
+`verifyBackup` now drops leftovers first; the API suite can reset the per-address request ceiling (`resetApiRate`).
+
+Tests: API **598** checks (+14, OQ-API-34: own account and roles, vendor scope, activity limited to the account,
+401 without a session, sign out of all devices refusing every token, security log and e-mail); browser **+21**
+(new `e2e17.mjs`) = **587**; OQ **1185 of 1185** checks passed in 51 test cases.
+
+Next: **Phase 3 / step 6 — P4 object storage** (S3 / Azure Blob with the same content-addressed keys, virus scan on
+upload), then P5 (SSO / MFA, httpOnly-cookie sessions).
+
+### Readiness rehearsal and the first-day fixes (done 2026-10-25)
+
+The whole customer journey was run on an **empty database** (install → `create-admin` → users → project wizard →
+library approval → requirements → document → upload → two-stage e-signature → evidence → RFI / NCR / transmittal →
+reports → access review → backup → monitoring). It worked end to end — installation check **Pass** (17 pass,
+2 warning, 0 fail) — and produced a gap list (`UAT_REPORT.md`). The five items a tester hits first were fixed:
+
+| Gap found in the rehearsal | Fix |
+|---|---|
+| A new project has no systems, so the first RFI failed only **after** submitting ("System (none) is not in the system register") | The RFI form keeps *Submit* disabled and says what is missing; the project overview now carries a **set-up checklist** (systems · requirements · applicability · documents) that disappears when the four steps are done. |
+| Applicability had to be decided one requirement at a time (17 here, 50–150 on a real project) | Select requirements in the register and record **one decision with one rationale** for all of them: `POST /projects/:id/reqs/applicability`. The rationale is written to every requirement and each keeps its own audit entry ("one of N decided together"), so the trail stays per record. |
+| The four-eyes rule means a one-account installation can never approve the library — nothing said so | `create-admin` now tells the installer to create a second account, the library draft says who may approve, and `deploy/README.md` lists it as an installation step. |
+| "Apply to project", "Submit RFI" and "Issue transmittal" stayed enabled without their reason / system / purpose and failed with a toast | All three disable the action and explain the missing input in place, like the rest of the product. |
+| The transmittal receipt could only be acknowledged after expanding the row | The recipient now sees **Acknowledge** in the list row. |
+
+Tests: API **584** checks (+6, batch applicability: rationale required, unknown id rejects the whole batch, both
+requirements carry the decision and its rationale, one audit entry each, a contractor refused); browser **566**
+(+8 e2e2 RFI and batch decision, +3 e2e4 set-up checklist, +3 e2e10 transmittal purpose and receipt);
+OQ **1150 of 1150** checks passed in 49 test cases.
+
+### Interface redesign — deep blue glass (done 2026-10-25, customer request)
+
+The customer asked for the brand colour to change from teal/green to **dark blue** and for the current
+**transparent glass** look. Done as a design-system change only: no component structure, text, control or endpoint was
+touched, so all 1130 OQ checks pass unchanged.
+
+| Part | What changed |
+|---|---|
+| Colour | One brand colour (`--brand` #2563eb with `--brand-d` / `--brand-dd` / `--brand-l`), deep navy shell (#0a1b3c), cool neutrals. The old `--teal*` names stay as aliases so components keep working. Status colours (green / amber / red / violet) stay distinct, as GxP records are read by their state. |
+| Glass | Frosted surfaces (`backdrop-filter`) on cards, tables, stat tiles, the top bar, drawer, command palette, modals, popovers and toasts, over a fixed blue "aurora" background; hairline white edges and soft blue-tinted elevation. Overlays are nearly opaque (0.95) so dense text stays readable. |
+| Polish | 9–14 px radii, gradient primary button with a hover lift, pill badges, sticky translucent table headers, blue row hover, focus ring (3 px, 2 px offset), custom scrollbars, gradient page titles, `accent-color` for checkboxes. |
+| Robustness | Fallback to solid surfaces via `@supports not (backdrop-filter)`, opaque sidebar on mobile, `prefers-reduced-motion` switches transitions off, print styles drop blur and shadows. |
+| Build fix | `vite.config.ts` now sets `build.cssTarget: 'chrome111'` and the stylesheet writes `-webkit-backdrop-filter` **before** the standard property: esbuild keeps only the last of such a pair, and it was dropping the standard one — the frosted surfaces rendered flat in Chrome. |
+| Tool | `qualigrafo/scripts/shots.mjs` (`node scripts/shots.mjs` against a preview server) captures the main screens, the overlays and a mobile view into `qualigrafo/design-out/` for reviewing the look. |
+
+Checked: all 15 browser suites plus the API suite (**1130 of 1130**), screenshots of portfolio, overview, requirements,
+documents drawer, monitoring, command palette, sign-in and mobile, light / dense tables, no horizontal scroll at 390 px.
+
+**Second pass (same day): authentication screens and screen-level polish.** The theme was in place but the screens
+before the workspace still looked like a plain form on a gradient, so they were rebuilt and the shared components
+tightened. No component logic, route, request or test selector changed.
+
+| Part | What changed |
+|---|---|
+| Sign-in | Split composition: left a deep-navy panel with the product name, what Qualigrafo does and three true capabilities (register · signed decisions · audit readiness) over three frosted panes; right the form on white, which is where the eye lands. Labels are now properly bound to their inputs (`htmlFor`/`id`), the password field has a show / hide control, the primary action is full width, and a closing line states that sign-ins and signatures are recorded. |
+| Forced password change | Same frame as sign-in (`AuthShell`), with the live password rules under the field. |
+| Lock screen | Centred card on the navy mesh with the signed-in identity shown as an avatar chip, show / hide password and the same type scale. The test hooks (`Unlock password`, heading, `.lockscreen`) are unchanged. |
+| Mobile auth | Its own composition: the brand panel collapses to a compact bar, the decorative panes are dropped, the form is the first thing on screen and fills the viewport. |
+| Shell | Sidebar rhythm (group labels, 34 px items, focus ring on dark), 54 px top bar, breadcrumb weight, quieter counters. |
+| Screens | Uppercase micro-labels on figures and key/value blocks, tabular figures, calmer table padding, 21 px pill badges, compact empty states, cards that take their own height instead of stretching (no more half-empty panels), dates kept on one line. |
+| Motion | Short, purposeful entrances (scrim fade, drawer slide, palette / modal pop, toast rise, page fade) — all switched off under `prefers-reduced-motion`. |
+| Accessibility | Visible 2 px focus ring on every control including the dark sidebar, real label bindings, `aria-pressed` on the password toggle, touch-sized controls. |
+
+Verified again after this pass: **1130 of 1130** OQ checks, production build and lint clean, screenshots of sign-in
+(desktop + mobile), forced password change, lock screen (mobile), portfolio, overview, requirements, document drawer,
+monitoring, users and the command palette in `qualigrafo/design-out/`.
+
+Next: **Phase 3 / step 6 — P4 object storage** (S3 / Azure Blob with the same content-addressed keys, virus scan on
+upload), then P5 (SSO / MFA, httpOnly-cookie sessions).
+
+**Third pass (2026-10-26): visual polish, appearance only.** The redesign was kept; this pass only removed what was
+too loud and tightened what was loose. One appended layer, `v9` in `qualigrafo/src/index.css`. No component, route,
+request, label or test selector changed.
+
+| Part | What changed |
+|---|---|
+| Canvas | The blue aurora behind the glass is roughly half its former strength (0.22/0.18/0.16/0.12 -> 0.09/0.07/0.06) and the page gradient is paler, so screens read as a white workspace with a blue cast rather than a blue page. |
+| Card edges | Cards, tables and figures had a white border on a near-white page, so they read as floating blurs; they now carry a real hairline (`rgba(18,42,84,0.11)`) with the white inset highlight kept for the glass feel. |
+| Elevation | Card shadow cut from `0 18px 40px -28px / 0.55` to `0 10px 24px -22px / 0.34`, and the primary button's blue glow roughly halved. |
+| Readability | Surfaces went from 0.78/0.62 to 0.92/0.82 opaque, so the glass stays selective and 12-13 px text keeps its contrast on every panel. |
+| Card headings | `.card.flush > h2` is `18px 18px 12px`, so a flush (table) card and a padded card standing side by side now line up on their title — previously 5 px apart on Overview. |
+| Marks | Badges and tags share a 6 px radius, and filled badges gained a hairline in their own hue so they carry the same weight as the outlined ones next to them. |
+| Tables | Row hover is brand-neutral (`rgba(37,99,235,0.035)` instead of a teal-ish white), header and cell rules are blue-grey hairlines. |
+| Sign-in | Split is `1.12fr 0.88fr`, the form 424 px with 40 px inputs and a 44 px action, so the white column hugs the form (gutters 279 px -> ~125 px) and the field/button proportions match; content is optically centred. The three frosted panes are now one deliberate cascade down the right of the brand panel instead of three stray rectangles, one of which sat behind the copy. |
+
+Checked on this pass: production build clean, **all 16 browser suites pass** and the API suite passes **598 of 598**;
+screenshots re-captured to `qualigrafo/design-out-v9/` and compared against `design-out/`. A first attempt put the
+`.auth` and `.auth-panel` rules after v7's `@media (max-width: 980px)` block and silently broke the mobile stack
+(the split stayed two-column at 414 px); both are now guarded with `@media (min-width: 981px)` and mobile sign-in was
+re-checked.
+
+Next: **Phase 3 / step 6 — P4 object storage** (S3 / Azure Blob with the same content-addressed keys, virus scan on
+upload), then P5 (SSO / MFA, httpOnly-cookie sessions).

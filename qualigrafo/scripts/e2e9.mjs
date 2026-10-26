@@ -3,7 +3,7 @@
 // unlock in place, server-ended session).
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { ACCOUNTS, PASSWORD, attach, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, ACCOUNTS, PASSWORD, attach, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -17,8 +17,8 @@ const qa = (await api('POST', '/auth/login', { email: ACCOUNTS['Owner / QA'], pa
 const pd = (await api('GET', '/projects/PRJ-026', undefined, qa)).project
 const DOC = pd.docs.find((d) => d.status === 'Missing' || d.status === 'Draft')
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+const browser = await chromium.launch({ executablePath: CHROME })
+const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))

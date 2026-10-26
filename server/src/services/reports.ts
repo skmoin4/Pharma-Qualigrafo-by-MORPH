@@ -9,6 +9,10 @@ import { evidenceState, handoverGates, isActiveDoc, isOverdue } from '../domain/
 import { markets as MARKETS } from '../domain/reference.ts'
 import type { MarketKey, ProjectData } from '../domain/types.ts'
 import type { TransmittalItem } from './transmittals.ts'
+import type { ReviewDetail } from './accessReview.ts'
+import type { IqResult } from './iq.ts'
+import { traceability } from '../validation/catalogue.ts'
+import type { OqResults } from '../validation/catalogue.ts'
 
 const fontDir = path.join(path.dirname(createRequire(import.meta.url).resolve('dejavu-fonts-ttf/package.json')), 'ttf')
 const FONT = path.join(fontDir, 'DejaVuSans.ttf')
@@ -65,7 +69,7 @@ class Report {
     const kw = 130
     for (const [k, v] of rows) {
       d.font('Body').fontSize(9)
-      const h = Math.max(d.heightOfString(v || '—', { width: this.width - kw }), 11) + 3
+      const h = Math.max(d.heightOfString(v || '—', { width: this.width - kw }), d.heightOfString(k, { width: kw - 8 }), 11) + 3
       this.room(h)
       const y = d.y
       d.fillColor(MUTED).text(k, this.left, y, { width: kw - 8 })
@@ -245,4 +249,117 @@ export async function transmittalPdf(p: ProjectData, t: { code: string; toCompan
   }
   r.p('The SHA-256 value identifies the exact file of each revision: a copy whose checksum differs is not the transmitted document.', { muted: true, size: 7.5 })
   return r.finish()
+}
+
+/* ---------------------------------------------------------------- user-access review */
+
+export async function accessReviewPdf(r: ReviewDetail, by: string, reportId: string) {
+  const rep = new Report({ title: `Access review ${r.code}`, reportId, project: 'Installation', by })
+  const n = (d: string) => r.items.filter((i) => i.decision === d).length
+  rep.cover(`User-access review ${r.code}`, `${r.total} active account(s) · ${r.status}`, [
+    ['Started', `${stamp(new Date(r.startedAt))} by ${r.startedBy}`], ['Target date', r.dueDate],
+    ['Status', r.status === 'Completed' ? `Completed ${stamp(new Date(r.completedAt!))}` : r.status === 'Cancelled' ? `Cancelled: ${r.cancelReason ?? ''}` : 'Open — decisions in progress'],
+    ['Outcome', `${n('Keep')} kept · ${n('Keep with changes')} kept with changes · ${n('Disable account')} disabled · ${r.total - r.decided} undecided`],
+    ['Accounts flagged', `${r.flagged} of ${r.total}`],
+  ])
+  if (r.status !== 'Completed') rep.notice(`This review is ${r.status.toLowerCase()}; it is not a completed, signed review.`, 'warn')
+  rep.h2('Accounts and decisions')
+  rep.table([{ head: 'Account', width: 3 }, { head: 'Access at review start', width: 3.6 }, { head: 'Findings', width: 2.2 }, { head: 'Decision', width: 2.6 }],
+    r.items.map((i) => [
+      { text: i.name, small: `${i.email}${i.company ? ` · ${i.company}` : ''}\nLast sign-in: ${i.lastLoginAt ? day(i.lastLoginAt) : 'never'}` },
+      { text: [i.isAdmin ? 'Administrator' : '', ...i.memberships.map((m) => `${m.project}: ${m.role}${m.scope ? ` (only ${m.scope})` : ''}${m.archived ? ' [archived]' : ''}`)].filter(Boolean).join('\n') || 'No access' },
+      i.flags.length ? { text: i.flags.join('\n'), color: RED } : { text: 'None', color: MUTED },
+      i.decision ? { text: i.decision, color: i.decision === 'Disable account' ? RED : NAVY, small: `${i.note ? `${i.note}\n` : ''}${i.decidedBy} · ${day(i.decidedAt!)}${i.selfReview ? ' · SELF-REVIEW' : ''}` } : { text: 'Undecided', color: MUTED },
+    ]))
+  if (r.items.some((i) => i.selfReview)) rep.p('SELF-REVIEW: the reviewer decided on their own account. Consider an independent check by another administrator.', { muted: true, size: 7.5 })
+  rep.h2('Electronic signature')
+  if (r.status === 'Completed') {
+    rep.kv([['Signed by', `${r.completedBy}`], ['Date and time', stamp(new Date(r.completedAt!))], ['Meaning', r.meaning ?? ''], ['Conclusion', r.conclusion ?? ''], ['Signature hash', `${r.sigHash} (${r.signature})`]])
+    rep.p('The signature hash covers the review code, every account decision and note, the signer, the meaning, the conclusion and the time; Qualigrafo recomputes it to detect changes made outside the application.', { muted: true, size: 7.5 })
+  } else rep.p('Not signed.', { muted: true })
+  rep.p(`Scope: active accounts of this Qualigrafo installation and their project roles at the start of the review. Accounts disabled before the review are not listed. Flag "No sign-in for 90+ days" uses the last successful sign-in.`, { muted: true, size: 7.5 })
+  return rep.finish()
+}
+
+/* ---------------------------------------------------------------- installation qualification + validation pack */
+
+const IQ_COLOR: Record<string, string> = { Pass: TEAL, Fail: RED, Warning: '#a76a00', Info: MUTED }
+
+function iqSection(rep: Report, iq: IqResult) {
+  rep.kv([['Executed', `${stamp(new Date(iq.executedAt))} by ${iq.executedBy}`], ['Application version', iq.version], ['Code fingerprint', iq.fingerprint], ['Overall result', iq.overall === 'Pass' ? `Pass (${iq.checks.filter((c) => c.status === 'Warning').length} warning(s) to review)` : 'FAIL — correct the failed checks and execute again']])
+  rep.table([{ head: 'Check', width: 2.6 }, { head: 'Expected', width: 3.4 }, { head: 'Found', width: 4 }, { head: 'Result', width: 1.2 }],
+    iq.checks.map((c) => [{ text: c.title, small: c.id }, c.expected, c.actual, { text: c.status, color: IQ_COLOR[c.status] }]))
+  rep.p('Pass = as specified. Fail = must be corrected before productive use. Warning = deviation from the recommended configuration; justify or correct. Info = recorded value.', { muted: true, size: 7.5 })
+}
+
+const SIGN_BLOCK: [string, string][] = [['Name', '______________________________'], ['Signature', '______________________________'], ['Date', '______________________________']]
+
+export async function iqPdf(iq: IqResult, by: string, reportId: string, installation: string) {
+  const rep = new Report({ title: 'Installation qualification record', reportId, project: 'Installation', by })
+  rep.cover('Installation qualification (IQ) record', `Qualigrafo ${iq.version} · result ${iq.overall}`, [['Report', reportId], ['Installation', installation]])
+  rep.h2('Checks')
+  iqSection(rep, iq)
+  rep.h2('Executed by')
+  rep.kv(SIGN_BLOCK)
+  rep.h2('Reviewed by (customer QA)')
+  rep.kv(SIGN_BLOCK)
+  return rep.finish()
+}
+
+export async function validationPackPdf(o: { oq: OqResults; iq: IqResult; by: string; reportId: string }) {
+  const { oq, iq } = o
+  const trace = traceability(oq)
+  const rep = new Report({ title: `Validation pack ${iq.version}`, reportId: o.reportId, project: 'Qualigrafo', by: o.by })
+  const failed = oq.cases.flatMap((c) => c.checks.filter((k) => !k.pass).map((k) => ({ c, k })))
+  rep.cover('Validation pack', `Qualigrafo ${iq.version} · supplier test evidence for computerised-system validation`, [
+    ['Document', o.reportId], ['Software version', iq.version], ['Code fingerprint', iq.fingerprint],
+    ['OQ executed', `${stamp(new Date(oq.executedAt))} by ${oq.executedBy} · ${Math.max(1, Math.round(oq.durationSec / 60))} min`],
+    ['OQ result', `${oq.totals.passed} of ${oq.totals.checks} checks passed in ${oq.totals.cases} test cases${oq.totals.failed ? ` · ${oq.totals.failed} FAILED` : ''}`],
+    ['IQ result (test environment)', iq.overall],
+    ['Requirements', `${trace.length} user requirements · ${trace.filter((t) => t.verdict === 'Pass').length} verified by passing tests · ${trace.filter((t) => t.verdict === 'Procedural').length} procedural`],
+  ])
+  if (oq.environment['Code fingerprint'] !== iq.fingerprint) rep.notice(`DRAFT — not valid as release evidence: the code changed after the OQ run (OQ fingerprint ${oq.environment['Code fingerprint']}, installed ${iq.fingerprint}). Run the OQ again before issuing this pack.`, 'warn')
+  rep.notice('Purpose and limits: this pack is the supplier documentation (requirements, risk assessment, installation and operational test results, traceability) that supports the customer validation of Qualigrafo as a GxP computerised system (GAMP 5 risk-based approach). It does not replace that validation: the customer approves the URS for their intended use, decides the GAMP category (proposed: Category 4, configured product), executes IQ on their installation (Administration → System & validation), may repeat OQ in their validation environment, and performs PQ / user acceptance under their own procedures. Regulatory references show which clause a requirement relates to; they are not a statement of compliance.')
+
+  rep.h2('1. System description')
+  rep.p('Qualigrafo manages engineering evidence for pharmaceutical facility projects: document register with two-stage electronic sign-off, requirement library and project requirements, evidence links, site records (RFIs, inspections, NCRs, risks, change impact), reports and handover. Server: Node.js + Express + PostgreSQL; browser client: React. Users and roles are managed in the application (one installation per customer). Electronic records: audit trail, security log, signatures, files with SHA-256.')
+  rep.kv(Object.entries(oq.environment))
+
+  rep.h2('2. User requirements (URS)')
+  rep.table([{ head: 'ID', width: 0.9 }, { head: 'Requirement', width: 6.2 }, { head: 'GxP', width: 0.9 }, { head: 'Relates to', width: 2.2 }],
+    trace.map((u) => [u.id, { text: u.title, small: `${u.area} · ${u.text}` }, u.gxp, u.ref]))
+
+  rep.h2('3. Risk assessment')
+  rep.p('Method (GAMP 5): severity of harm to product quality, patient safety or data integrity × probability of the failure gives the risk class (1 = highest); risk class × detectability gives the priority. High-priority functions are tested in depth (positive and negative cases).', { muted: true })
+  rep.table([{ head: 'ID', width: 0.9 }, { head: 'Function', width: 2.6 }, { head: 'S / P / D', width: 1.6 }, { head: 'Class', width: 0.9 }, { head: 'Priority', width: 1.3 }, { head: 'Controls', width: 4.1 }],
+    trace.map((u) => [u.id, u.title, `${u.severity} / ${u.probability} / ${u.detectability}`, String(u.riskClass), { text: u.priority, color: u.priority === 'High' ? RED : NAVY }, u.controls]))
+
+  rep.h2('4. Installation qualification (test environment)')
+  iqSection(rep, iq)
+
+  rep.h2('5. Operational qualification — summary')
+  rep.table([{ head: 'Test case', width: 1.2 }, { head: 'Title', width: 5.6 }, { head: 'Checks', width: 1.1 }, { head: 'Result', width: 1 }, { head: 'Requirements', width: 2 }],
+    oq.cases.map((c) => [c.id, { text: c.title, small: c.suite === 'api' ? 'API test suite' : `Browser suite ${c.suite}` }, `${c.passed}/${c.checks.length}`, { text: c.failed ? 'Fail' : c.checks.length ? 'Pass' : 'No checks', color: c.failed || !c.checks.length ? RED : TEAL }, trace.filter((u) => u.tests.includes(c.id)).map((u) => u.id).join(', ')]))
+
+  rep.h2('6. Traceability matrix')
+  rep.table([{ head: 'Requirement', width: 3.3 }, { head: 'Priority', width: 1.3 }, { head: 'Test cases', width: 3.9 }, { head: 'Checks', width: 1.2 }, { head: 'Verdict', width: 1.3 }],
+    trace.map((u) => [{ text: u.id, small: u.title }, u.priority, u.tests.join(', ') || (u.procedural ?? '—'), String(u.checks), { text: u.verdict, color: u.verdict === 'Pass' ? TEAL : u.verdict === 'Procedural' ? MUTED : RED }]))
+
+  rep.h2('7. Deviations')
+  if (failed.length) rep.table([{ head: 'Test case', width: 1.2 }, { head: 'Failed check', width: 8 }], failed.map(({ c, k }) => [c.id, k.text]))
+  else rep.p('None: every executed check passed.')
+  const proc = trace.filter((u) => u.verdict === 'Procedural')
+  if (proc.length) rep.p(`Not verified by software tests (procedural controls): ${proc.map((u) => `${u.id} ${u.title} — ${u.procedural}`).join(' ')}`, { muted: true })
+
+  rep.h2('8. Approval')
+  rep.p('Prepared by (supplier)', { muted: true }); rep.kv(SIGN_BLOCK)
+  rep.p('Reviewed and approved by (customer QA)', { muted: true }); rep.kv(SIGN_BLOCK)
+
+  rep.h2('Annex — every OQ check')
+  for (const c of oq.cases) {
+    rep.p(`${c.id} · ${c.title} (${c.passed}/${c.checks.length})`, { size: 8.5 })
+    rep.table([{ head: '#', width: 0.5 }, { head: 'Check (expected behaviour verified)', width: 8.5 }, { head: 'Result', width: 1 }],
+      c.checks.map((k, i) => [String(i + 1), k.text, { text: k.pass ? 'Pass' : 'FAIL', color: k.pass ? TEAL : RED }]))
+  }
+  return rep.finish()
 }

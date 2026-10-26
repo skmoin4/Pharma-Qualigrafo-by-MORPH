@@ -1,0 +1,39 @@
+# Render Blueprint: one free web service running the API + the built frontend together
+# (Express serves qualigrafo/dist; the browser calls /api on the same origin — no CORS needed).
+# Deploy: connect this repo on https://dashboard.render.com/blueprints, then fill in the
+# secret env vars below (Neon connection strings, JWT_SECRET) in the Render dashboard.
+services:
+  - type: web
+    name: qualigrafo
+    runtime: node
+    plan: free
+    branch: production-backend
+    buildCommand: >
+      cd qualigrafo && npm ci && npm run build &&
+      cd ../server && npm ci --include=dev && npx prisma generate
+    startCommand: >
+      cd server &&
+      DATABASE_URL="$DATABASE_URL_UNPOOLED" npx prisma migrate deploy &&
+      node --import tsx src/index.ts
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: STATIC_DIR
+        value: ../qualigrafo/dist
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
+      - key: IDLE_TIMEOUT_MIN
+        value: 15
+      - key: DATABASE_URL
+        sync: false # Neon pooled connection string (…-pooler.c-7.us-east-2.aws.neon.tech)
+      - key: DATABASE_URL_UNPOOLED
+        sync: false # Neon direct connection string, used only for migrate deploy at startup
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false # set to this service's own URL once Render assigns it, e.g. https://qualigrafo.onrender.com
+      - key: APP_URL
+        sync: false # same as CORS_ORIGIN; used in e-mail links

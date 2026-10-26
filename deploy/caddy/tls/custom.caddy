@@ -1,0 +1,2 @@
+# TLS_MODE=custom: certificate issued by your IT (full chain + private key, PEM), mounted from deploy/certs.
+tls /certs/cert.pem /certs/key.pem

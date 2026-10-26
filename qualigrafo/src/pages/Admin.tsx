@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Check, Copy, KeyRound, RefreshCw, ShieldCheck, UserPlus } from 'lucide-react'
+import { Activity, Check, ClipboardCheck, Copy, DatabaseBackup, KeyRound, Mail, ServerCog, RefreshCw, ShieldCheck, UserPlus } from 'lucide-react'
 import { api, errorText } from '../api'
 import { useStore } from '../store'
 import type { Role } from '../types'
 import { Badge, Empty, PageHead, fmtDate } from '../components/ui'
+const AdminMail = lazy(() => import('./AdminMail'))
+const AdminAccessReview = lazy(() => import('./AdminAccessReview'))
+const AdminValidation = lazy(() => import('./AdminValidation'))
+const AdminBackups = lazy(() => import('./AdminBackups'))
+const AdminMonitoring = lazy(() => import('./AdminMonitoring'))
 
 interface AdminMembership { project: string; projectName: string; role: Role; scope: string | null }
 interface AdminUser {
@@ -182,7 +187,7 @@ function SecurityLog() {
 
 export default function Admin() {
   const { session, toast } = useStore()
-  const [tab, setTab] = useState<'users' | 'log'>('users')
+  const [tab, setTab] = useState<'users' | 'review' | 'log' | 'mail' | 'system' | 'backups' | 'monitoring'>('users')
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [meta, setMeta] = useState<{ projects: ProjectMeta[]; companies: string[] }>({ projects: [], companies: [] })
   const [sel, setSel] = useState<string | null>(null)
@@ -210,13 +215,13 @@ export default function Admin() {
     <>
       <PageHead
         title="Users & access"
-        sub="Accounts, project roles and vendor scopes. Every change is recorded in the security log; membership changes also appear in the project's audit trail."
+        sub="Accounts, project roles and vendor scopes, the periodic access review, e-mail delivery and the daily reminders, installation check, validation packs, backups and monitoring. Every change is recorded in the security log; membership changes also appear in the project's audit trail."
         actions={<>
-          <div className="seg"><button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}>Users</button><button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}><ShieldCheck size={13} /> Security log</button></div>
+          <div className="seg"><button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}>Users</button><button className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}><ClipboardCheck size={13} /> Access review</button><button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}><ShieldCheck size={13} /> Security log</button><button className={tab === 'mail' ? 'on' : ''} onClick={() => setTab('mail')}><Mail size={13} /> E-mail &amp; reminders</button><button className={tab === 'system' ? 'on' : ''} onClick={() => setTab('system')}><ServerCog size={13} /> System &amp; validation</button><button className={tab === 'backups' ? 'on' : ''} onClick={() => setTab('backups')}><DatabaseBackup size={13} /> Backups</button><button className={tab === 'monitoring' ? 'on' : ''} onClick={() => setTab('monitoring')}><Activity size={13} /> Monitoring</button></div>
           {tab === 'users' && <button className="btn pri" onClick={() => { setCreating(true); setSel(null) }}><UserPlus size={14} /> New user</button>}
         </>}
       />
-      {tab === 'log' ? <SecurityLog /> : (
+      {tab === 'monitoring' ? <Suspense fallback={<Empty title="Loading…" />}><AdminMonitoring /></Suspense> : tab === 'backups' ? <Suspense fallback={<Empty title="Loading…" />}><AdminBackups /></Suspense> : tab === 'system' ? <Suspense fallback={<Empty title="Loading…" />}><AdminValidation /></Suspense> : tab === 'review' ? <Suspense fallback={<Empty title="Loading…" />}><AdminAccessReview /></Suspense> : tab === 'mail' ? <Suspense fallback={<Empty title="Loading…" />}><AdminMail /></Suspense> : tab === 'log' ? <SecurityLog /> : (
         <div className="admin-grid">
           <section className="card flush">
             <div style={{ padding: 12 }}><input className="input" placeholder="Search name, email or company…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search users" /></div>

@@ -135,6 +135,29 @@ export interface AuditEvent {
   user?: string
 }
 
+/** What the user has to do next in a project (computed by the server, server/src/domain/work.ts). */
+export interface WorkItem { project: string; kind: string; title: string; detail: string; due?: string; page: string; overdue: boolean }
+
+/** Portfolio entry: the server's summary of one project (GET /api/projects); the full project loads when it is opened. */
+export interface ProjectSummary {
+  role: Role
+  scope: string | null
+  profile: Profile
+  markets: MarketKey[]
+  baseline: number
+  stats: {
+    required: number; accepted: number; pending: number; gaps: number; pct: number | null; overdue: number
+    criticalGaps: number; criticalNcrs: number; stale: number; attention: boolean
+    gates: { key: string; label: string; n: number; of: number }[]
+    upcoming: string | null
+    flags: string[]
+  }
+  work: WorkItem[]
+  updates: { id: string; market: MarketKey; title: string; status: string; reqs: string[] }[]
+  deadlines: { id: string; title: string; owner: string; due: string; overdue: boolean }[]
+  recent: { at: string; role: Role; text: string; user?: string }[]
+}
+
 export interface SessionUser {
   id: string
   email: string
@@ -143,7 +166,22 @@ export interface SessionUser {
   isAdmin: boolean
   mustChangePassword: boolean
   canCreateProjects: boolean
+  /** E-mail notifications for project work; security alerts are always sent. */
+  emailPref: EmailPref
 }
+
+export type EmailPref = 'Immediate' | 'Daily digest' | 'Off'
+
+/** Facts about the signed-in account, shown on the personal profile page (maintained by an administrator). */
+export interface AccountFacts {
+  createdAt: string
+  lastLoginAt: string | null
+  passwordChangedAt: string | null
+  idleMinutes: number
+  sessionMaxHours: number
+}
+export interface MyMembership { project: string; name: string; role: Role; scope: string | null }
+export interface ActivityItem { at: string; kind: 'Account' | 'Project'; what: string; detail: string; project: string | null; ip: string | null }
 
 export interface ToastMsg {
   id: number

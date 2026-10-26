@@ -1,0 +1,2 @@
+# TLS_MODE=internal: certificate from Caddy's own CA (tests, closed networks; browsers must trust its root).
+tls internal

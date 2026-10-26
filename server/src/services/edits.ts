@@ -83,7 +83,7 @@ export async function editNcr(c: Ctx, code: string, b: { title: string; descript
   await c.log(`${n.code} edited: ${list.join('; ')}. Reason: ${b.reason.trim()}`)
   if (changed(pairs, 'severity') || changed(pairs, 'due')) {
     const what = [changed(pairs, 'severity') && `severity ${RANK[b.severity] > RANK[n.severity] ? 'raised' : 'lowered'} to ${b.severity}`, changed(pairs, 'due') && `response due ${b.due}`].filter(Boolean).join(', ')
-    await c.notify('Issue status', `${n.code} ${what}: ${b.reason.trim()}`, b.doc || undefined, 'Contractor')
+    await c.notify('Issue status', `${n.code} ${what}: ${b.reason.trim()}`, b.doc || undefined, 'Contractor', { page: 'ncrs' })
   }
 }
 
@@ -102,7 +102,7 @@ export async function editAction(c: Ctx, code: string, b: { title: string; owner
   if (!clean(b.owner)) throw rule('An action owner is required.')
   await c.tx.gapAction.update({ where: { id: a.id }, data: { title: clean(b.title), owner: clean(b.owner), due: toDate(b.due), priority: b.priority } })
   await c.log(`${a.code} edited: ${list.join('; ')}. Reason: ${b.reason.trim()}`)
-  if (changed(pairs, 'owner')) await c.notify('Routing', `${a.code} reassigned to ${clean(b.owner)}: ${b.reason.trim()}`, undefined, 'Contractor')
+  if (changed(pairs, 'owner')) await c.notify('Routing', `${a.code} reassigned to ${clean(b.owner)}: ${b.reason.trim()}`, undefined, 'Contractor', { page: 'actions' })
 }
 
 /* -------------------------------------------------------------- findings */

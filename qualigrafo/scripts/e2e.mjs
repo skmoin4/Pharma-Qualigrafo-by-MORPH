@@ -1,7 +1,7 @@
 // Run (preview server on :8081): node scripts/e2e.mjs
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
-import { PASSWORD, attach, forget, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, PASSWORD, attach, forget, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 const OUT = process.env.OUT ?? 'e2e-out'
@@ -11,10 +11,10 @@ const PAGES = ['overview', 'setup', 'registers', 'requirements', 'evidence', 'in
 let fail = 0
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true })
+const browser = await chromium.launch({ executablePath: CHROME, headless: true })
 
 async function fresh(width, height) {
-  const ctx = await browser.newContext({ viewport: { width, height } })
+  const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width, height } })
   const page = await ctx.newPage()
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))

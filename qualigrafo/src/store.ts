@@ -1,6 +1,7 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { api, downloadAs, errorText, fetchBlob, setUnauthorizedHandler, tokenStore, uploadForm } from './api'
-import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, Facility, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Transmittal, Risk, Ncr, NcrSeverity, Rating, SessionUser, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
+import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, Facility, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Transmittal, Risk, Ncr, NcrSeverity, Rating, SessionUser, EmailPref, AccountFacts, MyMembership, ActivityItem, ProjectSummary, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
 
 /** Working date (YYYY-MM-DD) for due / overdue logic. Starts as the browser's date; replaced by the server's (site time zone) after sign-in. */
 export let TODAY = new Date().toLocaleDateString('en-CA')
@@ -52,7 +53,6 @@ export const blankProject = (): ProjectData => ({
 
 /** Every action resolves to an error message, or null on success (same contract the pages already use). */
 type Result = Promise<string | null>
-interface ProjectEntry { role: Role; scope: string | null; data: ProjectData }
 interface ProjectResponse { role: Role; scope: string | null; project: ProjectData }
 
 /** Pages a vendor-scoped account can open (the server returns nothing for the rest). */
@@ -61,10 +61,15 @@ export interface UploadPolicy { maxBytes: number; extensions: string[] }
 
 interface State extends ProjectData {
   session: SessionUser | null
+  /** Account facts and project roles of the signed-in person (profile page). */
+  account: AccountFacts | null
+  myRoles: MyMembership[]
   status: 'idle' | 'loading' | 'ready'
   loadError: string | null
-  projects: Record<string, ProjectEntry>
-  order: string[]
+  /** Portfolio: one server-computed summary per project the user belongs to (P1: no full payloads for the list). */
+  summaries: ProjectSummary[]
+  /** The open project's full data is being fetched. */
+  projectLoading: boolean
   role: Role
   /** Vendor company the user is limited to in the open project; null = whole project. */
   scope: string | null
@@ -80,10 +85,10 @@ interface State extends ProjectData {
   login: (email: string, password: string) => Result
   logout: () => void
   changePassword: (current: string, next: string) => Result
+  setEmailPref: (pref: EmailPref) => Result
   loadAll: () => Promise<void>
   refresh: () => Promise<void>
   openProject: (id: string | null) => void
-  snapshotOf: (id: string) => ProjectData
   toast: (text: string, tone?: 'ok' | 'warn') => void
   dismissToast: (id: number) => void
   saveProfile: (p: { facility: Facility; scope: Scope; phase: string; ownerStandards: string; markets: MarketKey[]; reason: string }) => Result
@@ -123,6 +128,14 @@ interface State extends ProjectData {
   addRequirement: (r: { title: string; market: MarketKey; discipline: string; system: string; topic: string; critical: boolean; owner: string; due: string }) => Result
   updateRequirement: (id: string, b: { system: string; owner: string; due: string }) => Result
   decideApplicability: (id: string, a: Applicability, rationale: string) => Result
+  /** The same decision for several requirements (first set-up of a market pack); audited per requirement. */
+  decideApplicabilityBulk: (ids: string[], a: Applicability, rationale: string) => Result
+  /** Re-reads the signed-in account (profile page). */
+  loadProfile: () => Promise<void>
+  /** My own security events and audit entries, newest first. */
+  myActivity: (limit?: number) => Promise<ActivityItem[]>
+  /** Ends every session of this account, including this one. */
+  signOutEverywhere: () => Result
   linkEvidence: (reqId: string, docId: string, note: string) => Result
   assessEvidence: (reqId: string, idx: number, accept: boolean, reason: string) => Result
   addPin: (p: { text: string; doc: string; room: string; place?: Place }) => Promise<{ id?: string; error?: string }>
@@ -187,12 +200,9 @@ export interface ImportPreview {
 }
 
 export const useStore = create<State>()((set, get) => {
-  /** Stores a fresh project payload; if it is the open project, its fields become the top-level state the pages read. */
+  /** A fresh payload of the open project becomes the top-level state the pages read (ignored if another project is open by now). */
   const apply = (code: string, r: ProjectResponse) => {
-    set((s) => ({
-      projects: { ...s.projects, [code]: { role: r.role, scope: r.scope, data: r.project } },
-      ...(s.current === code ? { ...r.project, role: r.role, scope: r.scope } : {}),
-    }))
+    set((s) => (s.current === code ? { ...r.project, role: r.role, scope: r.scope, projectLoading: false } : {}))
   }
   const run = async (method: 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Result => {
     const code = get().current
@@ -217,10 +227,12 @@ export const useStore = create<State>()((set, get) => {
   return {
     ...blankProject(),
     session: null,
+    account: null,
+    myRoles: [],
     status: 'idle',
     loadError: null,
-    projects: {},
-    order: [],
+    summaries: [],
+    projectLoading: false,
     role: 'Consultant',
     scope: null,
     current: null,
@@ -251,8 +263,8 @@ export const useStore = create<State>()((set, get) => {
       if (!tokenStore.get()) return
       set({ status: 'loading' })
       try {
-        const me = await api<{ user: SessionUser }>('GET', '/auth/me')
-        set({ session: me.user, status: me.user.mustChangePassword ? 'idle' : 'loading' })
+        const me = await api<{ user: SessionUser; memberships: MyMembership[]; account: AccountFacts }>('GET', '/auth/me')
+        set({ session: me.user, account: me.account, myRoles: me.memberships, status: me.user.mustChangePassword ? 'idle' : 'loading' })
         if (!me.user.mustChangePassword) await get().loadAll()
       } catch {
         get().logout()
@@ -268,7 +280,16 @@ export const useStore = create<State>()((set, get) => {
     },
     logout: () => {
       tokenStore.set(null)
-      set({ ...blankProject(), session: null, status: 'idle', loadError: null, projects: {}, order: [], current: null, role: 'Consultant', scope: null, toasts: [], locked: null })
+      set({ ...blankProject(), session: null, account: null, myRoles: [], status: 'idle', loadError: null, summaries: [], projectLoading: false, current: null, role: 'Consultant', scope: null, toasts: [], locked: null })
+    },
+    setEmailPref: async (emailPref) => {
+      try {
+        const r = await api<{ user: SessionUser }>('PUT', '/auth/preferences', { emailPref })
+        set({ session: r.user })
+        return null
+      } catch (e) {
+        return errorText(e)
+      }
     },
     changePassword: async (current, next) => {
       try {
@@ -286,21 +307,21 @@ export const useStore = create<State>()((set, get) => {
       set((s) => ({ status: s.status === 'ready' ? 'ready' : 'loading', loadError: null }))
       try {
         const [r, cfg] = await Promise.all([
-          api<{ projects: ProjectResponse[] }>('GET', '/projects'),
+          api<{ projects: ProjectSummary[] }>('GET', '/projects'),
           api<{ today: string; idleMinutes?: number; upload: UploadPolicy }>('GET', '/reference/config'),
         ])
         TODAY = cfg.today
-        const policy = cfg.upload
-        const projects: Record<string, ProjectEntry> = {}
-        r.projects.forEach((p) => (projects[p.project.profile.id] = { role: p.role, scope: p.scope, data: p.project }))
         const cur = get().current
-        const open = cur && projects[cur] ? cur : null
+        const open = cur ? r.projects.find((p) => p.profile.id === cur) : undefined
         set({
-          projects, order: r.projects.map((p) => p.project.profile.id), status: 'ready', current: open, uploadPolicy: policy, idleMinutes: cfg.idleMinutes ?? 15,
-          role: open ? projects[open].role : r.projects[0]?.role ?? get().role,
-          scope: open ? projects[open].scope : r.projects[0]?.scope ?? null,
-          ...(open ? projects[open].data : {}),
+          summaries: r.projects, status: 'ready', uploadPolicy: cfg.upload, idleMinutes: cfg.idleMinutes ?? 15,
+          // A project that disappeared (membership removed) is closed; the open one keeps its full data.
+          ...(cur && !open ? { ...blankProject(), current: null } : {}),
+          role: open?.role ?? (cur ? get().role : r.projects[0]?.role ?? get().role),
+          scope: open ? open.scope : cur ? get().scope : r.projects[0]?.scope ?? null,
         })
+        // As before P1, a full reload also refreshes the open project (e.g. after unlocking the session).
+        if (open) await get().refresh()
       } catch (e) {
         set({ status: 'ready', loadError: errorText(e) })
       }
@@ -308,16 +329,21 @@ export const useStore = create<State>()((set, get) => {
     refresh: async () => {
       const code = get().current
       if (!code) return
-      try { apply(code, await api<ProjectResponse>('GET', `/projects/${enc(code)}`)) } catch { /* keep showing the last good copy */ }
+      try {
+        apply(code, await api<ProjectResponse>('GET', `/projects/${enc(code)}`))
+      } catch (e) {
+        // Keep showing the last good copy; a project that never loaded reports why.
+        if (get().current === code && get().projectLoading) set({ projectLoading: false, loadError: errorText(e) })
+      }
     },
     openProject: (id) => {
       if (id === null) return set({ current: null })
-      const e = get().projects[id]
-      if (!e) return
-      set({ current: id, role: e.role, scope: e.scope, ...e.data })
+      const sm = get().summaries.find((p) => p.profile.id === id)
+      if (!sm) return
+      // The full project is loaded on demand; pages wait for it (projectLoading) instead of showing another project's data.
+      set({ ...blankProject(), current: id, role: sm.role, scope: sm.scope, projectLoading: true, loadError: null })
       void get().refresh()
     },
-    snapshotOf: (id) => get().projects[id]?.data ?? blankProject(),
     toast: (text, tone = 'ok') => {
       const id = ++tid
       set((s) => ({ toasts: [...s.toasts, { id, text, tone }] }))
@@ -389,6 +415,15 @@ export const useStore = create<State>()((set, get) => {
     addRequirement: (r) => post('/reqs', r),
     updateRequirement: (id, b) => put(`/reqs/${enc(id)}/details`, b),
     decideApplicability: (id, applicability, rationale) => post(`/reqs/${enc(id)}/applicability`, { applicability, rationale }),
+    decideApplicabilityBulk: (ids, applicability, rationale) => post('/reqs/applicability', { ids, applicability, rationale }),
+    loadProfile: async () => {
+      const me = await api<{ user: SessionUser; memberships: MyMembership[]; account: AccountFacts }>('GET', '/auth/me')
+      set({ session: me.user, account: me.account, myRoles: me.memberships })
+    },
+    myActivity: async (limit = 25) => (await api<{ items: ActivityItem[] }>('GET', `/auth/activity?limit=${limit}`)).items,
+    signOutEverywhere: async () => {
+      try { await api('POST', '/auth/sign-out-everywhere'); return null } catch (e) { return errorText(e) }
+    },
     setSourceRef: (id, clause, version, effective, attest) => put(`/reqs/${enc(id)}/source-ref`, { clause, version, effective, attest }),
     linkEvidence: (reqId, doc, note) => post(`/reqs/${enc(reqId)}/evidence`, { doc, note }),
     assessEvidence: (reqId, idx, accept, reason) => {
@@ -530,9 +565,8 @@ export function handoverGates(p: ProjectData) {
 
 /** Projects the signed-in user is a member of, in server order. */
 export function useProjectList(): Profile[] {
-  const projects = useStore((s) => s.projects)
-  const order = useStore((s) => s.order)
-  return order.map((id) => projects[id].data.profile)
+  const summaries = useStore((s) => s.summaries)
+  return useMemo(() => summaries.map((p) => p.profile), [summaries])
 }
 
 /** Active register entries of the open project, for pickers on new records. */

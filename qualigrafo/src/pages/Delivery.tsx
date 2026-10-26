@@ -138,9 +138,9 @@ export function Updates() {
             <>
               <textarea className="input" style={{ marginTop: 8 }} placeholder="Qualified-reviewer rationale…" value={reasons[u.id] ?? ''} onChange={(e) => setReasons({ ...reasons, [u.id]: e.target.value })} />
               <div className="row" style={{ marginTop: 8 }}>
-                <button className="btn pri" disabled={role !== 'Owner / QA'} onClick={() => act(assessUpdate(u.id, true, reasons[u.id] ?? ''), u.kind === 'Library' ? 'Library version applied; new baseline created' : 'New baseline created; affected evidence reopened')}>{u.kind === 'Library' ? 'Apply to project: new baseline' : 'Applicable: create new baseline'}</button>
-                <button className="btn" disabled={role !== 'Owner / QA'} onClick={() => act(assessUpdate(u.id, false, reasons[u.id] ?? ''), 'Recorded as not applicable')}>Not applicable</button>
-                {role !== 'Owner / QA' && <span className="muted small">Owner / QA role required</span>}
+                <button className="btn pri" disabled={role !== 'Owner / QA' || !(reasons[u.id] ?? '').trim()} onClick={() => act(assessUpdate(u.id, true, reasons[u.id] ?? ''), u.kind === 'Library' ? 'Library version applied; new baseline created' : 'New baseline created; affected evidence reopened')}>{u.kind === 'Library' ? 'Apply to project: new baseline' : 'Applicable: create new baseline'}</button>
+                <button className="btn" disabled={role !== 'Owner / QA' || !(reasons[u.id] ?? '').trim()} onClick={() => act(assessUpdate(u.id, false, reasons[u.id] ?? ''), 'Recorded as not applicable')}>Not applicable</button>
+                {role !== 'Owner / QA' ? <span className="muted small">Owner / QA role required</span> : !(reasons[u.id] ?? '').trim() && <span className="muted small">Write the reviewer rationale first — it is recorded with the decision.</span>}
               </div>
             </>
           ) : <p className="small" style={{ marginTop: 8 }}><b>Decision:</b> {u.reason}</p>}

@@ -5,12 +5,12 @@ import { prisma } from '../db.ts'
 import {
   ACTION_STATUS, APPLICABILITY, AUTOMATION_KEYS, COMPANY_KINDS, MARKETS, zRole, FACILITIES, NCR_SEVERITY, PRIORITY, RISK_STATUS, SCOPES, zDate, zMarket, zRating, zText,
 } from '../domain/enums.ts'
-import { stats } from '../domain/rules.ts'
 import { currentUser, reauthenticate } from '../middleware/auth.ts'
 import { signatureHash } from '../lib/esign.ts'
 import { securityLog } from '../lib/security.ts'
 import { inProject, membership } from '../services/ctx.ts'
 import type { Ctx } from '../services/ctx.ts'
+import { portfolio } from '../services/portfolio.ts'
 import { loadProject } from '../services/loadProject.ts'
 import { assertObject, cleanName, commitObject, discardTemp, dropIfUnreferenced, mimeFor, sha256File, upload } from '../services/storage.ts'
 import { forbidden, notFound, rule } from '../lib/http.ts'
@@ -50,14 +50,9 @@ projects.post('/', async (req, res) => {
 /* ------------------------------------------------------------------ reads */
 
 /** Every project the caller is a member of, with full data (the portfolio and "My work" views aggregate across projects). */
+/** Portfolio: one summary per project (stats, gates, work for the user's role, updates, deadlines, recent activity). */
 projects.get('/', async (req, res) => {
-  const user = currentUser(req)
-  const ms = await prisma.membership.findMany({ where: { userId: user.id }, include: { project: { select: { id: true, code: true } } }, orderBy: { project: { code: 'asc' } } })
-  const out = await Promise.all(ms.map(async (m) => {
-    const project = await loadProject(m.projectId, user.id, m.companyScope, m.role)
-    return { role: m.role, scope: m.companyScope, project, stats: stats(project) }
-  }))
-  res.json({ projects: out })
+  res.json({ projects: await portfolio(currentUser(req).id) })
 })
 
 projects.get('/:projectCode', async (req, res) => {
@@ -301,6 +296,7 @@ act('post', '/deliverables', z.object({ tag: z.string().max(60), vendor: z.strin
 act('post', '/reqs', z.object({ title: z.string().max(300), market: zMarket, discipline: z.string().max(80), system: z.string().max(40), topic: z.string().max(500), critical: z.boolean(), owner: z.string().max(120), due: zDate }), (c, b) => R.addRequirement(c, b))
 act('put', '/reqs/:id/details', z.object({ system: z.string().max(40), owner: z.string().max(120), due: zDate }), (c, b, p) => R.updateRequirement(c, p.id, b))
 act('post', '/reqs/:id/applicability', z.object({ applicability: z.enum(APPLICABILITY), rationale: zText }), (c, b, p) => R.decideApplicability(c, p.id, b.applicability, b.rationale))
+act('post', '/reqs/applicability', z.object({ ids: z.array(z.string().min(1)).min(1).max(500), applicability: z.enum(APPLICABILITY), rationale: zText }), (c, b) => R.decideApplicabilityBulk(c, b.ids, b.applicability, b.rationale))
 act('put', '/reqs/:id/source-ref', z.object({ clause: z.string().max(300), version: z.string().max(200), effective: z.union([zDate, z.literal('')]), attest: z.boolean() }), (c, b, p) => R.setSourceRef(c, p.id, b))
 act('post', '/reqs/:id/evidence', z.object({ doc: z.string().min(1), note: zText }), (c, b, p) => R.linkEvidence(c, p.id, b.doc, b.note))
 act('post', '/reqs/:id/evidence/:evidenceId/assess', z.object({ accept: z.boolean(), reason: zText }), (c, b, p) => R.assessEvidence(c, p.id, p.evidenceId, b.accept, b.reason))

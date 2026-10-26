@@ -3,7 +3,7 @@
 // refreshed in the background. Activity in any tab of the same browser counts.
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Lock } from 'lucide-react'
+import { Eye, EyeOff, Lock } from 'lucide-react'
 import { api, tokenStore } from '../api'
 import { useStore } from '../store'
 
@@ -71,6 +71,7 @@ export function LockScreen() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [shown, setShown] = useState(false)
   const submit = async (ev: FormEvent) => {
     ev.preventDefault()
     setBusy(true); setError(null)
@@ -81,16 +82,19 @@ export function LockScreen() {
   if (!session || !locked) return null
   return (
     <div className="lockscreen" role="dialog" aria-modal="true" aria-labelledby="lock-title">
-      <form className="card login" onSubmit={submit}>
-        <div className="row" style={{ gap: 10, marginBottom: 12 }}><div className="logo"><Lock size={16} /></div><h2 id="lock-title" style={{ margin: 0 }}>Session locked</h2></div>
-        <p className="muted small" style={{ marginTop: 0 }}>{locked === 'idle' ? `Locked after ${idleMinutes} minutes without activity.` : 'Your session has ended (expired or signed out elsewhere).'} Enter your password to continue where you left off.</p>
-        <label className="lab">Signed in as</label>
-        <input className="input" value={`${session.name} · ${session.email}`} disabled />
-        <label className="lab">Password</label>
-        <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus required aria-label="Unlock password" />
+      <form className="card login lockcard" onSubmit={submit}>
+        <div className="lockmark"><span className="logo"><Lock size={16} /></span></div>
+        <h2 id="lock-title">Session locked</h2>
+        <p className="muted small auth-sub">{locked === 'idle' ? `Locked after ${idleMinutes} minutes without activity.` : 'Your session has ended (expired or signed out elsewhere).'} Enter your password to continue where you left off.</p>
+        <div className="whois"><span className="avatar">{session.name[0]}</span><span><b>{session.name}</b><small>{session.email}</small></span></div>
+        <label className="lab" htmlFor="unlock-password">Password</label>
+        <div className="field">
+          <input id="unlock-password" className="input" type={shown ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus required aria-label="Unlock password" />
+          <button type="button" className="field-btn" aria-label={shown ? 'Hide password' : 'Show password'} aria-pressed={shown} onClick={() => setShown(!shown)}>{shown ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+        </div>
         {error && <div className="notice err" role="alert" style={{ marginTop: 12 }}>{error}</div>}
-        <button className="btn pri" type="submit" disabled={busy} style={{ marginTop: 14, width: '100%', justifyContent: 'center' }}>{busy ? 'Unlocking…' : 'Unlock'}</button>
-        <p className="small" style={{ margin: '12px 0 0' }}>Not {session.name.split(' ')[0]}? <button type="button" className="link small" onClick={logout}>Sign out</button></p>
+        <button className="btn pri lg" type="submit" disabled={busy}>{busy ? 'Unlocking…' : 'Unlock'}</button>
+        <p className="small" style={{ margin: '14px 0 0' }}>Not {session.name.split(' ')[0]}? <button type="button" className="link small" onClick={logout}>Sign out</button></p>
       </form>
     </div>
   )

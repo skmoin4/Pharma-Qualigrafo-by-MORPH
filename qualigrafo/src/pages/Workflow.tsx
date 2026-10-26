@@ -16,7 +16,7 @@ export function Activity() {
   const rows = events.filter((e) => (cat === 'all' ? true : cat === 'mine' ? e.forRole === role : e.category === cat))
   const rules: { k: keyof typeof automation; t: string; d: string }[] = [
     { k: 'routing', t: 'Route automatically', d: 'On submission and after each sign-off the next assigned role receives a signature request.' },
-    { k: 'reminders', t: 'Reminders', d: 'Signers with waiting sign-offs can be reminded. A missed deadline never approves a document.' },
+    { k: 'reminders', t: 'Reminders', d: 'Daily reminders (in-app and e-mail) for waiting sign-offs and overdue or soon-due documents, RFIs, NCRs and actions; signers can also be reminded now. A missed deadline never approves a document.' },
     { k: 'autoIssue', t: 'Controlled issue after final sign-off', d: 'A metadata issue manifest is generated once every stage has signed the same revision.' },
   ]
   return (
@@ -32,7 +32,7 @@ export function Activity() {
             <table>
               <tbody>
                 {rows.map((e) => (
-                  <tr key={e.id} style={e.read ? undefined : { background: '#f4fafa' }}>
+                  <tr key={e.id} style={e.read ? undefined : { background: 'rgba(37, 99, 235, 0.06)' }}>
                     <td style={{ width: 110 }}><Badge tone={CAT_TONE[e.category]}>{e.category}</Badge></td>
                     <td>{e.text}<small>{e.doc && <button className="link" style={{ fontSize: 11.5 }} onClick={() => open('doc', e.doc!)}>Open {e.doc}</button>}{e.doc && e.forRole ? ' · ' : ''}{e.forRole && `To: ${e.forRole}`}</small></td>
                     <td className="muted" style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>{fmtDate(e.at)}</td>

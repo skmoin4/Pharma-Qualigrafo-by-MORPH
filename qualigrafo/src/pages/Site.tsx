@@ -11,7 +11,7 @@ function useAct() {
 }
 
 export function Rfis() {
-  const { rfis, raiseRfi, answerRfi, closeRfi, role, docs, editRfi } = useStore()
+  const { rfis, raiseRfi, answerRfi, closeRfi, role, docs, editRfi, systems } = useStore()
   const [edit, setEdit] = useState<string | null>(null)
   const act = useAct()
   const [form, setForm] = useState(false)
@@ -31,7 +31,11 @@ export function Rfis() {
             <SystemSelect value={f.system} onChange={(v) => setF({ ...f, system: v })} />
             <input className="input" type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
           </div>
-          <button className="btn pri" style={{ marginTop: 10 }} onClick={async () => { const er = await act(raiseRfi(f), 'RFI raised'); if (!er) { setForm(false); setF({ ...f, title: '', system: '' }) } }}>Submit RFI</button>
+          <div className="row wrap" style={{ marginTop: 10, gap: 10 }}>
+            <button className="btn pri" disabled={!f.title.trim() || !f.discipline || !f.system} onClick={async () => { const er = await act(raiseRfi(f), 'RFI raised'); if (!er) { setForm(false); setF({ ...f, title: '', system: '' }) } }}>Submit RFI</button>
+            {/* The system register is empty on a new project: say so here instead of refusing after the click. */}
+            {!f.system && <span className="muted small">{systems.filter((x) => x.active).length ? 'Choose the system or equipment the question is about.' : 'No system is registered yet. Add one under Companies & systems first.'}</span>}
+          </div>
         </section>
       )}
       <div className="tablewrap">

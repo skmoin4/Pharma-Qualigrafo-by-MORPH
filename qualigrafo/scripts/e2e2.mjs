@@ -1,11 +1,11 @@
 // Run (preview server on :8081): node scripts/e2e2.mjs  - remaining feature flows through the real UI
 import { chromium } from 'playwright-core'
-import { attach, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
+import { INSECURE, CHROME, attach, isNoise, loginAs, switchRole, vis } from './e2e-lib.mjs'
 const BASE = process.env.BASE ?? 'http://localhost:8081/'
 let fail = 0
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+const browser = await chromium.launch({ executablePath: CHROME })
+const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
@@ -22,6 +22,9 @@ await go('rfis'); await role('Contractor')
 await page.getByRole('button', { name: 'Raise RFI' }).click()
 await page.getByPlaceholder(/Question/).fill('Confirm gasket material at PW sample point')
 await page.getByLabel('Discipline', { exact: true }).selectOption('Piping & Utilities')
+// the server refuses an RFI without a registered system: the form says so before the click
+ok(await page.getByRole('button', { name: 'Submit RFI' }).isDisabled(), 'RFI: submit stays disabled until a system is chosen')
+ok(await vis(page.getByText('Choose the system or equipment the question is about.')), 'RFI: the form explains what is missing')
 await page.getByLabel('System', { exact: true }).selectOption('PW-001')
 await page.getByRole('button', { name: 'Submit RFI' }).click()
 ok(await vis(page.getByText('RFI-003').first()), 'RFI raised (RFI-003)')
@@ -77,6 +80,8 @@ ok(await vis(page.locator('tbody').getByText('Closed').first()), 'independent re
 await go('updates'); await role('Consultant')
 ok(await page.getByRole('button', { name: /Applicable: create new baseline/ }).isDisabled(), 'update: non-QA cannot decide')
 await role('Owner / QA')
+ok(await page.getByRole('button', { name: /Applicable: create new baseline/ }).isDisabled(), 'update: the decision is blocked until the rationale is written')
+ok(await vis(page.getByText('Write the reviewer rationale first')), 'update: the missing rationale is explained in place')
 await page.getByPlaceholder(/Qualified-reviewer rationale/).fill('Affects premises evidence index')
 await page.getByRole('button', { name: /Applicable: create new baseline/ }).click()
 ok(await vis(page.getByText('B2').first()), 'update applied: baseline B2 created, B1 kept')
@@ -224,6 +229,21 @@ await page.getByRole('button', { name: 'Submit', exact: true }).first().click()
 ok(await vis(page.getByText('Awaiting Consultant').first()), 'vendor view: submission routed to Consultant')
 await role('Consultant')
 ok(await vis(page.getByText('You are signed in as Consultant')), 'vendor view: reviewers see the contractor position read-only')
+
+// ---- applicability for several requirements at once (first set-up of a market pack)
+await go('requirements'); await role('Owner / QA')
+const pickReq = async (id) => page.locator('tbody tr', { hasText: id }).getByRole('checkbox').check()
+await pickReq('REQ-012')
+await pickReq('REQ-013')
+ok(await vis(page.getByText('2 selected')), 'requirements: several requirements can be selected')
+const bulkBtn = page.getByRole('button', { name: /Record decision for 2/ })
+ok(await bulkBtn.isDisabled(), 'requirements: a batch decision is blocked until the rationale is written')
+await page.getByLabel('Applicability for the selected requirements').selectOption('Not applicable')
+await page.getByLabel('Rationale for the selected requirements').fill('No sterile area in this project; both topics excluded.')
+await bulkBtn.click()
+ok((await toastText()).includes('2 requirement(s) set to Not applicable'), 'requirements: one decision recorded for both')
+await go('audit')
+ok(await vis(page.getByText(/REQ-01[23].*decided together/).first()), 'requirements: each requirement of the batch has its own audit entry')
 
 // ---- audit rehearsal
 await go('rehearsal'); await role('Owner / QA')

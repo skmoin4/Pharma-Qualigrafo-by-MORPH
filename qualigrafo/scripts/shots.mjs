@@ -1,34 +1,60 @@
+// Design screenshots (not a test): node scripts/shots.mjs  — needs fixtures + a preview server.
+// Captures the main screens as Owner / QA for reviewing the look of the interface.
 import { chromium } from 'playwright-core'
-const B = 'http://localhost:8081/'
-const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
-const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } })
-const p = await ctx.newPage()
-await p.goto(B + '#/'); await p.evaluate(() => localStorage.clear())
-const S = (n) => p.screenshot({ path: `e2e-out/s-${n}.png` })
+import fs from 'node:fs'
+import { CHROME, INSECURE, loginAs, vis } from './e2e-lib.mjs'
 
-await p.goto(B + '#/p/PRJ-026/documents')
-await p.getByRole('button', { name: 'Cleanroom panel layout' }).first().click()
-await p.waitForTimeout(200); await S('doc-drawer')
-await p.keyboard.press('Escape')
+const BASE = process.env.BASE ?? 'http://localhost:8082/'
+const OUT = process.env.OUT ?? 'design-out'
+fs.mkdirSync(OUT, { recursive: true })
 
-await p.goto(B + '#/p/PRJ-026/requirements')
-await p.getByRole('button', { name: 'Material traceability for utility piping' }).first().click()
-await p.waitForTimeout(200); await S('req-drawer')
-await p.keyboard.press('Escape')
+const browser = await chromium.launch({ executablePath: CHROME })
+const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2 })
+const page = await ctx.newPage()
+const shot = async (name, full = false) => { await page.waitForTimeout(700); await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: full }) }
 
-await p.goto(B + '#/p/PRJ-026/sources')
-await p.getByRole('button', { name: 'Revit connector' }).click()
-await p.getByRole('button', { name: /Preview sample Revit update/ }).click()
-await S('sources-revit')
+await page.goto(BASE + '#/')
+await page.evaluate(() => localStorage.clear())
+await page.reload()
+await shot('01-signin')
 
-await p.goto(B + '#/p/PRJ-026/comments')
-await p.getByRole('button', { name: 'Revit connector' }).first().click()
-await p.getByRole('button', { name: 'Zoom to comment' }).click()
-await p.waitForTimeout(300); await S('comments-revit')
+await loginAs(page, 'Owner / QA')
+await page.waitForTimeout(800)
+await shot('02-portfolio')
 
-for (const n of ['setup', 'evidence', 'inspector', 'handover', 'changes', 'findings']) { await p.goto(B + '#/p/PRJ-026/' + n); await p.waitForTimeout(200); await S(n) }
+await page.getByRole('button', { name: /Nova Pharma Expansion/ }).click()
+await page.waitForTimeout(1200)
+await shot('03-overview')
 
-const m = await (await b.newContext({ viewport: { width: 390, height: 844 } })).newPage()
-await m.goto(B + '#/p/PRJ-026/documents'); await m.getByRole('button', { name: 'Cleanroom panel layout' }).first().click(); await m.waitForTimeout(200)
-await m.screenshot({ path: 'e2e-out/s-mobile-drawer.png' })
-await b.close()
+for (const [name, nav] of [['04-documents', 'Document register'], ['05-requirements', 'Requirements'], ['06-reviews', 'Reviews & approvals'], ['07-schedule', 'Schedule']]) {
+  const b = page.locator('.side').getByRole('button', { name: new RegExp(`^${nav}`) }).first()
+  if (await vis(b, 2500)) { await b.click(); await shot(name) }
+}
+
+await page.goto(`${BASE}#/admin`)
+await page.waitForTimeout(600)
+await page.getByRole('button', { name: /^Monitoring$/ }).click()
+await shot('08-monitoring')
+await page.getByRole('button', { name: /^Users$/ }).click()
+await shot('09-users')
+
+// overlays (the glass reads best with content behind it)
+await page.goto(`${BASE}#/p/PRJ-026/documents`)
+await page.waitForTimeout(1200)
+const doc = page.locator('tbody .link').first()
+if (await vis(doc, 4000)) { await doc.click(); await shot('11-drawer'); await page.keyboard.press('Escape') }
+await page.goto(`${BASE}#/p/PRJ-026/comments`); await shot('12-comments')
+await page.goto(`${BASE}#/p/PRJ-026/risks`); await shot('13-risks')
+await page.keyboard.press('Control+k'); await shot('14-command-palette'); await page.keyboard.press('Escape')
+
+await page.setViewportSize({ width: 414, height: 896 })
+await page.goto(`${BASE}#/`)
+await page.waitForTimeout(900)
+await shot('10-mobile-portfolio')
+// mobile sign-in
+await page.evaluate(() => localStorage.clear())
+await page.reload()
+await shot('15-mobile-signin')
+
+await browser.close()
+console.log(`screenshots in ${OUT}/`)
