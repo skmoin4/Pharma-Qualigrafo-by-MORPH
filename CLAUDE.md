@@ -45,6 +45,15 @@ into production software for pharma engineering teams. **Read this first, then `
   (each needs `left: auto; bottom: auto`, the base rules set `left`/`bottom`). The v9 layer sits **after** the v7
   `@media (max-width: 980px)` block, so any unguarded `.auth` / `.auth-panel` rule there silently breaks the mobile
   stack — guard desktop-only auth rules with `min-width: 981px`.
+- **Premium pass (2026-10-26, layers "v10" + "v11" at the end of `index.css`):** richer brand gradient
+  (`--grad-brand`, navy -> blue-violet), warmer neutrals, stronger status colours, heavy stat cards (top accent bar +
+  glow) vs quiet tables/cards, tiled sidebar / tab icons, gradient avatars with a status dot, bolder badges, gradient
+  primary button with press state. **No orange / second accent colour** (the user tried it and chose blue only; the
+  schedule "today" line is brand violet). Sign-in is a card on a soft backdrop; Users & access has a KPI strip. The
+  file was de-duplicated once (dead declarations that a later identical-selector rule always overrides were removed,
+  84 KB -> 68 KB) — keep new rules in the newest layer instead of re-declaring old ones. Review every page with
+  `node scripts/shots-all.mjs` (-> `design-all/`, git-ignored with `design-out*/`; add `design-all*/` to .gitignore
+  if missing); compare runs with PIL — pages with timestamps / lazy loading differ between identical runs.
 - Auth screens (sign-in, forced password change) share `AuthShell` in `qualigrafo/src/components/Login.tsx`; the lock
   screen (`components/Session.tsx`) uses the same language. Keep the test hooks: labels `Email` / `Password` /
   `Temporary password` / `New password` / `Confirm new password` / `Unlock password`, heading `Sign in`, buttons

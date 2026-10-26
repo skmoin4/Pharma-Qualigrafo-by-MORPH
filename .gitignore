@@ -22,6 +22,7 @@ lerna-debug.log*
 
 qualigrafo/e2e-out/
 qualigrafo/design-out*/
+qualigrafo/design-all*/
 qualigrafo/uat-out/
 
 # Deployment secrets and certificates

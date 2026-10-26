@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Activity, Check, ClipboardCheck, Copy, DatabaseBackup, KeyRound, Mail, ServerCog, RefreshCw, ShieldCheck, UserPlus } from 'lucide-react'
+import { Activity, Check, ClipboardCheck, Copy, DatabaseBackup, KeyRound, Mail, ServerCog, RefreshCw, ShieldCheck, UserPlus, Users } from 'lucide-react'
 import { api, errorText } from '../api'
 import { useStore } from '../store'
 import type { Role } from '../types'
@@ -217,12 +217,18 @@ export default function Admin() {
         title="Users & access"
         sub="Accounts, project roles and vendor scopes, the periodic access review, e-mail delivery and the daily reminders, installation check, validation packs, backups and monitoring. Every change is recorded in the security log; membership changes also appear in the project's audit trail."
         actions={<>
-          <div className="seg"><button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}>Users</button><button className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}><ClipboardCheck size={13} /> Access review</button><button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}><ShieldCheck size={13} /> Security log</button><button className={tab === 'mail' ? 'on' : ''} onClick={() => setTab('mail')}><Mail size={13} /> E-mail &amp; reminders</button><button className={tab === 'system' ? 'on' : ''} onClick={() => setTab('system')}><ServerCog size={13} /> System &amp; validation</button><button className={tab === 'backups' ? 'on' : ''} onClick={() => setTab('backups')}><DatabaseBackup size={13} /> Backups</button><button className={tab === 'monitoring' ? 'on' : ''} onClick={() => setTab('monitoring')}><Activity size={13} /> Monitoring</button></div>
+          <div className="seg"><button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}><Users size={13} /> Users</button><button className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}><ClipboardCheck size={13} /> Access review</button><button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}><ShieldCheck size={13} /> Security log</button><button className={tab === 'mail' ? 'on' : ''} onClick={() => setTab('mail')}><Mail size={13} /> E-mail &amp; reminders</button><button className={tab === 'system' ? 'on' : ''} onClick={() => setTab('system')}><ServerCog size={13} /> System &amp; validation</button><button className={tab === 'backups' ? 'on' : ''} onClick={() => setTab('backups')}><DatabaseBackup size={13} /> Backups</button><button className={tab === 'monitoring' ? 'on' : ''} onClick={() => setTab('monitoring')}><Activity size={13} /> Monitoring</button></div>
           {tab === 'users' && <button className="btn pri" onClick={() => { setCreating(true); setSel(null) }}><UserPlus size={14} /> New user</button>}
         </>}
       />
       {tab === 'monitoring' ? <Suspense fallback={<Empty title="Loading…" />}><AdminMonitoring /></Suspense> : tab === 'backups' ? <Suspense fallback={<Empty title="Loading…" />}><AdminBackups /></Suspense> : tab === 'system' ? <Suspense fallback={<Empty title="Loading…" />}><AdminValidation /></Suspense> : tab === 'review' ? <Suspense fallback={<Empty title="Loading…" />}><AdminAccessReview /></Suspense> : tab === 'mail' ? <Suspense fallback={<Empty title="Loading…" />}><AdminMail /></Suspense> : tab === 'log' ? <SecurityLog /> : (
-        <div className="admin-grid">
+        <>
+        <div className="grid g3 admin-kpis">
+          <div className="stat"><div className="l">Accounts</div><div className="v">{users ? users.length : '–'}</div><div className="s">{users ? `${users.filter((u) => u.active).length} active` : 'Loading…'}</div></div>
+          <div className="stat"><div className="l">Administrators</div><div className="v">{users ? users.filter((u) => u.isAdmin).length : '–'}</div><div className="s">Two are needed for the four-eyes rule</div></div>
+          <div className="stat"><div className="l">Without project access</div><div className="v">{users ? users.filter((u) => !u.memberships.length).length : '–'}</div><div className="s">Accounts that cannot open a project yet</div></div>
+        </div>
+        <div className="admin-grid mt">
           <section className="card flush">
             <div style={{ padding: 12 }}><input className="input" placeholder="Search name, email or company…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search users" /></div>
             <div className="tablewrap" style={{ border: 0, borderRadius: 0 }}><table>
@@ -246,9 +252,10 @@ export default function Admin() {
               ? <NewUser onCancel={() => setCreating(false)} onCreated={(u, temp) => { upsert(u, temp); setCreating(false); setSel(u.id); toast(`${u.email} created`) }} />
               : selected
                 ? <UserPanel user={selected} me={session.id} projects={meta.projects} secret={secret?.id === selected.id ? secret.value : undefined} onChange={upsert} />
-                : <section className="card"><Empty title="Select a user">Pick a user to manage their profile, sign-in and project access, or create a new user.</Empty></section>}
+                : <section className="card"><div className="empty-ico"><Users size={22} /></div><Empty title="Select a user">Pick a user to manage their profile, sign-in and project access, or create a new user.</Empty></section>}
           </div>
         </div>
+        </>
       )}
     </>
   )

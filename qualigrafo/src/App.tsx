@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
-import { Activity as ActivityIcon, Archive, Send, Bell as BellIcon, BellRing, Boxes, Briefcase, CalendarRange, ChevronRight, CircleHelp, ClipboardCheck, ClipboardList, FilePlus2, FileText, FileUp, GitBranch, History, Inbox, LayoutDashboard, ListChecks, Menu, MessageSquare, Network, PackageCheck, PenLine, Radar, ScanSearch, Search, Settings2, TriangleAlert, Users, Flame, ShieldAlert, Store, Swords, UserCog, Building2, BookOpen } from 'lucide-react'
+import { ChevronUp, Lock, LogOut, Mail, UserRound, Activity as ActivityIcon, Archive, Send, Bell as BellIcon, BellRing, Boxes, Briefcase, CalendarRange, ChevronRight, CircleHelp, ClipboardCheck, ClipboardList, FilePlus2, FileText, FileUp, GitBranch, History, Inbox, LayoutDashboard, ListChecks, Menu, MessageSquare, Network, PackageCheck, PenLine, Radar, ScanSearch, Search, Settings2, TriangleAlert, Users, Flame, ShieldAlert, Store, Swords, UserCog, Building2, BookOpen } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import { coverage, useProjectList, useStore, VENDOR_PAGES } from './store'
 import { Loading, Login } from './components/Login'
@@ -92,6 +92,7 @@ export default function App() {
   // While the opened project loads, the sidebar and breadcrumb show its portfolio summary.
   const profile = projectLoading ? summaries.find((p) => p.profile.id === current)?.profile ?? loadedProfile : loadedProfile
   const [pwOpen, setPwOpen] = useState(false)
+  const [acctOpen, setAcctOpen] = useState(true)
   // Stable callback: the dialog's Escape listener must not be re-registered on every App render.
   const closePw = useCallback(() => setPwOpen(false), [])
   const [mailOpen, setMailOpen] = useState(false)
@@ -203,12 +204,19 @@ export default function App() {
           </nav>
         )}
         <div className="sidefoot">
-          <button className="row me" onClick={() => home('profile')} aria-label="My profile"><span className="avatar">{session.name[0]}</span><span><b style={{ color: '#e8eefb', fontSize: 12.5 }}>{session.name}</b><span style={{ display: 'block' }}>{role}{session.company ? ` · ${session.company}` : ''}</span></span></button>
-          <div className="row wrap" style={{ gap: '4px 14px', marginTop: 8 }}>
-            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => home('profile')}>My profile</button>
-            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => setMailOpen(true)}>E-mail notifications</button>
-            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => setPwOpen(true)}>Change password</button>
-            <button className="link small" style={{ color: '#9db3d6', fontWeight: 400 }} onClick={() => { logout(); window.location.hash = '#/' }}>Sign out</button>
+          <div className="acct">
+            <div className="acct-head">
+              <button className="row me" onClick={() => home('profile')} aria-label="My profile"><span className="avatar">{session.name[0]}</span><span className="acct-who"><b>{session.name}</b><span>{role}{session.company ? ` · ${session.company}` : ''}</span></span></button>
+              <button className={`acct-toggle${acctOpen ? ' open' : ''}`} aria-label={acctOpen ? 'Hide account actions' : 'Show account actions'} aria-expanded={acctOpen} onClick={() => setAcctOpen((v) => !v)}><ChevronUp size={16} /></button>
+            </div>
+            {acctOpen && (
+              <div className="acct-grid">
+                <button onClick={() => home('profile')}><span className="acct-ico"><UserRound size={16} /></span>My profile</button>
+                <button onClick={() => setMailOpen(true)}><span className="acct-ico"><Mail size={16} /></span>E-mail notifications</button>
+                <button onClick={() => setPwOpen(true)}><span className="acct-ico"><Lock size={16} /></span>Change password</button>
+                <button onClick={() => { logout(); window.location.hash = '#/' }}><span className="acct-ico"><LogOut size={16} /></span>Sign out</button>
+              </div>
+            )}
           </div>
         </div>
       </aside>
