@@ -10,8 +10,9 @@ into production software for pharma engineering teams. **Read this first, then `
   chose to keep this pending. When the branch is pushed, check the CI jobs `checks`, `oq`, `deploy` first and fix
   Linux / Docker issues before anything else.
 
-- Branch: **`production-backend`** (not pushed). `main` holds only the original demo. Commit only when the user asks;
-  end commit messages with the Co-Authored-By line the session gives.
+- Branch: **`production-backend`**, kept in sync with `main` (user asked to push everything to `main` on
+  2026-10-26; fast-forwarded, both branches now point at the same history). Commit only when the user asks; end
+  commit messages with the Co-Authored-By line the session gives.
 - Done: Phase 1 (B1–B9) and **Phase 2 complete** (e-signatures + inactivity timeout, old → new audit everywhere, PDF
   reports + transmittals, e-mail outbox + daily reminders, periodic user-access review, validation pack with IQ / OQ /
   traceability). Details per step: `PRODUCTION_PLAN.md` §5, `server/BACKEND_NOTES.md` §8 progress table.
