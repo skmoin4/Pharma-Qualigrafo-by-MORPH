@@ -7,9 +7,9 @@ services:
     name: qualigrafo
     runtime: node
     plan: free
-    branch: production-backend
+    branch: main
     buildCommand: >
-      cd qualigrafo && npm ci && npm run build &&
+      cd qualigrafo && npm ci --include=dev && npm run build &&
       cd ../server && npm ci --include=dev && npx prisma generate
     startCommand: >
       cd server &&
