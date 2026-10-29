@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Qualigrafo – Unified Project Creation UI</title>
+<style>
+:root{
+  --nav:#102a43; --nav2:#173f73; --bg:#f4f7fb; --card:#fff; --line:#dce5ef;
+  --text:#1f2937; --muted:#667085; --blue:#2563eb; --bluebg:#edf4ff;
+  --green:#16a34a; --purple:#7c3aed; --amber:#d97706;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+.app{display:flex;min-height:100vh}
+.sidebar{width:235px;background:linear-gradient(180deg,var(--nav),#0a1f35);color:#fff;padding:24px 18px;position:fixed;top:0;bottom:0}
+.brand{font-size:23px;font-weight:800;margin-bottom:6px}.sub{font-size:11px;color:#bed1e6;margin-bottom:28px}
+.navitem{padding:11px 12px;border-radius:9px;margin:4px 0;color:#d9e5f2;font-size:14px}.navitem.active{background:#1d4f82;color:#fff;font-weight:700}
+.main{margin-left:235px;width:calc(100% - 235px)}
+.topbar{height:70px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:10}
+.topbar h2{font-size:20px;margin:0}.user{font-size:13px;color:var(--muted)}
+.content{max-width:1180px;margin:26px auto;padding:0 24px 50px}
+.hero{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+.hero h1{margin:0;font-size:28px;color:#102a43}.hero p{margin:7px 0 0;color:var(--muted)}
+.badge{background:#e8f1ff;color:#174a7c;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:800}
+.stepper{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:22px 0}
+.step{background:#fff;border:1px solid var(--line);padding:11px 8px;border-radius:10px;text-align:center;font-size:12px;color:var(--muted)}
+.step.active{border-color:#8ab4ff;background:var(--bluebg);color:#174a7c;font-weight:800}
+.panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 6px 20px rgba(15,23,42,.05);margin-bottom:20px}
+.panel h3{margin:0 0 6px;color:#102a43}.hint{color:var(--muted);font-size:13px;margin-bottom:18px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+label{font-size:12px;font-weight:700;color:#344054;display:block;margin-bottom:6px}
+input,select,textarea{width:100%;padding:11px 12px;border:1px solid #ccd7e4;border-radius:9px;background:#fff;font-size:14px;color:#1f2937}
+textarea{min-height:80px;resize:vertical}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.choice{border:1px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;background:#fff;min-height:120px}
+.choice:hover{border-color:#8ab4ff}.choice.selected{border:2px solid var(--blue);background:#f7faff}
+.choice .icon{font-size:22px;margin-bottom:10px}.choice strong{display:block;color:#102a43;margin-bottom:5px}.choice small{color:var(--muted);line-height:1.4}
+.service-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.service{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff;cursor:pointer}.service.selected{border:2px solid var(--purple);background:#faf7ff}
+.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{border:1px solid #cfd8e3;background:#fff;padding:8px 11px;border-radius:999px;font-size:12px;cursor:pointer}.pill.on{background:#eaf2ff;border-color:#8ab4ff;color:#174a7c;font-weight:800}
+.notice{padding:14px 16px;border-radius:10px;background:#f0fdf4;border-left:4px solid var(--green);font-size:13px;margin-top:14px}
+.warn{background:#fff7ed;border-left-color:var(--amber)}
+.summary{display:grid;grid-template-columns:2fr 1fr;gap:16px}.summarybox{background:#f8fafc;border:1px solid var(--line);border-radius:12px;padding:16px}
+.actions{display:flex;justify-content:space-between;align-items:center;margin-top:22px}
+.btn{border:0;border-radius:9px;padding:11px 16px;font-weight:800;cursor:pointer}.ghost{background:#eef2f7;color:#344054}.primary{background:var(--blue);color:#fff}
+.section-title{margin-top:26px;margin-bottom:10px;font-size:14px;color:#475467;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.hidden{display:none}
+.callout{background:#0f2f5f;color:#fff;border-radius:14px;padding:18px;margin-top:18px}.callout strong{font-size:15px}
+.legend{font-size:12px;color:#667085;margin-top:8px}
+@media(max-width:950px){.sidebar{display:none}.main{margin-left:0;width:100%}.cards{grid-template-columns:1fr 1fr}.grid2,.grid3,.summary{grid-template-columns:1fr}.stepper{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">Qualigrafo</div>
+    <div class="sub">Engineering • BIM • Evidence</div>
+    <div class="navitem active">＋ Create Project</div>
+    <div class="navitem">Portfolio</div>
+    <div class="navitem">My Work</div>
+    <div class="navitem">Documents</div>
+    <div class="navitem">RFIs & Issues</div>
+    <div class="navitem">Regulatory Watch</div>
+    <div class="navitem">Requirement Library</div>
+    <div class="navitem">Users & Access</div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h2>New Project Setup</h2>
+      <div class="user">Admin • Qualigrafo</div>
+    </div>
+
+    <div class="content">
+      <div class="hero">
+        <div>
+          <h1>Create Project Workspace</h1>
+          <p>One unified flow for Pharma, Hospital, Energy/High-Tech and Common Building projects.</p>
+        </div>
+        <span class="badge">Unified Wizard v2</span>
+      </div>
+
+      <div class="stepper">
+        <div class="step active">1. Basics</div>
+        <div class="step active">2. Industry</div>
+        <div class="step active">3. Service</div>
+        <div class="step active">4. Scope</div>
+        <div class="step">5. Standards & Registers</div>
+        <div class="step">6. Team & Review</div>
+      </div>
+
+      <section class="panel">
+        <h3>1. Project Basics</h3>
+        <div class="hint">Keep the existing Pharma basic fields, but use them for all industries.</div>
+        <div class="grid2">
+          <div><label>Project Name</label><input value="Demo Project"></div>
+          <div><label>Project Code</label><input value="PRJ-004"></div>
+          <div><label>Client / Owner</label><input value="Demo Client"></div>
+          <div><label>Site / Location</label><input value="India"></div>
+          <div><label>Country</label>
+            <select><option selected>India</option><option>Saudi Arabia</option><option>United States</option><option>United Kingdom</option><option>European Union</option></select>
+          </div>
+          <div><label>Project Status</label><select><option selected>Active / New</option><option>On Hold</option></select></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>2. Industry Group</h3>
+        <div class="hint">This replaces a Pharma-only facility selection. User first selects one of four main groups.</div>
+        <div class="cards" id="industryCards">
+          <div class="choice selected" data-industry="energy"><div class="icon">⚡</div><strong>Energy & High-Tech</strong><small>Solar, Renewable Energy, Semiconductor</small></div>
+          <div class="choice" data-industry="hospital"><div class="icon">🏥</div><strong>Hospital / Healthcare</strong><small>Hospitals, Medical Colleges, Diagnostic Facilities</small></div>
+          <div class="choice" data-industry="pharma"><div class="icon">🧪</div><strong>Pharma Industry</strong><small>API, Sterile, Non-Sterile, Biologics, Cleanroom</small></div>
+          <div class="choice" data-industry="common"><div class="icon">🏢</div><strong>Common Projects</strong><small>Residential, Commercial, School, Hotel, Warehouse, Other</small></div>
+        </div>
+
+        <div class="section-title">Project Sub-Type</div>
+        <select id="subtype"></select>
+        <div class="notice">Important: Existing Pharma “Facility Type” should be renamed to <strong>Project Sub-Type</strong>. Pharma options remain available when Pharma is selected.</div>
+      </section>
+
+      <section class="panel">
+        <h3>3. Service Type</h3>
+        <div class="hint">This must be mandatory because enquiries may be Design only, BIM only, or both.</div>
+        <div class="service-grid" id="services">
+          <div class="service selected" data-service="design"><strong>Design Only</strong><p>Engineering design, calculations, drawings, schedules, GFC/IFC, approvals.</p></div>
+          <div class="service" data-service="bim"><strong>BIM Only</strong><p>Modeling, coordination, clash detection, LOD, shop drawings, COBie / As-Built.</p></div>
+          <div class="service" data-service="both"><strong>Design + BIM</strong><p>Full engineering design and BIM execution in one connected workflow.</p></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>4. Project Scope & Stage</h3>
+        <div class="grid2">
+          <div><label>Project Scope</label>
+            <select id="scope">
+              <option>New Plant / New Construction</option>
+              <option>Expansion / Extension</option>
+              <option>Renovation / Retrofit</option>
+              <option>Equipment Installation</option>
+              <option>Fit-Out</option>
+            </select>
+          </div>
+          <div><label>Project Stage</label>
+            <select>
+              <option>Concept</option><option>Schematic</option><option selected>Detailed Design</option>
+              <option>Tender</option><option>GFC / IFC</option><option>Shop Drawing</option>
+              <option>Construction</option><option>Commissioning</option><option>As-Built</option><option>Handover / FM</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="section-title">Disciplines</div>
+        <div class="pills" id="disciplines"></div>
+
+        <div id="bimFields" class="hidden">
+          <div class="section-title">BIM Requirement</div>
+          <div class="grid3">
+            <div><label>LOD</label><select><option>LOD 300</option><option>LOD 350</option><option selected>LOD 400</option><option>LOD 500</option></select></div>
+            <div><label>Coordination</label><select><option selected>Yes</option><option>No</option></select></div>
+            <div><label>Asset / Handover</label><select><option>None</option><option>COBie</option><option>As-Built</option><option>COBie + As-Built</option></select></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>5. Standards, Regulatory Scope & Registers</h3>
+        <div class="hint">Do not show Pharma regulations for every project. Load only industry-relevant requirements.</div>
+        <div class="summary">
+          <div class="summarybox">
+            <strong>Auto-suggested requirements</strong>
+            <div id="standards" style="margin-top:10px"></div>
+          </div>
+          <div class="summarybox">
+            <strong>Workspace to Auto-Generate</strong>
+            <ul style="padding-left:18px;margin-bottom:0">
+              <li>Document Register</li>
+              <li>Drawing Register</li>
+              <li>Tasks / Workflows</li>
+              <li>QA/QC Checklists</li>
+              <li>RFIs / Issues</li>
+              <li>Approvals / Revisions</li>
+              <li>Handover Register</li>
+            </ul>
+          </div>
+        </div>
+        <div class="notice warn">For BIM-only projects, design-calculation registers should stay hidden unless manually enabled. For Design-only projects, BIM fields should stay hidden.</div>
+      </section>
+
+      <section class="panel">
+        <h3>6. Final Review</h3>
+        <div class="grid2">
+          <div class="summarybox">
+            <strong>Project Classification</strong>
+            <p id="reviewIndustry">Energy & High-Tech → Solar Industry / Solar PV</p>
+            <strong>Service</strong>
+            <p id="reviewService">Design Only</p>
+          </div>
+          <div class="summarybox">
+            <strong>Result</strong>
+            <p>Qualigrafo will generate only the modules, standards, tasks and deliverables relevant to this project.</p>
+          </div>
+        </div>
+        <div class="callout"><strong>Generate Project Workspace →</strong><br><span style="font-size:13px;color:#cbd5e1">Creates industry-specific registers, workflows, checklists, approvals and deliverable matrix.</span></div>
+        <div class="actions">
+          <button class="btn ghost">Back</button>
+          <button class="btn primary">Generate Project Workspace</button>
+        </div>
+      </section>
+
+      <div class="legend">
+        Developer update rule: keep one wizard only. Do not keep the old Pharma wizard separately.
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const data = {
+ energy:{
+   label:"Energy & High-Tech",
+   subtypes:["Solar Industry / Solar PV","Renewable Energy","Semiconductor Industry"],
+   disciplines:["Electrical","Civil","Structure","Solar PV","Power Systems","SCADA","BESS","HVAC","Fire Fighting"],
+   standards:["IEC / electrical standards","Local utility / grid requirements","Project-specific renewable energy requirements","QA/QC and commissioning requirements"]
+ },
+ hospital:{
+   label:"Hospital / Healthcare",
+   subtypes:["Multi-Speciality Hospital","Medical College","Diagnostic Centre","Healthcare Facility"],
+   disciplines:["Architecture","Structure","HVAC","Electrical","Plumbing","Fire Fighting","ELV / ICT","Medical Gas","Interior"],
+   standards:["Healthcare planning requirements","NBC / local building codes","NFPA / fire-life safety requirements","ASHRAE / HVAC requirements","Medical Gas requirements"]
+ },
+ pharma:{
+   label:"Pharma Industry",
+   subtypes:["API","Non-Sterile Formulation","Sterile Products","Biologics","Cleanroom","Beta-Lactam","Pharma Warehouse / R&D"],
+   disciplines:["Architecture","Structure","HVAC","Electrical","Plumbing","Fire Fighting","ELV / ICT","Cleanroom","Process","Piping","Equipment"],
+   standards:["GMP / GxP requirements","ISO 14644 cleanroom requirements","CDSCO / FDA / EMA / SFDA / MHRA as applicable","URS / DQ / IQ / OQ / PQ","Validation and compliance evidence"]
+ },
+ common:{
+   label:"Common Projects",
+   subtypes:["Residential","Commercial","School / Education","Hotel / Hospitality","Warehouse / Logistics","Industrial / Manufacturing","Mixed Use","Other / Custom"],
+   disciplines:["Architecture","Structure","HVAC","Electrical","Plumbing","Fire Fighting","ELV / ICT","Civil","Interior","Landscape"],
+   standards:["NBC / local building code","Fire & life safety requirements","Local authority requirements","Discipline design standards"]
+ }
+};
+
+let currentIndustry = "energy";
+let currentService = "design";
+
+function renderIndustry(){
+  const d=data[currentIndustry];
+  const st=document.getElementById('subtype');
+  st.innerHTML=d.subtypes.map(x=>`<option>${x}</option>`).join('');
+  document.getElementById('disciplines').innerHTML=d.disciplines.map((x,i)=>`<span class="pill ${i<5?'on':''}">${x}</span>`).join('');
+  document.getElementById('standards').innerHTML=d.standards.map(x=>`<span class="pill on">${x}</span>`).join('');
+  updateReview();
+}
+
+function updateReview(){
+  const d=data[currentIndustry];
+  const st=document.getElementById('subtype').value || d.subtypes[0];
+  document.getElementById('reviewIndustry').textContent=d.label+" → "+st;
+  document.getElementById('reviewService').textContent =
+    currentService==="design" ? "Design Only" : currentService==="bim" ? "BIM Only" : "Design + BIM";
+  document.getElementById('bimFields').classList.toggle('hidden', currentService==="design");
+}
+
+document.querySelectorAll('#industryCards .choice').forEach(el=>{
+  el.onclick=()=>{
+    document.querySelectorAll('#industryCards .choice').forEach(x=>x.classList.remove('selected'));
+    el.classList.add('selected');
+    currentIndustry=el.dataset.industry;
+    renderIndustry();
+  }
+});
+
+document.querySelectorAll('#services .service').forEach(el=>{
+  el.onclick=()=>{
+    document.querySelectorAll('#services .service').forEach(x=>x.classList.remove('selected'));
+    el.classList.add('selected');
+    currentService=el.dataset.service;
+    updateReview();
+  }
+});
+
+document.getElementById('subtype').addEventListener('change',updateReview);
+renderIndustry();
+</script>
+</body>
+</html>

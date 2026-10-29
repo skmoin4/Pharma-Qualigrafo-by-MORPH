@@ -8,25 +8,38 @@ engineering teams can run real projects on, and the order in which to build it.
 
 ## 1. Where we stand
 
-> **Resume here (updated 2026-10-25).** Branch `production-backend`. **Phase 1 and Phase 2 are complete.** Phase 3
-> steps 1–5 are done: P7 CI, P2 Docker deployment (both not yet run on GitHub — see "Pending verification"), P3
-> backups with a tested restore, P1 portfolio at scale, P6 monitoring. **Next: Phase 3 / step 6 — P4 object storage
-> (S3 / Azure Blob) + virus scan on upload**, then P5 SSO / MFA. Each finished step is described in section 5.
-> Session guide: `CLAUDE.md`.
+> **Resume here (updated 2026-10-29).** Branch `production-backend`. **Phase 1 and Phase 2 are complete.** Phase 3
+> steps 1–5 are done: P7 CI, P2 Docker deployment (CI is red — see below), P3 backups with a tested restore, P1
+> portfolio at scale, P6 monitoring. Each finished step is described in section 5; what is still owed from the earlier
+> phases is listed in **section 7**.
+>
+> **The client tested the product and sent a new specification on 2026-10-29 (`clientnew/`): Qualigrafo becomes a
+> multi-industry engineering + BIM + document-control platform with pharma as one of four industry groups.** That work
+> is **Phase 5**, planned in section 6, and it runs **before** the remaining Phase 3 steps (P4 object storage, P5 SSO /
+> MFA). Phase 4 (Revit add-in) merges into Phase 5 step 7.
+>
+> **Phase 5 / step 0 is done (2026-10-29)** — the server advisories are fixed, the client's two stuck accounts are
+> usable again, and the product no longer fails silently on first contact (§6.7). Tests: **1238 of 1238 in 52 cases**
+> (610 API + 628 browser).
+>
+> **Next, in this order:** (1) push the branch so CI runs with the dependency fix — `checks` should pass for the first
+> time, and `oq` and `deploy` will then run for the first time ever (§7 items 1–3); (2) **Phase 5 step 1** — project
+> classification and the unified wizard (§6.5 step 1). Session guide: `CLAUDE.md`.
 
-> **Pending verification (user decision 2026-10-22: keep pending, continue with the next steps):** the Docker
-> deployment (`server/Dockerfile`, `deploy/web.Dockerfile`, `deploy/docker-compose.yml`, real Caddy) and the GitHub
-> Actions workflow have **never run** — no Docker on the development machine, branch not pushed. They are tested by the
-> CI jobs `checks`, `oq` and `deploy` at the first push of `production-backend`; expect small Linux / Docker fixes then.
-> Everything else was verified locally (Caddy stand-in over HTTPS + CSP, API in production mode).
+> **CI is red (checked 2026-10-29).** The branch was pushed on 2026-10-26 and CI has run **seven times, all
+> failures**: every run stops in the `checks` job at `npm audit --omit=dev --audit-level=high`, which leaves the `oq`
+> and `deploy` jobs **skipped**. So the OQ suites and the Docker deployment are *still* unverified in CI, and the
+> server runtime ships **two high-severity denial-of-service advisories** (body-parser, multer) plus one moderate
+> (fast-uri), all fixable with `npm audit fix`. **Fix this before Phase 5 step 1** — see section 7.
 
 | Phase | Status |
 |---|---|
 | Backend + integration (BACKEND_NOTES steps 1–14) | Done |
 | **Phase 1** — a customer can run a real project (B1–B9) | **Done** (steps 1–6, section 5) |
 | **Phase 2** — GxP supplier-audit readiness (C1–C7) | **Done**: C1 e-signatures, C3 inactivity timeout, C2 old → new audit, C4 PDF reports + transmittals, C5 e-mail + scheduled reminders, C6 periodic access review, C7 validation pack (IQ / OQ / traceability) |
-| **Phase 3** — platform and operations (P1–P7) | Steps 1–5 done: P7 CI, P2 Docker deployment (GitHub / Docker runs pending), P3 backups + tested restore, P1 scale, P6 monitoring. **Next: P4 object storage + virus scan**, then P5 |
-| Phase 4 — integrations (real Revit add-in) | Connector API done (BACKEND_NOTES §13); add-in itself not started |
+| **Phase 3** — platform and operations (P1–P7) | Steps 1–5 done: P7 CI, P2 Docker deployment (GitHub / Docker runs pending), P3 backups + tested restore, P1 scale, P6 monitoring. P4 object storage + virus scan and P5 SSO / MFA now follow Phase 5 |
+| Phase 4 — integrations (real Revit add-in) | Connector API done (BACKEND_NOTES §13); add-in itself not started — **merged into Phase 5 step 7** |
+| **Phase 5** — multi-industry platform (client feedback 2026-10-29) | **Planned, section 6. Next: step 0.** Eleven steps from the wizard fix to the management dashboard |
 
 Tests at this point: API 598 checks; browser suites e2e … e2e17 with 587 checks; all passing. Full OQ run (`npm run validation:oq`): 1185 of 1185 checks passed in 51 test cases (598 API + 587 browser).
 
@@ -83,8 +96,13 @@ could not set up a real project. Phase 1 closed that gap.
 
 ### 2.5 Integrations (Phase 4)
 
-- Real Revit add-in (publish sheets / elements; navigate to element).
-- Comments anchored on the uploaded PDF drawing (pdf.js viewer) instead of the sample floor plan.
+- Real Revit add-in (publish sheets / elements; navigate to element). **Still open** — this is the only thing left of
+  Phase 4, and it moves into Phase 5 step 7 beside the BIM registers. The whole server side is already built and
+  documented for an add-in developer: `BACKEND_NOTES.md` §13 (connector tokens, `POST /snapshots`, `GET /navigation`,
+  `POST /navigation/:id/result`), so what is missing is the Revit-side client itself.
+- ~~Comments anchored on the uploaded PDF drawing (pdf.js viewer) instead of the sample floor plan.~~ — **done**:
+  `qualigrafo/src/components/Drawing.tsx` renders the real uploaded PDF with `pdfjs-dist` and places markers on it;
+  the API is `POST /pins {place:{page,x,y}}` + `PUT /pins/:id/anchor` (BACKEND_NOTES §13, "Drawing comments").
 
 ## 3. Roadmap
 
@@ -93,7 +111,8 @@ could not set up a real project. Phase 1 closed that gap.
 | **1** | A customer can run a real project | B1–B9, demo switch | largest; 6–8 working steps |
 | **2** | Passes a GxP supplier audit | C1–C7 | 4–5 steps |
 | **3** | Runs reliably for many projects / customers | P1–P7 | 4–5 steps |
-| **4** | Integrations | Revit, PDF markup | separate track |
+| ~~**4**~~ | ~~Integrations~~ | ~~Revit, PDF markup~~ | merged into Phase 5 step 7 |
+| **5** | One platform for pharma, hospital, energy / high-tech and common building projects | client specification of 2026-10-29: classification, templates, revision control, task engine, approvals, BIM, construction, commissioning, handover | largest since Phase 1; 11 steps, section 6 |
 
 Phase 1 order (each step = backend + UI + tests + notes, like steps 11–14):
 1. ~~Remove demo + `create-admin` + real date + remove hard-coded dates (B8, B9, 2.2)~~ — **done 2026-10-20**, see section 5
@@ -117,8 +136,21 @@ Phase 3 order (user started Phase 3 with this order on 2026-10-22):
 3. ~~P3 backups + tested restore (closes URS-34)~~ — **done 2026-10-22**
 4. ~~P1 scale (portfolio summary endpoint)~~ — **done 2026-10-22**
 5. ~~P6 monitoring (structured logs, error tracking, uptime / job alerts)~~ — **done 2026-10-25**
-6. **P4 object storage + virus scan** ← next
-7. P5 SSO / MFA
+6. P4 object storage + virus scan — **after Phase 5** (decision §6.4.8)
+7. P5 SSO / MFA — after Phase 5
+
+Phase 5 order (client specification of 2026-10-29; full detail in section 6):
+0. **Reproduce and fix the client's wizard report** ← next
+1. Project classification + unified wizard (client P0)
+2. Template engine: registers / requirements per industry + service (client P0)
+3. Document control: working version vs formal revision (client P0)
+4. Task engine (client P0)
+5. Approval engine generalised (client P0)
+6. RFI, issues, decision log, change control (client P1)
+7. BIM registers + the real Revit add-in (client P1, absorbs Phase 4)
+8. Construction and QA/QC: submittals, ITP / MIR / WIR, punch (client P1)
+9. Commissioning and handover gate (client P2)
+10. Archive / FM + management dashboard (client P2)
 
 ## 4. Decisions (taken 2026-10-20)
 
@@ -704,3 +736,326 @@ re-checked.
 
 Next: **Phase 3 / step 6 — P4 object storage** (S3 / Azure Blob with the same content-addressed keys, virus scan on
 upload), then P5 (SSO / MFA, httpOnly-cookie sessions).
+
+---
+
+## 6. Phase 5 — multi-industry platform (client feedback, 2026-10-29)
+
+The client tested the system and sent six HTML specifications plus a LinkedIn carousel (`clientnew/`). They are kept
+verbatim there; this section is the plan derived from them.
+
+### 6.1 What the client sent
+
+| File | What it is |
+|---|---|
+| `Qualigrafo_Demo_Project_Issue_Report.html` | Their test of the project wizard with "Demo Project"; three P0 claims (see §6.5 step 0) |
+| `Qualigrafo_Final_Project_Classification.html` | New project classification: four industry groups + Design / BIM / Design+BIM |
+| `Qualigrafo_Comprehensive_Industry_Facility_UI.html` | Mock-up of the industry-group / facility step |
+| `Qualigrafo_Unified_Project_Creation_UI.html` | Mock-up of the whole project-creation wizard (six steps) |
+| `Qualigrafo_Developer_Upgrade_Spec_Existing_App.html` | **The actual specification**: screen-by-screen mapping, data model, priority order |
+| `Qualigrafo_End_to_End_Lifecycle_UI_Blueprint.html` | Full lifecycle blueprint: setup → mobilization → planning → design/BIM → review → construction → commissioning → handover → archive |
+| `Qualigrafo_LinkedIn_Carousel.pdf` | The public positioning the client is already publishing |
+
+### 6.2 What it means
+
+Qualigrafo stops being a pharma-only product and becomes a **multi-industry engineering + BIM + document-control
+platform**, with pharma as one of four industry groups. The carousel already says so publicly: "Engineering • BIM •
+Documents • Evidence", "from project information to project intelligence".
+
+Three instructions in the specification are explicit and constrain everything below:
+
+1. *"Upgrade the existing Pharma application. Do not rebuild the product from scratch."* Login, sidebar, Portfolio,
+   My work, Regulatory watch, Requirement library, Users & access and the pharma data model all stay.
+2. *"Keep one wizard only. Do not keep the old Pharma wizard separately."* The new fields go **inside the existing
+   step 2**, not on a new industry page.
+3. *"Do not create separate project tables for Pharma/Hospital/Solar."* One project object gains common fields;
+   industry behaviour comes from **templates**, not from separate applications.
+
+This matches the house rule in `CLAUDE.md`: never remove a feature, make simulated things real. Nothing in the pharma
+product is dropped — it becomes the pharma template of a general engine.
+
+### 6.3 Gap analysis — what exists, what is new
+
+Most of the lifecycle blueprint is already built; the client could not see it because the wizard stopped them at
+project creation. Mapping their modules onto what is in the repository today:
+
+| Client module | Today | Work needed |
+|---|---|---|
+| Project classification (industry, facility, service type, stage, BIM level) | `Project` has `facility`, `scope`, `phase`, `plantCountry`, `markets` — all pharma-shaped | **New**: `industryGroup`, `facilityType`, `secondaryFacilityType`, `customFacilityType`, `serviceType`, `projectStage`, `bimRequirement` |
+| Dynamic registers per project | Registers exist (`Company`, `System`, `Discipline`, documents, requirements) but the content is pharma-only | **New**: template engine keyed on industry + facility + service + discipline + stage + country |
+| Industry requirement packs | `LibraryPack` / `LibraryVersion` / `LibraryItem` with draft → approved and four-eyes | **Extend**: packs for hospital, solar/renewable, semiconductor, common buildings; applicability filter per industry |
+| Master document register | `Document` + `DocHistory` + `DocSignature` + `StoredFile` (SHA-256) + `IssuedPackage` | **Extend**: see revision control below |
+| Version vs formal revision | `Document.rev` is an integer plus `sourceRev`; history is an event log | **New**: `DocRevision` records (previous-revision link, reason for issue, suitability, prepared / checked / approved, superseded retained, compare, revision tree) |
+| Configurable status / suitability | `DocStatus` is a fixed union in `server/src/domain/types.ts` | **New**: per-project configurable status set, with the current set as the default |
+| Task engine | "My work" is **derived** from record state — nothing is assignable | **New**: `Task` records with owner, dates, priority, dependency, evidence, escalation, history — merged into the existing derived queues, which stay |
+| Review / approval / e-signature | Two-stage sign-off with re-authentication and signature audit (C1) | **Extend**: review packages, sequential *or* parallel reviewers, mandatory QA/QC step, return-for-revision, per-project approval matrix |
+| Transmittals + distribution | `Transmittal` with purpose, revision list, acknowledgement, PDF | **Extend**: distribution matrix — who receives which document type / status automatically |
+| RFI / issue / clash / decision | `Rfi`, `Finding`, `Pin` + `PinReply` (comments with location), `Inspection`, `Ncr` | **Extend** RFIs with impact and ageing; **new** decision log; clash issues arrive with BIM |
+| Change control | `Change` + `ChangeItem` | **Extend**: impact assessment across scope, cost, schedule, design, BIM, compliance, handover |
+| BIM registers | Connector API, `RevitModel`, `ModelSnapshot`, `NavigationRequest` (BACKEND_NOTES §13) | **New**: model register, BEP / MIDP / TIDP, LOD / LOI, clash matrix, model QA, COBie / asset export |
+| Construction / PMC | `Inspection`, `Ncr`, `Finding` | **New**: submittals, material approval, ITP / MIR / WIR, site instruction, punch list |
+| Commissioning | — | **New**: commissioning register, readiness gates |
+| Handover gate | `handoverGates()` in `server/src/domain/rules.ts` — ten gates — plus the handover dossier PDF | **Extend**: industry-aware gates, formal waiver by an authorised user, mandatory-record completeness |
+| Archive / FM | Project archive (read-only, nothing deleted), `Snapshot` | **Extend**: asset handover to FM, post-handover defects |
+| Audit trail, security, backup | `AuditEvent` with old → new values, security log, signatures, backups with a tested restore, monitoring | **Already done** — the part the client asked for and where we are ahead |
+
+### 6.4 Decisions taken (2026-10-29)
+
+Judgment calls made while writing this plan. Each is reversible; listed so the client can object.
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| 1 | Product identity | Keep the name **Qualigrafo**; drop "pharma" from the positioning and from generic UI copy. Pharma wording survives inside pharma templates | The client's own carousel already positions it this way |
+| 2 | Does the validation pack (IQ / OQ / catalogue, C7) still apply? | **Yes, unchanged.** It validates *our software*, not the customer's project industry | A hospital customer still wants a validated tool; dropping it would lose the Phase 2 audit position |
+| 3 | Where do industry requirement packs come from? | Reuse `LibraryPack` with an industry + facility applicability filter, shipped as **unverified starter templates** the customer's own lead approves | Keeps decision §4.3: we never present content as verified regulation |
+| 4 | Existing projects after the migration | Backfill `industryGroup = 'Pharma'`, `facilityType` = current `facility`, `projectStage` = current `phase`, and `serviceType` from `revitMode` (`true` → Design + BIM, else Design only) | No project loses data and none lands in an empty state |
+| 5 | Is `plantCountry` renamed? | Yes → **`projectCountry`** in UI and API, column renamed in one migration. The regulatory-authority logic stays but becomes industry-aware (pharma markets only for pharma) | The client asked for it, and "plant" is meaningless for a hospital |
+| 6 | Wizard shape | Stay at **five steps** (Basics, Scope & classification, Registers, Team, Review) rather than the client's six — their steps 2 and 3 both live in our step 2 | Instruction 2 of §6.2 says one wizard; step count was never the complaint |
+| 7 | The old `Facility` union | Becomes `facilityType: string` driven by reference data, with the five pharma values kept as the pharma group's list | A fixed union cannot hold four industries plus "Other / custom" |
+| 8 | Order against the rest of the roadmap | Phase 5 runs **before** Phase 3 steps 6–7 (P4 object storage, P5 SSO / MFA) | The client is blocked today; storage and SSO block nobody |
+| 9 | Relationship to Phase 4 (Revit add-in) | Phase 4 merges into Phase 5 step 7 (BIM registers) | The client's BIM asks and the add-in are the same body of work |
+
+| 10 | Does an administrator see every project on a single-tenant installation? | **Yes — they see that it exists, but membership still governs access.** `GET /admin/projects` lists every project with the role the reader holds (or `null`); the Portfolio shows the ones outside their own portfolio under "Other projects on this installation", and opening one is still refused until they give themselves a role, which is audited like any membership change | Administrators are expected to see the whole installation, but every permission inside a project is built on `role`. A read-only administrator role would touch every permission check — that is Phase-5-sized work, not a step-0 fix. Listing without access gives the visibility without inventing a new permission level |
+| 11 | When does P4 (object storage) happen, given that the hosted trial already loses files? | **Not now, and not after all of Phase 5: right after Phase 5 step 3** (document control with formal revisions). Step 0 only makes the limitation visible — the product says that storage is not durable, and the client is told in writing. | Full P4 (S3 / Azure, migration, virus scan, backup rework) is a step of its own, and doing it first would delay what the client actually asked for. But step 3 is where controlled revisions start being uploaded, and from that moment durable storage is not optional. Before step 3 it is premature; after step 3 it is late. **If the client wants to put real drawings on the trial instance, P4 moves to the front** — that is the trigger to re-order |
+
+Open question for the client (does not block step 0 or 1): whether the configurable status / suitability codes should
+ship with **ISO 19650** suitability codes (S0–S7, A1–An, B1–Bn) as the default set, or whether every customer defines
+their own from scratch. The plan assumes ISO 19650 as the default plus free editing.
+
+### 6.5 Step order
+
+Every step is delivered the way `CLAUDE.md` requires: backend + UI + API tests + a browser suite + screenshots checked
++ both docs updated + a commit offered. Catalogue entries (`server/src/validation/catalogue.ts`: URS + risk + OQ case)
+are part of each step, not an afterthought.
+
+**Step 0 — reproduce and fix the client's wizard report.** The client tested the **Render free-tier deployment**
+(`render.yaml`: `plan: free`, `branch: main`, Neon database, `IDLE_TIMEOUT_MIN: 15`, API + built frontend in one
+service via `STATIC_DIR`), not a local build.
+
+What the code says. Their three P0 claims (Next jumps back, country resets, step 2 loses state) do not match
+`qualigrafo/src/pages/NewProject.tsx`: the whole draft is one `useState` object, nothing writes to it on a step change,
+and Next only ever does `setStep(step + 1)`. The deployment is **not** stale either — `origin/main` already contains
+the current head, so they ran today's wizard code. The idle lock is also not the cause on its own: `lock()` only clears
+the token and leaves `session` set, so `LockScreen` renders as an overlay and the wizard stays mounted underneath.
+
+**Reproduced on the live deployment (2026-10-29), signed in with the client's own admin account.** The wizard
+works. Steps 1 → 2 → 3 → 4 → 5 all advance, **Next was never disabled**, Back from the Review step to Basics kept
+India selected, and the browser reported **no console errors and no failed requests**. The database also already holds
+a project created through this very wizard (`dfv`, plant country IN, Non-sterile formulation, New plant, Design,
+baseline B1) — so project creation reaches the end. **Their three P0 claims are not reproducible as written.**
+
+**The audit trail on the live instance says what actually happened.** The client used the **Admin** account
+(confirmed by the user). Project `FBG` ("dfv") was created successfully on **2026-10-26 18:57:47** — three days before
+their report — and its four audit entries are the whole story:
+
+```
+18:57:47  Project FBG created: dfv (fvv, nagpur); markets IN; Non-sterile formulation · New plant
+18:57:47  Team: Admin <smoin4425@gmail.com> added as Owner / QA
+18:57:47  Requirements: no approved library pack for IN
+18:59:07  Team: SHOAIB <tiengineers01@gmail.com> added as Consultant
+```
+
+Then nothing: 0 requirements, 0 documents, 0 systems. **The wizard was never the problem — the project it produced was
+empty, so there was nothing to do next.** And the reason it was empty is a chain the client could not break on their
+own:
+
+- The requirement library has **five packs and not one approved version** (`GET /library`: `versions: []` for SA, IN,
+  EU, US, UK). Without an approved version for IN, a new project gets no requirements at all.
+- Approving a version needs **two different people** — `approveVersion()` in `server/src/services/library.ts` refuses
+  the author or last editor of the draft.
+- Only **one** account can act: `skmoeen1436@gmail.com` (QA Lead, admin) and `tiengineers01@gmail.com` (SHOAIB, MORPH)
+  both still have `mustChangePassword: true`, and SHOAIB is not even an editor (`isAdmin: false`, Owner / QA on no
+  project; the library needs an administrator or an Owner / QA).
+
+So: one usable editor → the four-eyes rule can never be satisfied → no approved library version → every project is
+created empty → "the software does not work". **`UAT_REPORT.md` predicted exactly this** in gap §3.3, and its §4
+hand-over checklist says to create two usable Owner / QA accounts (item 2), configure SMTP (item 3) and approve the
+starter library per market (item 6). None of the three was done before the client got the URL. The failure is a
+**hand-over failure, not a code defect** — and the client's specification asking for an auto-generated workspace is
+them describing the hole they fell into.
+
+Three code-level defects also came out of the session:
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | **A reload loses the whole draft.** The draft lives only in component state and `plantCountry` defaults to `'SA'`, so a reload puts the wizard back on step 1 with **Saudi Arabia** selected | Reloaded mid-wizard: state went from `IN` on step 2 back to `SA` on step 1. This is the one mechanism that produces all three of their symptoms at once — and on free Render a reload is easy to hit, because the instance spins down when idle and `ErrorBoundary`'s only offer is a **Reload** button |
+| 2 | **"New project" is hard to find.** The button sits in the Portfolio page header, not in the sidebar — and the client's own mock-ups put "＋ Create Project" in the sidebar. Worse, `#/new` is not a route: it falls back to Portfolio **silently**, with no message | Sidebar buttons are Portfolio, My work, Regulatory watch, Requirement library, Users & access and the project list — no create action. `#/new` rendered Portfolio; only `#/new-project` opens the wizard |
+| 3 | **An empty project is created in silence.** The audit records "no approved library pack for IN", but the user is never told that the project they just created has nothing in it and what to do about it | Project `FBG`: 0 requirements, and the Owner / QA saw no blocking message |
+| 4 | **Two of three accounts are stuck before first use.** Both `skmoeen1436@gmail.com` and `tiengineers01@gmail.com` still have `mustChangePassword: true`; nothing in the product tells an administrator that an invited user never got in | `GET /api/admin/users` |
+| 5 | **An administrator cannot see every project.** Project `BENIN001` ("BENIN", QA Lead as Owner / QA) does not appear for the Admin account, because the portfolio is membership-based. On a single-tenant installation an administrator probably should see all projects — to confirm with the user | `GET /api/projects` as Admin returns only `FBG` |
+
+So this step delivers, in order:
+
+**A — unblock the client's installation today** (operational, no release needed):
+
+1. Reset the temporary passwords of `skmoeen1436@gmail.com` and `tiengineers01@gmail.com` and get both signed in, so a
+   second library editor really exists. SHOAIB also needs Owner / QA somewhere, or admin rights, to be an editor.
+2. With two people, verify and approve a starter library version for **IN** (and any other market the client wants),
+   then apply it to project `FBG` so the client finally sees requirements. Or load their own content instead.
+3. Configure SMTP and send the test alert; raise `IDLE_TIMEOUT_MIN` on the trial instance (15 is a GxP production
+   value, not a demo value); re-run the installation check and keep the IQ PDF.
+4. Tell the client plainly what was wrong — the installation was handed over half-configured — and what changed.
+
+**B — make the product refuse to repeat it** (the code part of this step):
+
+5. **A project may not be created empty in silence.** The creation result, the project overview and the set-up
+   checklist must all say "0 requirements, because no library version is approved for IN", with the next action linked.
+   The audit already records it; the UI has to surface it.
+6. **Users & access must show who never signed in** — an "invited, never signed in" state with a resend / reset
+   action, so an administrator notices a stuck account before a tester does.
+7. **The Library page must state the four-eyes blocker as a blocker**, not a hint: when only one editor can act,
+   approval is impossible, and the page should say so and offer to invite a second editor.
+8. **Make project creation reachable**: a create action in the sidebar as the client's mock-ups show, and unknown home
+   routes (`#/new` among them) resolve or say why they did not, instead of falling back to Portfolio in silence.
+9. **Persist the wizard draft** — the draft *and* the step, kept per browser tab and dropped when the project is
+   created or the wizard is cancelled, so a reload or a remount resumes instead of restarting at Saudi Arabia.
+   (Built with `sessionStorage`, not with the step in the URL: a half-finished draft is not worth sharing by link,
+   and per-tab storage keeps two parallel drafts from overwriting each other.)
+10. Field-level inline validation on the field itself, plus an explicit reason next to a disabled Next instead of only
+    the "Still needed: …" notice; show the country ↔ market dependency rather than applying it silently.
+11. Cold-start handling: a "waking the server up" state with a retry on a failed first request, instead of an error
+    whose only way out is a reload.
+12. The client's configuration (Demo Project / Demo Client / India / Non-sterile formulation / New plant / Design /
+    India – CDSCO) becomes a permanent browser suite — and a second suite asserts that a project created with no
+    approved library version **tells the user so**.
+13. **An administrator sees the whole installation** (decision §6.4.10): `GET /admin/projects` carries every
+    project with the role the reader holds, and the Portfolio lists the ones outside their own portfolio under
+    "Other projects on this installation", with the audited way to give themselves a role. Access itself still needs
+    a membership, and the API suite proves that listing a project is not access to it.
+14. **Say that files are not durable on the trial instance** (decision §6.4.11): where uploads happen, and in the
+    hand-over note, state that a Render free instance has no persistent disk, so uploaded files and local backups do
+    not survive a restart. The database is on Neon and does survive.
+
+**Step 1 — project classification + unified wizard (client P0).** The data-model fields from §6.3, the migration with
+the backfill of decision 4, the `projectCountry` rename, reference data for the four industry groups and their facility
+lists (every group ends with "Other / custom facility"), optional secondary facility, mandatory service type, project
+stage, a BIM requirement block shown only when the service type includes BIM, and a review screen showing the full
+classification. Portfolio gains filters for industry, facility, service type, stage and country.
+
+**Step 2 — template engine (client P0).** Registers, requirements, workflows and deliverables generated from industry +
+facility + service + discipline + stage + country instead of from pharma defaults. Service-type behaviour: Design-only
+hides BIM fields, BIM-only hides the design-calculation registers unless enabled, Design + BIM links both. Industry
+starter packs for hospital, solar / renewable, semiconductor and common buildings beside the pharma library.
+
+**Step 3 — document control: version vs formal revision (client P0).** `DocRevision` records with previous-revision
+link, reason for issue, suitability, prepared / checked / approved / issued, superseded retained and searchable,
+revision compare, revision tree, and an automatic revision register. An approved revision is never overwritten.
+Per-project configurable status / suitability codes.
+
+**Step 4 — task engine (client P0).** Assignable `Task` records with owner and collaborators, planned / due / actual
+dates and ageing, priority, status flow, dependency on a task, document, RFI or approval, evidence attachments, a
+reminder before due and escalation after overdue (reusing the C5 reminder service), and a full change history. My work
+becomes tasks **plus** the existing derived role queues.
+
+**Step 5 — approval engine generalised (client P0 tail).** The pharma two-stage sign-off becomes a reusable engine:
+review packages bundling documents and models, sequential or parallel reviewers, mandatory QA/QC, client and authority
+approval, return-for-revision, approval meaning, e-signature where the project requires it, and the transmittal
+distribution matrix.
+
+**Step 6 — RFI, issues, decision log, change control (client P1).** Extend the existing records with location and
+discipline, the linked drawing or model, priority and ageing, impact and closure evidence; add the decision log; extend
+change control with the seven impact areas of §6.3.
+
+**Step 7 — BIM registers and the Revit add-in (client P1, absorbs Phase 4).** Model register, BEP / MIDP / TIDP, model
+breakdown, LOD / LOI, coordinates, clash matrix, clash issues with viewpoints, model QA/QC, COBie and asset data — fed
+by the real add-in on top of the existing connector API.
+
+**Step 8 — construction and QA/QC (client P1).** Submittals (material, datasheet, shop drawing, method statement,
+vendor document, sample), material approval, ITP / MIR / WIR with checklists and site photos, site instruction, punch
+and snag lists, closure evidence; NCR and corrective action lifted onto the same engine.
+
+**Step 9 — commissioning and handover (client P2).** Commissioning register (system, pre-commissioning checklist, test
+procedure, witness, result, deficiency, retest, acceptance), readiness gates, the handover package completeness matrix,
+"Handover complete" only when every mandatory record is approved **or formally waived by an authorised user**, and the
+final dossier extending the existing handover PDF.
+
+**Step 10 — archive / FM and the management dashboard (client P2).** Freeze the accepted project record, controlled
+archive of superseded information, asset handover to FM, post-handover defects, and the KPI dashboard the client
+sketched: overdue tasks, documents in review, open RFIs, handover readiness %, review ageing, revision health, open
+clashes, NCR ageing, submittal status, commissioning progress, upcoming milestones.
+
+Afterwards: Phase 3 step 6 (P4 object storage + virus scan) and step 7 (P5 SSO / MFA), then the client's own last item,
+the AI / knowledge engine, which depends on the data model above being stable.
+
+### 6.6 Testing — the "smooth software" gate
+
+The client's complaint was that the product broke on first contact. Every step therefore has to pass all of the
+following before it counts as done, not only its own new tests.
+
+| Gate | What it means |
+|---|---|
+| Regression | The full OQ (`cd server && npm run validation:oq -- --by "Name"`) stays green. Today: 1185 checks (598 API + 587 browser) in 51 cases. A step may add checks; it may never reduce the count |
+| New step tests | API blocks under a new `section('OQ-API-nn')` plus a new browser suite with an OQ-UI case, both registered in `server/src/validation/catalogue.ts` with their URS and risk |
+| The client's own test case | The "Demo Project" configuration from their issue report runs as a permanent browser suite (step 0), so their failing scenario can never regress |
+| Migration | Every migration is applied to a copy of the development database **and** to fixtures holding old-shape projects; the backfill of decision 4 is asserted, and `npm run backup:restore` is re-run after the schema changes |
+| Scale | After the wizard, portfolio-filter and task-engine steps: `npm run fixtures:load -- --projects 100` then `npm run perf:portfolio` |
+| Per-industry rehearsal | The UAT walk (`qualigrafo/scripts/uat/stage1..11.mjs`) is repeated once per industry group — pharma, hospital, solar, common — not only pharma; the result is appended to `UAT_REPORT.md` |
+| Visual | `node scripts/shots-all.mjs` reviewed for every page a step touches, so the glass / dark-blue interface stays consistent (interface notes in `CLAUDE.md`) |
+| CI | The same gates run in `.github/workflows/ci.yml` jobs `checks`, `oq` and `deploy`. **These have still never run on GitHub** — the pending verification in §1 now blocks Phase 5 too and should be cleared at the first push |
+
+Two extra rules for this phase, because it touches shipped records:
+
+- **No destructive migration.** Renames and new columns only; no column holding customer data is dropped without the
+  data moving first. `plantCountry → projectCountry` is a rename, not a drop-and-add.
+- **Industry regression.** Every step that generalises a pharma feature must leave a pharma project behaving exactly as
+  before. The existing pharma browser suites are the proof and must not be edited to accommodate new behaviour.
+
+### 6.7 Progress
+
+#### Phase 5 / step 0 — first contact (done 2026-10-29)
+
+Investigated on the client's own deployment, then fixed. Evidence and the three defects: §6.5 step 0.
+
+| Part | What was done |
+|---|---|
+| Server advisories (§7 items 1–2) | `npm audit fix` in `server/`: body-parser 2.3.0 → **2.4.0**, multer 2.4.0 → **2.5.0**, fast-uri 3.1.8 → **3.1.9**. `package.json` unchanged — lock only, so no major bump. Server audit is now **0 vulnerabilities** (was 2 high + 1 moderate); the frontend was already clean. `npm audit fix` rewrites the lock without installing, and `npm install` then reports "up to date", so **`npm ci` is needed** to make `node_modules` match — IQ-06 (installed versions == lock) is what catches the mismatch |
+| Draft survives a reload | `qualigrafo/src/pages/NewProject.tsx`: the draft **and** the step are kept per browser tab (`sessionStorage`), restored with a "Draft restored" notice and an explicit way to start over, and dropped when the project is created or the wizard is cancelled |
+| A blocked step names its reason | Validation is a map of field → message: each message sits on its own field, and the first one is printed next to the disabled **Next**. The older "Still needed: …" line stays |
+| Project creation is reachable | A **Start a project** action in the sidebar for anyone who may create projects. Deliberately not "New project" (the Portfolio action) nor "Create project" (the wizard's own submit button): three controls lead into creation and two of them must not answer to the same name |
+| Unknown addresses say so | `components/ui.tsx`: one table of home addresses, `#/new` accepted as the alias people guess, and anything unmatched reported as "That address does not exist" instead of showing the Portfolio in silence |
+| An empty project explains itself | `pages/Overview.tsx`: when a market in scope has no approved library version **and** the project holds no requirements, the set-up card says it cannot get any yet, names the market, explains the four-eyes rule and links to the library |
+| The blocker is stated at its source | `pages/Library.tsx`: when nothing is approved anywhere, the page says no project can receive a requirement, that approval needs a second editor, and that an invited account still holding a temporary password does not count. `pages/Admin.tsx`: active accounts that never signed in are listed for an administrator |
+| An administrator sees the whole installation | `GET /admin/projects` carries client, status, phase, facility, country, team size and the role the reader holds (or `null`). The Portfolio gains **"Other projects on this installation"** — the projects outside the reader's own portfolio, governed by the same Active / Archived switch, with the audited way to give themselves a role. Listing is not access: opening a project without a membership is still refused (decision §6.4.10) |
+| Trial storage is not durable | Written into `render.yaml`: no persistent disk, so `STORAGE_DIR` uploads and `BACKUP_DIR` sets are lost on every deploy, restart and wake-from-spin-down; the Neon database survives. P4 scheduled after Phase 5 step 3 (decision §6.4.11) |
+| The client's installation | Temporary passwords reset for `skmoeen1436@gmail.com` and `tiengineers01@gmail.com`, so a second library editor can sign in at all, and the unverified starter drafts prepared (SA 17, EU 7, IN 9, US 3) with the Admin account as their author — which leaves them approvable by the other editor |
+
+Tests: **API 610 checks** (was 598: 11 for administrator project visibility, which also proves that listing a project
+is not access to it), new browser suite **`e2e18.mjs` with 41 checks** (the client's exact configuration walked to a
+created project, reload-resume, named validation, unknown address, the empty-project and library messages, the
+administrator view, and a cancelled draft that is not offered again). Catalogue: **OQ-UI-18** and **URS-38**
+("First contact cannot fail silently"). Full OQ: **1238 of 1238 checks passed in 52 test cases** (610 API + 628
+browser). Every pharma suite passes **unedited**; two of them needed a product change rather than a test change —
+the sidebar label collision, and the administrator list that first showed projects twice on one page.
+
+**Not done in this step, carried forward:**
+
+- **The two-person library approval itself.** Preparing the drafts is one thing; approving them through both accounts
+  would hollow out the four-eyes control and put a false statement in the audit trail. The client's QA has to approve
+  the India version, with the basis recorded. Until then project `FBG` stays empty by design.
+- **The in-product warning that files are not durable** (step 0 deliverable 14). It needs a setting, because the
+  application cannot detect by itself that it is running on an ephemeral filesystem. Only `render.yaml` carries the
+  warning so far.
+- SMTP on the trial instance, and raising `IDLE_TIMEOUT_MIN` there (Part A items 3).
+
+**Next: Phase 5 / step 1 — project classification + the unified wizard (§6.5 step 1).** Before it, push the branch so
+CI runs with the dependency fix: `checks` should go green for the first time, and the `oq` and `deploy` jobs will then
+run for the first time ever (§7 items 1–3).
+
+---
+
+## 7. Pending from earlier phases (verified 2026-10-29)
+
+Checked against GitHub, the live instance and `UAT_REPORT.md` on 2026-10-29, so Phase 5 does not start on top of
+unfinished work. **Items 1 and 2 come before Phase 5 step 1.**
+
+| # | Item | What was found | What to do |
+|---|---|---|---|
+| 1 | **P7 CI — failing, not "never run"** | The branch was pushed on 2026-10-26 and CI has run **seven times, every run a failure**. All of them stop in the `checks` job at `npm audit --omit=dev --audit-level=high`, so the `oq` and `deploy` jobs are **skipped** — the OQ suites and the Docker deployment have *still* never been verified in CI | Fix the audit findings (item 2), then read the first green run's `oq` and `deploy` jobs and fix the Linux / Docker issues there |
+| 2 | ~~**Two high-severity vulnerabilities in the shipped server runtime**~~ — **fixed 2026-10-29** | body-parser → 2.4.0, multer → 2.5.0, fast-uri → 3.1.9 (lock only, no `package.json` change). Server audit: **0 vulnerabilities**. Full OQ re-run green afterwards. Note for next time: `npm audit fix` updates the lock without installing and `npm install` then claims to be up to date — **`npm ci`** is what makes `node_modules` match, and IQ-06 is what catches it | Done. Push so the `checks` job can pass for the first time |
+| 3 | **P2 Docker deployment** | Still unverified — blocked by item 1, not by anything in the deployment itself | Verify in the first green CI run |
+| 4 | **P4 object storage + virus scan** | Not started — and on the hosted trial this is **already losing data**: `STORAGE_DIR` defaults to the local folder `storage` and `BACKUP_DIR` to `backups` (`server/src/config.ts`), while `render.yaml` attaches no persistent disk. A Render free instance has an ephemeral filesystem, so every uploaded file and every backup written there disappears on redeploy, restart or wake-from-spin-down. The database is on Neon and survives; the files do not | **Decided (§6.4.11): P4 runs right after Phase 5 step 3**, where controlled revisions start being uploaded. Step 0 makes the limitation visible in the product and in writing to the client. If the client wants real drawings on the trial instance before then, P4 moves to the front |
+| 4b | **P5 SSO / MFA, httpOnly-cookie sessions** | Not started. Re-ordered to run **after** Phase 5 (decision §6.4.8). Note that the session token lives in `localStorage` today (`qualigrafo/src/api.ts`), which is what the cookie part of P5 replaces | Keep in the backlog |
+| 5 | **Phase 4 — real Revit add-in** | The only part of Phase 4 still open. The server side is complete and documented for an add-in developer (BACKEND_NOTES §13); the Revit-side client does not exist. The other Phase 4 item, PDF-anchored drawing comments, **is already built** (`Drawing.tsx` with `pdfjs-dist`) — §2.5 was stale and is now corrected | Merged into Phase 5 step 7, so the add-in lands together with the BIM registers it feeds |
+| 6 | **UAT §3.6 — e-mail not configured** | The live instance has no SMTP, so reminders and alerts are recorded as "Not sent" | Configure SMTP on the trial instance and send the test alert |
+| 7 | **UAT §4 hand-over checklist was not applied to the trial instance** | `UAT_REPORT.md` §4 lists what to do before handing a client a test installation. Items **2** (create two usable Owner / QA accounts), **3** (configure SMTP) and **6** (verify and approve the starter library per market) were not done — which is exactly why the client's experience failed (see §6.5 step 0) | Run the checklist against the live instance, and make the parts of it that the software can check itself part of the set-up checklist in the product |
+

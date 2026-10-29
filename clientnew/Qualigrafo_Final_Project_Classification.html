@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qualigrafo – Final Project Classification Structure</title>
+<style>
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f5f7fb;color:#1f2937;line-height:1.55}
+.wrap{max-width:1150px;margin:36px auto;padding:0 22px 50px}
+.hero{background:linear-gradient(135deg,#0d2a52,#174a7c);color:#fff;padding:36px;border-radius:18px;box-shadow:0 12px 28px rgba(15,47,95,.18)}
+.hero h1{margin:0 0 8px;font-size:32px}.hero p{margin:6px 0;color:#dbeafe}
+.card{background:#fff;border-radius:16px;padding:25px;margin-top:22px;box-shadow:0 8px 22px rgba(31,41,55,.07)}
+h2{margin-top:0;color:#0f2f5f}h3{color:#174a7c;margin-bottom:8px}
+.flow{background:#edf5ff;border-left:5px solid #2563eb;padding:15px 18px;border-radius:9px;font-weight:700;margin:12px 0}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.box{border:1px solid #dce4ef;border-radius:12px;padding:18px;background:#fbfdff}
+.box h3{margin-top:0}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+th,td{border:1px solid #dce4ef;padding:11px;text-align:left;vertical-align:top}
+th{background:#edf4ff;color:#0f2f5f}
+.pill{display:inline-block;background:#eef2ff;padding:6px 10px;border-radius:999px;margin:4px 4px 4px 0;font-size:12px;font-weight:700}
+.good{background:#f0fdf4;border-left:5px solid #22c55e;padding:14px 17px;border-radius:9px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.footer{text-align:center;color:#64748b;font-size:13px;margin-top:28px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<section class="hero">
+<h1>Qualigrafo – Final Project Classification Structure</h1>
+<p>Current recommended scope: 4 project groups with common Design / BIM / Design + BIM service logic.</p>
+</section>
+
+<section class="card">
+<h2>1. Final Main Project Groups</h2>
+
+<div class="grid">
+
+<div class="box">
+<h3>Group 1 – Energy & High-Tech</h3>
+<ul>
+<li>Solar Industry / Solar PV</li>
+<li>Renewable Energy</li>
+<li>Semiconductor Industry</li>
+</ul>
+<p><strong>Sub-types can be selected after the main group.</strong></p>
+</div>
+
+<div class="box">
+<h3>Group 2 – Hospital / Healthcare</h3>
+<ul>
+<li>Hospital</li>
+<li>Multi-Speciality Hospital</li>
+<li>Medical College / Healthcare Facility</li>
+<li>Diagnostic / Clinical Facility</li>
+</ul>
+</div>
+
+<div class="box">
+<h3>Group 3 – Pharma Industry</h3>
+<ul>
+<li>API</li>
+<li>Non-Sterile</li>
+<li>Sterile</li>
+<li>Biologics</li>
+<li>Cleanroom</li>
+<li>Beta-Lactam</li>
+<li>Pharma Warehouse / R&D</li>
+</ul>
+</div>
+
+<div class="box">
+<h3>Group 4 – Common Building Projects</h3>
+<ul>
+<li>Residential</li>
+<li>Commercial</li>
+<li>School / Education</li>
+<li>Hotel / Hospitality</li>
+<li>Warehouse / Logistics</li>
+<li>Industrial / Manufacturing</li>
+<li>Mixed Use</li>
+<li>Other / Custom</li>
+</ul>
+</div>
+
+</div>
+</section>
+
+<section class="card">
+<h2>2. Common Service Selection for Every Project</h2>
+<p>This selection must come immediately after the project group/type because sometimes the enquiry is only Design, sometimes only BIM, and sometimes both together.</p>
+
+<div class="flow">Project Type → Service Type → Disciplines → Stage → BIM Level (if applicable) → Deliverables</div>
+
+<table>
+<tr><th>Service Type</th><th>When Selected</th><th>System Should Load</th></tr>
+
+<tr>
+<td><strong>Design Only</strong></td>
+<td>Client requires engineering/design services without BIM modelling as the main scope.</td>
+<td>Design basis, calculations, reports, drawings, schedules, authority requirements, QA/QC, approvals and GFC/IFC deliverables.</td>
+</tr>
+
+<tr>
+<td><strong>BIM Only</strong></td>
+<td>Design inputs are already provided and scope is BIM modelling / coordination / documentation.</td>
+<td>BEP, model setup, LOD, modelling, clash detection, coordination, shop drawings, model QA/QC, COBie/as-built as applicable.</td>
+</tr>
+
+<tr>
+<td><strong>Design + BIM</strong></td>
+<td>Morph/consultant is responsible for both engineering design and BIM execution.</td>
+<td>Complete design workflow + BIM workflow together, linked through common approvals, RFIs, deliverables and revision control.</td>
+</tr>
+</table>
+</section>
+
+<section class="card">
+<h2>3. Recommended Project Creation Flow</h2>
+
+<ol>
+<li><strong>Project Information</strong> – Project Name, Client, Location, Country, Project Code</li>
+<li><strong>Main Project Group</strong> – Energy & High-Tech / Hospital / Pharma / Common</li>
+<li><strong>Project Sub-Type</strong> – e.g. Solar PV, Semiconductor Fab, Hospital, API Plant, Residential Tower</li>
+<li><strong>Service Type</strong> – Design Only / BIM Only / Design + BIM</li>
+<li><strong>Discipline Selection</strong></li>
+<li><strong>Project Stage</strong></li>
+<li><strong>BIM Requirement</strong> – only shown when BIM or Design + BIM is selected</li>
+<li><strong>Applicable Standards</strong> – system suggested based on type/country</li>
+<li><strong>Generate Project Workspace</strong></li>
+</ol>
+</section>
+
+<section class="card">
+<h2>4. Discipline Logic</h2>
+
+<p><strong>Common disciplines:</strong></p>
+<p>
+<span class="pill">Architecture</span>
+<span class="pill">Structure</span>
+<span class="pill">HVAC</span>
+<span class="pill">Electrical</span>
+<span class="pill">Plumbing</span>
+<span class="pill">Fire Fighting</span>
+<span class="pill">ELV / ICT</span>
+<span class="pill">Civil</span>
+<span class="pill">Interior</span>
+<span class="pill">Landscape</span>
+</p>
+
+<p><strong>Industry-specific disciplines should appear automatically:</strong></p>
+
+<ul>
+<li><strong>Solar / Renewable:</strong> Solar PV, Power Systems, SCADA, BESS, Electrical Infrastructure</li>
+<li><strong>Semiconductor:</strong> Cleanroom, Process Utilities, Specialty Gas, High-Purity Piping, Exhaust, Tool Hook-up</li>
+<li><strong>Hospital:</strong> Medical Gas, Healthcare HVAC, OT/ICU systems, Nurse Call / ELV</li>
+<li><strong>Pharma:</strong> Cleanroom, Process, Piping, Equipment, HVAC Qualification, Validation</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>5. Service-Specific Screen Behaviour</h2>
+
+<h3>If user selects Design Only</h3>
+<div class="good">
+Show design criteria, calculations, equipment selection, drawings, reports, schedules, authority submissions, design review, QA/QC and GFC/IFC workflow. Hide unnecessary BIM-specific fields.
+</div>
+
+<h3>If user selects BIM Only</h3>
+<div class="good">
+Show input drawings/models, Revit version, CDE, BEP, LOD, model breakdown, clash matrix, coordination, shop drawings, asset information, COBie and as-built requirements. Hide design-calculation workflow unless specifically selected.
+</div>
+
+<h3>If user selects Design + BIM</h3>
+<div class="good">
+Show both workflows together and connect design revisions directly with BIM model revisions, coordination issues, RFIs, approvals and final handover.
+</div>
+</section>
+
+<section class="card">
+<h2>6. Example Setups</h2>
+
+<table>
+<tr><th>Example</th><th>Recommended Setup</th></tr>
+
+<tr>
+<td>Solar Project – Design only</td>
+<td>Energy & High-Tech → Solar PV → Design Only → Electrical + Civil + Structure → Detailed Design</td>
+</tr>
+
+<tr>
+<td>Semiconductor BIM Project</td>
+<td>Energy & High-Tech → Semiconductor → BIM Only → MEP + Process Utilities + Cleanroom → LOD 400</td>
+</tr>
+
+<tr>
+<td>Hospital Design + BIM</td>
+<td>Hospital → Multi-Speciality Hospital → Design + BIM → MEP + Medical Gas + Architecture → LOD 400</td>
+</tr>
+
+<tr>
+<td>Pharma Design + BIM</td>
+<td>Pharma → API / Sterile / Non-Sterile → Design + BIM → HVAC + Cleanroom + Process + MEP → Detailed Design / LOD 400</td>
+</tr>
+
+<tr>
+<td>Residential BIM Coordination</td>
+<td>Common → Residential → BIM Only → Architecture + Structure + MEP → Coordination / LOD 350</td>
+</tr>
+</table>
+</section>
+
+<section class="card">
+<h2>7. Final Core Logic</h2>
+<div class="flow">
+PROJECT GROUP → PROJECT SUB-TYPE → DESIGN / BIM / DESIGN+BIM → DISCIPLINE → STAGE → BIM LEVEL → STANDARDS → TASKS → DOCUMENTS → APPROVALS → DELIVERABLES
+</div>
+
+<p>This should be the core project-generation logic in Qualigrafo. The same platform can then support different industries without forcing pharma-specific fields into hospital, solar, semiconductor or ordinary building projects.</p>
+</section>
+
+<div class="footer">Qualigrafo – Revised Multi-Industry Project Setup</div>
+
+</div>
+</body>
+</html>

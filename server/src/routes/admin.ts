@@ -57,9 +57,30 @@ admin.get('/users', async (_req, res) => {
   res.json({ users: users.map(userView) })
 })
 
+/**
+ * Every project on the installation, for the membership editor and for the administrator's own overview.
+ * The portfolio itself stays membership-driven — this is the one place an administrator sees that a project
+ * exists at all without being on its team, which on a single-tenant installation they are expected to.
+ */
 admin.get('/projects', async (_req, res) => {
-  const ps = await prisma.project.findMany({ select: { code: true, name: true, companies: { where: { active: true }, select: { name: true }, orderBy: { name: 'asc' } } }, orderBy: { code: 'asc' } })
-  res.json({ projects: ps.map((p) => ({ code: p.code, name: p.name, companies: p.companies.map((c) => c.name) })), companies: [...new Set(ps.flatMap((p) => p.companies.map((c) => c.name)))].sort() })
+  const ps = await prisma.project.findMany({
+    select: {
+      code: true, name: true, client: true, status: true, phase: true, facility: true, plantCountry: true, createdAt: true,
+      companies: { where: { active: true }, select: { name: true }, orderBy: { name: 'asc' } },
+      memberships: { select: { userId: true, role: true } },
+    },
+    orderBy: { code: 'asc' },
+  })
+  res.json({
+    projects: ps.map((p) => ({
+      code: p.code, name: p.name, client: p.client, status: p.status, phase: p.phase, facility: p.facility,
+      plantCountry: p.plantCountry, createdAt: p.createdAt.toISOString(),
+      companies: p.companies.map((c) => c.name),
+      members: p.memberships.length,
+      myRole: p.memberships.find((m) => m.userId === currentUser(_req).id)?.role ?? null,
+    })),
+    companies: [...new Set(ps.flatMap((p) => p.companies.map((c) => c.name)))].sort(),
+  })
 })
 
 const zName = z.string().trim().min(2, 'Name is required.').max(120)

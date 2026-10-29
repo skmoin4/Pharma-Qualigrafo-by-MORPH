@@ -194,6 +194,10 @@ export default function App() {
             {nav(route.home === 'watch', () => home('watch'), <Radar size={15} />, 'Regulatory watch', regN, true)}
             {nav(route.home === 'library', () => home('library'), <BookOpen size={15} />, 'Requirement library')}
             {session.isAdmin && nav(route.home === 'admin', () => home('admin'), <UserCog size={15} />, 'Users & access')}
+            {/* Deliberately not "New project" (the Portfolio action) nor "Create project" (the wizard's own submit
+                button): three controls lead into project creation, and two of them must not answer to the same name —
+                for a screen reader as much as for the test suites. */}
+            {session.canCreateProjects && nav(route.home === 'new', () => home('new'), <FilePlus2 size={15} />, 'Start a project')}
             <h6>Projects</h6>
             {all.map(({ meta, st }) => (
               <button key={meta.id} onClick={() => openProjectRoute(meta.id)}>
@@ -235,6 +239,7 @@ export default function App() {
           {inProject && <span className="badge" title="Your role on this project">{role}</span>}
         </header>
         {loadError && <div className="notice err" style={{ margin: '12px 24px 0' }}>{loadError}</div>}
+        {route.unknown && <div className="notice" style={{ margin: '12px 24px 0' }}><b>That address does not exist.</b> <code>{route.unknown}</code> is not a page in Qualigrafo, so the Portfolio is shown instead.</div>}
         {inProject && profile.status === 'Archived' && <div className="notice" style={{ margin: '12px 24px 0' }}><b>Archived · read-only.</b> {profile.archivedReason}{role === 'Owner / QA' && <> <button className="link small" onClick={() => go('setup')}>Restore under Setup →</button></>}</div>}
         <main className="page"><ErrorBoundary resetKey={`${route.project}/${page}/${route.home}`}><Suspense fallback={<div className="empty"><b>Loading…</b></div>}>{inProject ? (projectLoading ? <div className="empty"><b>Loading project…</b></div> : <Page />) : route.home === 'work' ? <MyWork /> : route.home === 'watch' ? <Watch /> : route.home === 'admin' && session.isAdmin ? <Admin /> : route.home === 'new' && session.canCreateProjects ? <NewProject /> : route.home === 'library' ? <Library /> : route.home === 'profile' ? <Profile /> : <Portfolio />}</Suspense></ErrorBoundary></main>
       </div>

@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qualigrafo – End-to-End Project Lifecycle UI Blueprint</title>
+<style>
+:root{
+  --nav:#0d2742; --nav2:#123d69; --bg:#f5f7fb; --card:#fff; --line:#dce5ef;
+  --text:#1f2937; --muted:#667085; --blue:#2563eb; --bluebg:#eef5ff;
+  --green:#15803d; --greenbg:#f0fdf4; --amber:#b45309; --amberbg:#fff7ed;
+  --red:#b42318; --redbg:#fef3f2; --purple:#7c3aed; --purplebg:#faf7ff;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:250px;position:fixed;inset:0 auto 0 0;background:linear-gradient(180deg,var(--nav),#071a2c);color:white;padding:24px 17px;overflow:auto}
+.brand{font-size:24px;font-weight:800}.brand-sub{font-size:11px;color:#bfd0df;margin:5px 0 24px}
+.side-title{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#8fb0cb;margin:19px 10px 8px}
+.side-link{display:block;color:#d7e3ed;text-decoration:none;padding:9px 11px;border-radius:8px;font-size:13px;margin:2px 0}
+.side-link:hover,.side-link.active{background:#1b4e7d;color:white}
+.main{margin-left:250px;width:calc(100% - 250px)}
+.topbar{height:68px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:20}
+.topbar strong{color:#102a43}.small{font-size:12px;color:var(--muted)}
+.wrap{max-width:1250px;margin:0 auto;padding:26px 26px 60px}
+.hero{background:linear-gradient(135deg,#102a43,#174a7c);color:white;padding:30px;border-radius:18px;box-shadow:0 14px 32px rgba(15,23,42,.12)}
+.hero h1{margin:0 0 7px;font-size:30px}.hero p{margin:0;color:#d9e8f7}
+.tag{display:inline-block;margin-top:14px;background:#dbeafe;color:#174a7c;padding:7px 11px;border-radius:999px;font-size:12px;font-weight:800}
+.section{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;margin-top:20px;box-shadow:0 6px 18px rgba(15,23,42,.045)}
+.section h2{margin:0 0 6px;color:#102a43;font-size:22px}.section h3{color:#174a7c;margin:22px 0 8px}.muted{color:var(--muted);font-size:13px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fbfdff}.card h4{margin:0 0 8px;color:#102a43}
+.status{padding:8px 10px;border-radius:9px;font-size:12px;font-weight:700}.green{background:var(--greenbg);color:var(--green)}.amber{background:var(--amberbg);color:var(--amber)}.red{background:var(--redbg);color:var(--red)}.blue{background:var(--bluebg);color:#174a7c}.purple{background:var(--purplebg);color:var(--purple)}
+.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span{background:#edf4ff;border:1px solid #d4e3f7;color:#174a7c;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:700}
+.lifecycle{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-top:18px}
+.life{padding:12px;border:1px solid var(--line);border-radius:11px;background:#fff;text-align:center;font-size:12px;font-weight:700;color:#344054}
+.life:hover{border-color:#8ab4ff;background:#f7faff}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}
+th{background:#edf4ff;color:#102a43}
+ul,ol{padding-left:20px}
+li{margin:5px 0}
+.callout{border-left:4px solid var(--blue);background:#eef5ff;padding:14px 16px;border-radius:9px;margin-top:14px;font-size:13px}
+.callout.green{border-left-color:#22c55e;background:#f0fdf4;color:#166534}
+.callout.amber{border-left-color:#f59e0b;background:#fff7ed;color:#92400e}
+.kpi{font-size:24px;font-weight:800;color:#102a43}.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.pills{display:flex;gap:7px;flex-wrap:wrap}.pill{padding:6px 9px;border-radius:999px;background:#f3f6fa;border:1px solid #d9e2ec;font-size:12px}
+.legend{font-size:12px;color:#667085;margin-top:8px}
+code{background:#eef2f7;border-radius:5px;padding:2px 5px}
+@media(max-width:1000px){
+ .sidebar{display:none}.main{margin-left:0;width:100%}.grid4,.grid3,.grid2,.lifecycle{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<aside class="sidebar">
+  <div class="brand">Qualigrafo</div>
+  <div class="brand-sub">Engineering • BIM • Documents • Evidence</div>
+
+  <div class="side-title">Master Flow</div>
+  <a class="side-link active" href="#overview">Overview</a>
+  <a class="side-link" href="#setup">1. Project Setup</a>
+  <a class="side-link" href="#mobilization">2. Mobilization</a>
+  <a class="side-link" href="#planning">3. Planning</a>
+  <a class="side-link" href="#execution">4. Design & BIM</a>
+  <a class="side-link" href="#review">5. Review & Approval</a>
+  <a class="side-link" href="#construction">6. Construction / PMC</a>
+  <a class="side-link" href="#commissioning">7. Commissioning</a>
+  <a class="side-link" href="#handover">8. Handover</a>
+  <a class="side-link" href="#archive">9. Archive / FM</a>
+
+  <div class="side-title">Core Controls</div>
+  <a class="side-link" href="#documents">Document Control</a>
+  <a class="side-link" href="#revision">Revision Control</a>
+  <a class="side-link" href="#tasks">Task Management</a>
+  <a class="side-link" href="#changes">Change Control</a>
+  <a class="side-link" href="#audit">Audit / Security</a>
+  <a class="side-link" href="#industry">Industry Logic</a>
+</aside>
+
+<main class="main">
+<div class="topbar">
+  <strong>Qualigrafo – End-to-End Lifecycle Blueprint</strong>
+  <span class="small">Unified Multi-Industry UI / Developer Specification</span>
+</div>
+
+<div class="wrap">
+
+<section class="hero" id="overview">
+  <h1>Start-to-Handover Project Management Architecture</h1>
+  <p>One platform for Pharma, Hospital, Solar/Renewable, Semiconductor and Common Design/BIM projects — with controlled tasks, documents, revisions, approvals and final handover.</p>
+  <span class="tag">Project → Scope → Tasks → Documents → Review → Revision → Approval → Construction → Commissioning → Handover</span>
+</section>
+
+<section class="section">
+  <h2>What Was Missing & Must Be Added</h2>
+  <div class="grid4" style="margin-top:14px">
+    <div class="card"><div class="status red">Must Add</div><h4>Revision Control</h4><p class="muted">Clear difference between file version and formal revision, with status, reason, reviewer and superseded record.</p></div>
+    <div class="card"><div class="status red">Must Add</div><h4>Transmittals</h4><p class="muted">Controlled issue of drawings/documents to client, contractor, consultant and authority.</p></div>
+    <div class="card"><div class="status red">Must Add</div><h4>Change Control</h4><p class="muted">Every scope/design change must show impact on cost, time, models, drawings and approvals.</p></div>
+    <div class="card"><div class="status red">Must Add</div><h4>Commissioning & Handover</h4><p class="muted">Structured test records, punch closure, as-builts, O&M, assets, warranties and final dossier.</p></div>
+  </div>
+  <div class="callout">Use <strong>one unified workflow engine</strong>. Do not build separate unrelated systems for Pharma, BIM, Hospital or Renewable projects. Industry should load templates; the underlying control engine should remain common.</div>
+</section>
+
+<section class="section">
+  <h2>Complete Project Lifecycle</h2>
+  <div class="lifecycle">
+    <div class="life">0. Enquiry / Opportunity</div><div class="life">1. Project Setup</div><div class="life">2. Mobilization</div><div class="life">3. Planning</div><div class="life">4. Design / BIM</div>
+    <div class="life">5. Review / Approval</div><div class="life">6. Procurement / Site</div><div class="life">7. QA/QC</div><div class="life">8. Commissioning</div><div class="life">9. Handover / Archive</div>
+  </div>
+</section>
+
+<section class="section" id="setup">
+<h2>1. Project Setup</h2>
+<p class="muted">Create the project once, then generate industry-specific workspace automatically.</p>
+
+<div class="grid2">
+<div class="card">
+<h4>Project Basics</h4>
+<ul>
+<li>Project Name / Project Code</li><li>Client / Owner / Consultant / Contractor</li><li>Location / Country / Site</li>
+<li>Contract / PO / Work Order reference</li><li>Start Date / Target Completion</li><li>Project Currency / Time Zone</li>
+</ul>
+</div>
+<div class="card">
+<h4>Classification</h4>
+<ul>
+<li>Industry Group</li><li>Facility / Project Sub-Type</li><li>Secondary / Combined Facility</li>
+<li>Service: Design Only / BIM Only / Design + BIM</li><li>Project Stage</li><li>Disciplines</li>
+</ul>
+</div>
+</div>
+
+<h3>Four Main Industry Groups</h3>
+<table>
+<tr><th>Group</th><th>Facility Examples</th><th>Fallback</th></tr>
+<tr><td>Energy & High-Tech</td><td>Solar PV, Renewable Energy, BESS, Wind, Green Hydrogen, Semiconductor Fab, OSAT/ATMP, Sub-Fab, Utility Plant</td><td>Other / Custom Facility</td></tr>
+<tr><td>Hospital / Healthcare</td><td>General, Multi-Speciality, Teaching, Oncology, Cardiac, Maternity, Diagnostic, Day Care, Dialysis, Rehabilitation</td><td>Other / Custom Facility</td></tr>
+<tr><td>Pharma Industry</td><td>API, OSD, Sterile, Biologics, Vaccine, Beta-Lactam, HPAPI, R&D, QC Lab, Warehouse, Utilities</td><td>Other / Custom Facility</td></tr>
+<tr><td>Common / Other</td><td>Residential, Commercial, School, Hotel, Data Center, Industrial, Warehouse, Airport, Infrastructure, Stadium</td><td>Other / Custom Facility</td></tr>
+</table>
+</section>
+
+<section class="section" id="mobilization">
+<h2>2. Project Mobilization</h2>
+<div class="grid3">
+<div class="card"><h4>Team & Access</h4><ul><li>Project Manager</li><li>Discipline Leads</li><li>Modelers / Designers</li><li>QA/QC</li><li>Reviewer / Approver</li><li>Client / Contractor / Auditor</li><li>Role-based permissions</li></ul></div>
+<div class="card"><h4>RACI / Approval Matrix</h4><ul><li>Responsible</li><li>Accountable</li><li>Consulted</li><li>Informed</li><li>Review level 1/2/3</li><li>Delegation / backup approver</li></ul></div>
+<div class="card"><h4>CDE Setup</h4><ul><li>Folder / package structure</li><li>Document naming convention</li><li>Revision convention</li><li>Status / suitability codes</li><li>Access rules</li><li>Retention / archive rules</li></ul></div>
+</div>
+<div class="callout">CDE configuration should support controlled status, revision, classification and transitions with actor/date history instead of simple file upload folders.</div>
+</section>
+
+<section class="section" id="planning">
+<h2>3. Planning & Deliverable Setup</h2>
+<div class="grid2">
+<div class="card">
+<h4>Scope Breakdown</h4>
+<ul><li>WBS / Work Packages</li><li>Buildings / Zones / Levels / Areas</li><li>Systems / Equipment packages</li><li>Disciplines</li><li>Internal vs External responsibility</li></ul>
+</div>
+<div class="card">
+<h4>Deliverable Matrix</h4>
+<ul><li>Deliverable ID</li><li>Document / Model Type</li><li>Owner</li><li>Reviewer / Approver</li><li>Planned Date</li><li>Stage / Milestone</li><li>Required Revision / Status</li><li>Dependency</li></ul>
+</div>
+</div>
+<h3>BIM Planning (only if BIM is selected)</h3>
+<div class="pills">
+<span class="pill">Information Requirements</span><span class="pill">BEP</span><span class="pill">MIDP / TIDP</span><span class="pill">Model Breakdown</span>
+<span class="pill">LOD / LOI</span><span class="pill">Coordinates</span><span class="pill">Clash Matrix</span><span class="pill">CDE</span>
+<span class="pill">Naming Convention</span><span class="pill">Model QA/QC</span><span class="pill">COBie / Assets</span>
+</div>
+</section>
+
+<section class="section" id="tasks">
+<h2>Task Management – Required for Every Module</h2>
+<table>
+<tr><th>Field</th><th>Required Behaviour</th></tr>
+<tr><td>Task ID / Title</td><td>Unique ID; linked to project, discipline, document/model, RFI or change.</td></tr>
+<tr><td>Owner / Assignee</td><td>One accountable owner plus optional collaborators.</td></tr>
+<tr><td>Dates</td><td>Planned start, due date, actual finish, ageing.</td></tr>
+<tr><td>Priority</td><td>Critical / High / Medium / Low.</td></tr>
+<tr><td>Status</td><td>Not Started → In Progress → Blocked → Internal Review → Complete / Cancelled.</td></tr>
+<tr><td>Dependency</td><td>Predecessor task/document/RFI/approval.</td></tr>
+<tr><td>Evidence</td><td>Attachments, comments, screenshots, model links, markups.</td></tr>
+<tr><td>Escalation</td><td>Reminder before due date; escalation when overdue; configurable SLA.</td></tr>
+<tr><td>History</td><td>Every reassignment, due-date change and status change recorded.</td></tr>
+</table>
+</section>
+
+<section class="section" id="execution">
+<h2>4. Design & BIM Execution</h2>
+<div class="grid2">
+<div class="card">
+<h4>Design Workflow</h4>
+<ol><li>Inputs / survey / client data</li><li>Design criteria / basis report</li><li>Calculations</li><li>Equipment selection / schedules</li><li>Drawings / specifications</li><li>Internal QA/QC</li><li>Client / authority review</li><li>GFC / IFC issue</li></ol>
+</div>
+<div class="card">
+<h4>BIM Workflow</h4>
+<ol><li>Model setup / coordinates</li><li>Discipline model production</li><li>Federation</li><li>Model QA/QC</li><li>Clash detection</li><li>Issue assignment / resolution</li><li>Coordination sign-off</li><li>Shop / construction model</li><li>As-built model / asset data</li></ol>
+</div>
+</div>
+</section>
+
+<section class="section" id="documents">
+<h2>Document Control – Master Module</h2>
+<p class="muted">Every drawing, model, calculation, report, specification, submittal, checklist or handover file should use the same controlled metadata engine.</p>
+<table>
+<tr><th>Metadata</th><th>Examples / Behaviour</th></tr>
+<tr><td>Document ID</td><td>Auto-generated or configurable naming convention.</td></tr>
+<tr><td>Title / Type</td><td>Drawing, Model, Calculation, Report, Specification, Datasheet, Method Statement, Checklist, Certificate, etc.</td></tr>
+<tr><td>Discipline / Package</td><td>Architecture, Structure, HVAC, Electrical, Process, Medical Gas, Solar PV, Specialty Gas, etc.</td></tr>
+<tr><td>Location</td><td>Building, Zone, Level, Room, System, Equipment.</td></tr>
+<tr><td>Stage / Purpose</td><td>Design, Tender, Coordination, Construction, Approval, As-Built, Handover.</td></tr>
+<tr><td>Version</td><td>Internal working iteration. Does not automatically mean formal issue.</td></tr>
+<tr><td>Revision</td><td>Formal controlled revision issued for a defined purpose.</td></tr>
+<tr><td>Status / Suitability</td><td>Configurable project status and intended use.</td></tr>
+<tr><td>People</td><td>Author, Checker, Reviewer, Approver, Issuer.</td></tr>
+<tr><td>Dates</td><td>Created, reviewed, approved, issued, superseded.</td></tr>
+<tr><td>Links</td><td>Task, RFI, NCR, Change, Transmittal, Model, Previous Revision.</td></tr>
+</table>
+
+<h3>Recommended CDE State Flow</h3>
+<div class="flow"><span>Work in Progress</span><span>Internal Review</span><span>Shared / Coordination</span><span>Client / Authority Review</span><span>Published / Issued</span><span>Superseded</span><span>Archived</span></div>
+<div class="legend">Status naming should be configurable per client / country / contract rather than hard-coded.</div>
+</section>
+
+<section class="section" id="revision">
+<h2>Revision Control – Must Be Very Strong</h2>
+<div class="grid2">
+<div class="card">
+<h4>Each Formal Revision Must Store</h4>
+<ul>
+<li>Revision ID</li><li>Previous Revision</li><li>Revision Date</li><li>Revision Description / Change Summary</li>
+<li>Reason for Issue</li><li>Status / Suitability</li><li>Prepared / Checked / Approved by</li>
+<li>Linked RFI / Change / NCR / Task</li><li>File checksum / integrity reference where required</li>
+<li>Issued through Transmittal</li>
+</ul>
+</div>
+<div class="card">
+<h4>User Functions</h4>
+<ul>
+<li>Compare two revisions</li><li>See markups / comments</li><li>See full revision tree</li><li>Identify current approved revision</li>
+<li>Prevent accidental use of superseded files</li><li>Download issue history</li><li>Restore prior working version with permission</li>
+<li>Generate revision register automatically</li>
+</ul>
+</div>
+</div>
+
+<div class="callout green"><strong>Rule:</strong> Never overwrite the previous formal revision. A new revision is a new controlled record linked to the old revision.</div>
+</section>
+
+<section class="section" id="review">
+<h2>5. Review, Approval, Signature & Transmittal</h2>
+<h3>Review Workflow</h3>
+<div class="flow"><span>Submit</span><span>Check</span><span>Review</span><span>Comment / Markup</span><span>Revise</span><span>Approve</span><span>Authorize / Issue</span><span>Acknowledge Receipt</span></div>
+
+<table>
+<tr><th>Module</th><th>What It Must Do</th></tr>
+<tr><td>Review Package</td><td>Bundle related drawings/models/documents under one submission.</td></tr>
+<tr><td>Comments / Markups</td><td>Comment location, screenshot/markup, owner, due date, status, response and closure evidence.</td></tr>
+<tr><td>Approval Matrix</td><td>Sequential or parallel reviewers, mandatory QA/QC, client approval, authority approval.</td></tr>
+<tr><td>Electronic Sign-Off</td><td>Signer identity, meaning of signature, timestamp, record linkage and audit history where applicable.</td></tr>
+<tr><td>Transmittal</td><td>Transmittal number, recipient, issue purpose, document/revision list, sent date, acknowledgement and response due date.</td></tr>
+<tr><td>Distribution Matrix</td><td>Who automatically receives each document type/status.</td></tr>
+</table>
+</section>
+
+<section class="section">
+<h2>RFIs, Technical Queries, Issues & Decisions</h2>
+<div class="grid3">
+<div class="card"><h4>RFI / TQ</h4><ul><li>Question</li><li>Location / discipline</li><li>Linked drawing/model</li><li>Priority</li><li>Due date</li><li>Response</li><li>Impact</li><li>Closure</li></ul></div>
+<div class="card"><h4>Issue / Clash</h4><ul><li>Issue ID</li><li>Model viewpoint / screenshot</li><li>Assigned party</li><li>Root cause</li><li>Target date</li><li>Resolution</li><li>Verification</li></ul></div>
+<div class="card"><h4>Decision Log</h4><ul><li>Decision</li><li>Meeting / source</li><li>Decision owner</li><li>Date</li><li>Affected documents</li><li>Required actions</li></ul></div>
+</div>
+</section>
+
+<section class="section" id="changes">
+<h2>Change Control</h2>
+<div class="flow"><span>Change Request</span><span>Technical Review</span><span>Impact Assessment</span><span>Client Approval</span><span>Implement</span><span>Revise Documents / Models</span><span>Verify</span><span>Close</span></div>
+<table>
+<tr><th>Impact Area</th><th>Track</th></tr>
+<tr><td>Scope</td><td>What changed and why.</td></tr>
+<tr><td>Cost</td><td>Variation / commercial impact where applicable.</td></tr>
+<tr><td>Schedule</td><td>Milestones / due dates affected.</td></tr>
+<tr><td>Design</td><td>Calculations, drawings, specifications affected.</td></tr>
+<tr><td>BIM</td><td>Models, clashes, sheets, quantities, COBie affected.</td></tr>
+<tr><td>Compliance</td><td>Standards / authority / validation impact.</td></tr>
+<tr><td>Handover</td><td>As-built / asset data update required.</td></tr>
+</table>
+</section>
+
+<section class="section" id="construction">
+<h2>6. Procurement, Construction & PMC Modules</h2>
+<p class="muted">Enable only when the service scope includes construction support / PMC / site coordination.</p>
+<div class="grid3">
+<div class="card"><h4>Submittals</h4><ul><li>Material Submittal</li><li>Technical Datasheet</li><li>Shop Drawing</li><li>Method Statement</li><li>Vendor Document</li><li>Sample / Mock-up</li></ul></div>
+<div class="card"><h4>Inspections</h4><ul><li>ITP</li><li>MIR</li><li>WIR / Inspection Request</li><li>Inspection Checklist</li><li>Site Photos</li><li>Test Certificates</li></ul></div>
+<div class="card"><h4>Quality / Site</h4><ul><li>NCR</li><li>Corrective Action</li><li>Site Instruction</li><li>Punch / Snag</li><li>Observation</li><li>Closure Evidence</li></ul></div>
+</div>
+</section>
+
+<section class="section" id="industry">
+<h2>Industry-Specific Add-On Modules</h2>
+<table>
+<tr><th>Industry</th><th>Auto-Enable Specialized Controls</th></tr>
+<tr><td>Pharma</td><td>URS / DQ / IQ / OQ / PQ, validation, qualification, controlled records, audit trail, electronic signatures, deviations/CAPA as required, cleanroom evidence.</td></tr>
+<tr><td>Hospital</td><td>Medical gas, OT/ICU, infection-control requirements, room/department data, healthcare equipment, authority approvals, testing and commissioning.</td></tr>
+<tr><td>Solar / Renewable</td><td>PV layout, stringing, inverter/transformer packages, SCADA, BESS, grid interface, yield/performance documentation, commissioning tests, asset register.</td></tr>
+<tr><td>Semiconductor</td><td>Cleanroom, tool hook-up, specialty gases, process utilities, exhaust, high-purity piping, equipment move-in, sub-fab, facility monitoring and commissioning.</td></tr>
+<tr><td>Common</td><td>Architecture / Structure / MEP, authority approvals, shop drawings, site coordination, testing, as-built and O&M handover.</td></tr>
+</table>
+</section>
+
+<section class="section" id="commissioning">
+<h2>7. Testing, Commissioning & Readiness</h2>
+<div class="grid2">
+<div class="card">
+<h4>Commissioning Register</h4>
+<ul><li>System / Equipment ID</li><li>Pre-commissioning checklist</li><li>Test procedure</li><li>Test date</li><li>Witness / approver</li><li>Result / deficiency</li><li>Retest</li><li>Final acceptance</li></ul>
+</div>
+<div class="card">
+<h4>Readiness Gates</h4>
+<ul><li>Mechanical completion</li><li>Electrical energization</li><li>Controls / BMS / SCADA readiness</li><li>TAB / balancing where applicable</li><li>Functional testing</li><li>Training readiness</li><li>Documentation completeness</li></ul>
+</div>
+</div>
+</section>
+
+<section class="section" id="handover">
+<h2>8. Final Handover</h2>
+<table>
+<tr><th>Handover Package</th><th>Required Records</th></tr>
+<tr><td>Final Drawings</td><td>Approved as-built drawings with final revision status.</td></tr>
+<tr><td>BIM / Digital Model</td><td>As-built model, federated model, agreed LOD/LOI, model QA report.</td></tr>
+<tr><td>Asset Data</td><td>Asset register, COBie / client format, tags, serial numbers, locations, maintainable assets.</td></tr>
+<tr><td>O&M</td><td>Operation manuals, maintenance instructions, vendor manuals.</td></tr>
+<tr><td>Testing</td><td>Commissioning records, certificates, test reports, balancing / performance records.</td></tr>
+<tr><td>Warranties</td><td>Warranty documents, validity dates, supplier information.</td></tr>
+<tr><td>Training</td><td>Training schedule, attendance, materials, completion evidence.</td></tr>
+<tr><td>Open Items</td><td>Final punch list and approved exceptions.</td></tr>
+<tr><td>Final Dossier</td><td>One controlled index with every final record and revision.</td></tr>
+</table>
+
+<h3>Handover Completion Gate</h3>
+<div class="flow"><span>100% Required Documents</span><span>Approved Final Revisions</span><span>Closed Critical RFIs</span><span>Closed NCRs</span><span>Commissioning Complete</span><span>Assets Complete</span><span>Client Acceptance</span></div>
+</section>
+
+<section class="section" id="archive">
+<h2>9. Archive / Operations / FM</h2>
+<ul>
+<li>Freeze accepted project record.</li>
+<li>Move superseded / historic information to controlled archive.</li>
+<li>Maintain searchable project audit trail.</li>
+<li>Transfer accepted asset information to FM / operations.</li>
+<li>Track post-handover defects / warranty issues if required.</li>
+<li>Allow controlled future revisions for renovation / operations projects.</li>
+</ul>
+</section>
+
+<section class="section" id="audit">
+<h2>Audit Trail, Security & Compliance Controls</h2>
+<div class="grid2">
+<div class="card"><h4>Audit Trail</h4><ul><li>User</li><li>Date/time</li><li>Action</li><li>Old value</li><li>New value</li><li>Reason for change where required</li><li>Linked record</li><li>Exportable audit report</li></ul></div>
+<div class="card"><h4>Security</h4><ul><li>Role-based access</li><li>Project-level access</li><li>Document-level restrictions</li><li>Signature permissions</li><li>Admin log</li><li>Login/security log</li><li>Backup / archive controls</li></ul></div>
+</div>
+<div class="callout">For pharma/computerised-system use cases, the platform should be designed around lifecycle controls for data, identity/access, audit trails, electronic signatures, security, backup and archiving rather than simply adding a “compliant” label.</div>
+</section>
+
+<section class="section">
+<h2>Dashboard – What Management Should See</h2>
+<div class="grid4">
+<div class="card"><div class="kpi">24</div><div class="kpi-label">Overdue Tasks</div></div>
+<div class="card"><div class="kpi">11</div><div class="kpi-label">Documents in Review</div></div>
+<div class="card"><div class="kpi">6</div><div class="kpi-label">Open RFIs</div></div>
+<div class="card"><div class="kpi">82%</div><div class="kpi-label">Handover Readiness</div></div>
+</div>
+<h3>Recommended KPIs</h3>
+<div class="pills">
+<span class="pill">Task Completion</span><span class="pill">Overdue by Owner</span><span class="pill">Review Ageing</span><span class="pill">RFI Ageing</span>
+<span class="pill">Revision Health</span><span class="pill">Open Clashes</span><span class="pill">NCR Ageing</span><span class="pill">Submittal Status</span>
+<span class="pill">Commissioning Progress</span><span class="pill">Handover Completeness</span><span class="pill">Upcoming Milestones</span>
+</div>
+</section>
+
+<section class="section">
+<h2>Final Developer Architecture</h2>
+<div class="callout green">
+<strong>One Data Model:</strong><br>
+Industry + Facility + Service + Discipline + Stage + Country determine which templates are loaded.<br><br>
+<strong>Common Control Engine:</strong><br>
+Tasks + Documents + Versions + Revisions + Reviews + Approvals + Transmittals + RFIs + Changes + Audit Trail are common across all industries.<br><br>
+<strong>Industry Add-ons:</strong><br>
+Pharma validation, hospital medical systems, solar/renewable energy packages and semiconductor process utilities are modular additions—not separate applications.
+</div>
+</section>
+
+<section class="section">
+<h2>Implementation Priority</h2>
+<table>
+<tr><th>Priority</th><th>Build / Fix</th></tr>
+<tr><td><span class="status red">P0</span></td><td>Fix project wizard state persistence and country/market reset bug.</td></tr>
+<tr><td><span class="status red">P0</span></td><td>Unified industry/facility/service project setup.</td></tr>
+<tr><td><span class="status red">P0</span></td><td>Master document register + version/revision + review/approval + audit trail.</td></tr>
+<tr><td><span class="status red">P0</span></td><td>Task engine + due dates + dependencies + notifications.</td></tr>
+<tr><td><span class="status amber">P1</span></td><td>RFI / issues / transmittals / change control / decision log.</td></tr>
+<tr><td><span class="status amber">P1</span></td><td>BIM registers, clashes, BEP, model QA, COBie/assets.</td></tr>
+<tr><td><span class="status amber">P1</span></td><td>Construction QA/QC: submittals, MIR/WIR, NCR, inspections, punch.</td></tr>
+<tr><td><span class="status blue">P2</span></td><td>Commissioning + handover dossier + O&M + asset handover.</td></tr>
+<tr><td><span class="status blue">P2</span></td><td>Industry-specific knowledge engine and AI project assistant.</td></tr>
+</table>
+</section>
+
+<section class="section">
+<h2>Standards / Design References for the Product Team</h2>
+<ul>
+<li>ISO 19650 information-management principles: recording, versioning, organizing and lifecycle information management.</li>
+<li>CDE guidance: information container ID, status, revision, classification, transition records and controlled access.</li>
+<li>Pharma computerised systems: lifecycle controls around validation, data, identity/access, audit trails, electronic signatures, security, backup and archiving.</li>
+<li>Cleanroom projects: cleanroom classification and equipment suitability requirements should be configurable by project and jurisdiction.</li>
+</ul>
+<div class="legend">Do not hard-code standards as universally applicable. Qualigrafo should suggest them based on country, industry, facility and scope, then allow the project administrator to confirm or edit applicability.</div>
+</section>
+
+</div>
+</main>
+</div>
+
+<script>
+document.querySelectorAll('.side-link').forEach(a=>{
+  a.addEventListener('click',()=>{
+    document.querySelectorAll('.side-link').forEach(x=>x.classList.remove('active'));
+    a.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

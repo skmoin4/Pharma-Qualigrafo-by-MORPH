@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qualigrafo – Developer Upgrade Specification</title>
+<style>
+:root{
+ --bg:#f5f7fb;--card:#fff;--nav:#102a43;--blue:#2563eb;--line:#dce5ef;
+ --text:#1f2937;--muted:#667085;--green:#15803d;--amber:#b45309;--red:#b42318;
+ --bluebg:#eef5ff;--greenbg:#f0fdf4;--amberbg:#fff7ed;--redbg:#fef3f2;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+.wrap{max-width:1220px;margin:34px auto;padding:0 24px 60px}
+.hero{background:linear-gradient(135deg,#102a43,#174a7c);color:#fff;padding:34px;border-radius:18px;box-shadow:0 12px 28px rgba(15,23,42,.12)}
+.hero h1{margin:0 0 8px;font-size:31px}.hero p{margin:0;color:#dce9f6}
+.tag{display:inline-block;margin-top:14px;background:#dbeafe;color:#174a7c;padding:7px 11px;border-radius:999px;font-size:12px;font-weight:800}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;margin-top:20px;box-shadow:0 6px 18px rgba(15,23,42,.045)}
+h2{margin:0 0 8px;color:#102a43;font-size:22px}h3{color:#174a7c;margin:22px 0 8px}
+p.small,.small{font-size:13px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}
+th{background:#edf4ff;color:#102a43}
+.keep{color:var(--green);font-weight:800}.modify{color:var(--amber);font-weight:800}.new{color:var(--blue);font-weight:800}.fix{color:var(--red);font-weight:800}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800}
+.b-keep{background:var(--greenbg);color:var(--green)}.b-mod{background:var(--amberbg);color:var(--amber)}.b-new{background:var(--bluebg);color:#174a7c}.b-fix{background:var(--redbg);color:var(--red)}
+.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.flow span{background:#eef4fb;border:1px solid #d7e3f1;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:700;color:#174a7c}
+.callout{padding:14px 16px;border-radius:10px;background:#eef5ff;border-left:4px solid var(--blue);font-size:13px;margin-top:14px}
+.warn{background:#fff7ed;border-left-color:#f59e0b}.ok{background:#f0fdf4;border-left-color:#22c55e}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.code{background:#0b1220;color:#d7f7e3;border-radius:10px;padding:14px;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap}
+ul,ol{padding-left:20px}li{margin:5px 0}
+@media(max-width:850px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<section class="hero">
+  <h1>Qualigrafo – Developer Upgrade Specification</h1>
+  <p>Upgrade the existing Pharma application. Do not rebuild the product from scratch.</p>
+  <span class="tag">OLD UI + NEW MULTI-INDUSTRY CAPABILITIES</span>
+</section>
+
+<section class="card">
+<h2>Developer Rule #1</h2>
+<div class="callout ok">
+<strong>Keep the existing Qualigrafo architecture, login, sidebar, Portfolio, My Work, Regulatory Watch, Requirement Library, Users & Access, current project wizard and existing Pharma data model.</strong><br><br>
+The new requirement is an <strong>extension of the existing product</strong>, not a replacement UI.
+</div>
+</section>
+
+<section class="card">
+<h2>1. Existing Project Creation Wizard – Upgrade Mapping</h2>
+<p class="small">Current wizard observed: <b>Basics → Scope & Markets → Registers → Team → Review</b>.</p>
+
+<table>
+<tr><th>Current Screen</th><th>Action</th><th>Developer Update</th></tr>
+
+<tr>
+<td><strong>Step 1 – Basics</strong></td>
+<td><span class="badge b-mod">MODIFY</span></td>
+<td>
+Keep Project Name, Project Code, Client, Site/Location, Plant Country.<br>
+Rename <b>Plant Country</b> to <b>Project Country</b> so it works for every industry.<br>
+Keep country-linked authority logic, but make it industry-aware.
+</td>
+</tr>
+
+<tr>
+<td><strong>Step 2 – Scope & Markets</strong></td>
+<td><span class="badge b-mod">EXPAND</span></td>
+<td>
+This is where most new fields should be added. Do not create a separate industry setup page.<br><br>
+Add in this order:<br>
+1. <b>Industry Group</b><br>
+2. <b>Facility / Project Sub-Type</b><br>
+3. Optional Secondary Facility<br>
+4. <b>Service Type: Design Only / BIM Only / Design + BIM</b><br>
+5. Existing Project Scope<br>
+6. Project Stage<br>
+7. Disciplines<br>
+8. BIM Requirement only if BIM is selected<br>
+9. Target Markets / Regulatory Scope
+</td>
+</tr>
+
+<tr>
+<td><strong>Step 3 – Registers</strong></td>
+<td><span class="badge b-mod">MAKE DYNAMIC</span></td>
+<td>
+Keep the current Registers concept. Generate register templates based on Industry + Service + Discipline + Stage.<br>
+Pharma keeps existing regulatory registers. Hospital/Solar/Semiconductor/Common get their own relevant registers.
+</td>
+</tr>
+
+<tr>
+<td><strong>Step 4 – Team</strong></td>
+<td><span class="badge b-mod">EXPAND</span></td>
+<td>
+Keep current team assignment. Add Project Manager, Discipline Lead, Author, Checker, Reviewer, Approver, QA/QC, Client, Contractor and Auditor roles. Add RACI / approval responsibility.
+</td>
+</tr>
+
+<tr>
+<td><strong>Step 5 – Review</strong></td>
+<td><span class="badge b-mod">EXPAND</span></td>
+<td>
+Keep the review page. Show complete project classification before creation:<br>
+Industry → Facility → Service → Scope → Stage → Disciplines → BIM Level → Markets/Authorities → Registers → Team.
+</td>
+</tr>
+</table>
+</section>
+
+<section class="card">
+<h2>2. New Fields to Add Inside Existing Step 2</h2>
+
+<div class="flow">
+<span>Industry Group</span><span>Facility Type</span><span>Service Type</span><span>Project Scope</span><span>Stage</span><span>Disciplines</span><span>BIM Requirement</span><span>Markets</span>
+</div>
+
+<h3>A. Industry Group</h3>
+<ul>
+<li>Energy & High-Tech</li>
+<li>Hospital / Healthcare</li>
+<li>Pharma Industry</li>
+<li>Common / Other Projects</li>
+</ul>
+
+<h3>B. Facility / Project Sub-Type</h3>
+<p class="small">Rename current Pharma <b>Facility Type</b> field to <b>Facility / Project Sub-Type</b>. Reuse current Pharma options when Pharma is selected.</p>
+
+<table>
+<tr><th>Industry Group</th><th>Facility Types</th></tr>
+<tr><td>Energy & High-Tech</td><td>Solar PV, Rooftop Solar, Floating Solar, Wind, BESS, Hybrid Renewable, Green Hydrogen, Semiconductor Fab, IDM, ATMP/OSAT, Advanced Packaging, R&D Fab, Sub-Fab, Central Utility Plant, Other/Custom</td></tr>
+<tr><td>Hospital / Healthcare</td><td>General Hospital, Multi-Speciality, Super-Speciality, Teaching/Medical College, Oncology, Cardiac, Maternity, Paediatric, Diagnostic, Day Care, Dialysis, Rehabilitation, Other/Custom</td></tr>
+<tr><td>Pharma</td><td>API, Non-Sterile, Sterile, Biologics, Vaccine, Beta-Lactam, HPAPI/Oncology, R&D, QC Lab, Cleanroom, Warehouse, Cold Chain, Utilities, Other/Custom</td></tr>
+<tr><td>Common</td><td>Residential, Commercial, School, University, Hotel, Data Center, Industrial, Warehouse, Airport, Infrastructure, Stadium, Mixed Use, Other/Custom</td></tr>
+</table>
+
+<div class="callout">Always keep <b>Other / Custom Facility</b>. No client project should be blocked because the facility name is not available in the dropdown.</div>
+
+<h3>C. Service Type</h3>
+<ul>
+<li><strong>Design Only</strong></li>
+<li><strong>BIM Only</strong></li>
+<li><strong>Design + BIM</strong></li>
+</ul>
+
+<div class="callout warn">
+If Design Only → hide BIM fields.<br>
+If BIM Only → hide design-calculation workflow by default.<br>
+If Design + BIM → enable both.
+</div>
+</section>
+
+<section class="card">
+<h2>3. Fix Current Wizard Bug Before Adding Features</h2>
+<table>
+<tr><th>Priority</th><th>Existing Problem</th><th>Required Fix</th></tr>
+<tr><td><span class="badge b-fix">P0</span></td><td>Country selection resets</td><td>Persist project draft state across all wizard steps.</td></tr>
+<tr><td><span class="badge b-fix">P0</span></td><td>Next button loops back</td><td>Fix step routing and validation handling.</td></tr>
+<tr><td><span class="badge b-fix">P0</span></td><td>Step 2 data not retained</td><td>Use one persistent <code>projectDraft</code> state/object for wizard data.</td></tr>
+<tr><td><span class="badge b-fix">P0</span></td><td>Country/market dependency unstable</td><td>Do not overwrite user state when market list recalculates.</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2>4. Existing Sidebar / Modules – What to Keep and What to Add</h2>
+
+<table>
+<tr><th>Current Module</th><th>Action</th><th>Update</th></tr>
+<tr><td>Portfolio</td><td><span class="badge b-keep">KEEP</span></td><td>Add filters for Industry, Facility, Service Type, Stage, Country.</td></tr>
+<tr><td>My Work</td><td><span class="badge b-mod">EXPAND</span></td><td>Use as central task inbox. Add overdue, blocked, review pending, approval pending.</td></tr>
+<tr><td>Regulatory Watch</td><td><span class="badge b-mod">EXPAND</span></td><td>Pharma stays regulatory-focused. For other industries show standards/authority updates relevant to that project.</td></tr>
+<tr><td>Requirement Library</td><td><span class="badge b-mod">EXPAND</span></td><td>Add industry templates and requirement packs for Hospital, Solar/Renewable, Semiconductor and Common projects.</td></tr>
+<tr><td>Users & Access</td><td><span class="badge b-mod">EXPAND</span></td><td>Add project roles, RACI, reviewer/approver permissions.</td></tr>
+<tr><td>Documents</td><td><span class="badge b-new">ADD / STRENGTHEN</span></td><td>Controlled document register with version, revision, review, approval and transmittal.</td></tr>
+<tr><td>RFIs & Issues</td><td><span class="badge b-new">ADD</span></td><td>RFI, TQ, issue, clash, decision and closure tracking.</td></tr>
+<tr><td>Changes</td><td><span class="badge b-new">ADD</span></td><td>Change request + impact assessment + implementation + closure.</td></tr>
+<tr><td>Commissioning & Handover</td><td><span class="badge b-new">ADD</span></td><td>Testing, punch, as-built, O&M, assets, warranties, final dossier.</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2>5. Developer Data Model – Extend Existing Project Object</h2>
+<p class="small">Do not create separate project tables for Pharma/Hospital/Solar. Add common fields and industry-specific configuration.</p>
+
+<div class="code">project {
+  id
+  project_name
+  project_code
+  client
+  location
+  country
+
+  // NEW
+  industry_group
+  facility_type
+  secondary_facility_type
+  custom_facility_type
+  service_type            // DESIGN | BIM | DESIGN_BIM
+  project_scope
+  project_stage
+  disciplines[]
+  bim_requirement {
+    lod
+    coordination
+    clash_detection
+    cobie
+    as_built
+    four_d
+    five_d
+  }
+
+  target_markets[]
+  applicable_standards[]
+  generated_register_templates[]
+  generated_workflow_templates[]
+}</div>
+</section>
+
+<section class="card">
+<h2>6. Register Generation Logic – Extend Existing Step 3</h2>
+
+<div class="code">onProjectSetupComplete(projectDraft):
+
+  templateKey =
+    industry_group
+    + facility_type
+    + service_type
+    + disciplines
+    + project_stage
+    + country
+
+  loadCommonRegisters()
+
+  if service_type includes DESIGN:
+      loadDesignRegisters()
+
+  if service_type includes BIM:
+      loadBIMRegisters()
+
+  if industry_group == PHARMA:
+      loadPharmaRegisters()
+
+  if industry_group == HOSPITAL:
+      loadHospitalRegisters()
+
+  if industry_group == ENERGY_HIGH_TECH:
+      if facility_type is SEMICONDUCTOR:
+          loadSemiconductorRegisters()
+      else:
+          loadRenewableRegisters()
+
+  if industry_group == COMMON:
+      loadCommonBuildingRegisters()</div>
+</section>
+
+<section class="card">
+<h2>7. Common Registers to Add to Every Project</h2>
+<div class="grid2">
+<div>
+<ul>
+<li>Master Document Register</li>
+<li>Drawing Register</li>
+<li>Model Register</li>
+<li>Task Register</li>
+<li>Deliverable Register</li>
+<li>RFI / TQ Register</li>
+<li>Issue / Clash Register</li>
+<li>Decision Log</li>
+</ul>
+</div>
+<div>
+<ul>
+<li>Change Register</li>
+<li>Approval Register</li>
+<li>Transmittal Register</li>
+<li>Revision Register</li>
+<li>QA/QC Register</li>
+<li>Submittal Register</li>
+<li>Commissioning Register</li>
+<li>Handover Register</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section class="card">
+<h2>8. Revision Control – Add to Existing Document System</h2>
+
+<table>
+<tr><th>Feature</th><th>Developer Requirement</th></tr>
+<tr><td>Working Version</td><td>Internal save/iteration. Can increment without becoming a formal issued revision.</td></tr>
+<tr><td>Formal Revision</td><td>New controlled record with Revision ID, description, status, date and approver.</td></tr>
+<tr><td>Previous Revision Link</td><td>Every revision must point to the previous formal revision.</td></tr>
+<tr><td>Superseded Control</td><td>Old revisions remain searchable but clearly marked as superseded.</td></tr>
+<tr><td>Revision Compare</td><td>Show revision metadata and changed files/notes side-by-side.</td></tr>
+<tr><td>Issue Purpose</td><td>For Review / For Approval / For Construction / As-Built / Handover / configurable.</td></tr>
+<tr><td>Linked Records</td><td>Link revision to RFI, Change, NCR, Task, Transmittal or Approval.</td></tr>
+<tr><td>Audit Trail</td><td>Who created, reviewed, approved, issued, superseded; timestamp every event.</td></tr>
+</table>
+
+<div class="callout ok"><strong>Do not overwrite an approved formal revision.</strong> Create a new revision and preserve the full chain.</div>
+</section>
+
+<section class="card">
+<h2>9. Task Engine – Use Existing “My Work” as the Main User Task Screen</h2>
+<table>
+<tr><th>Task Field</th><th>Required</th></tr>
+<tr><td>Task ID / Title</td><td>Yes</td></tr>
+<tr><td>Project / Discipline / Package</td><td>Yes</td></tr>
+<tr><td>Owner / Collaborators</td><td>Yes</td></tr>
+<tr><td>Priority</td><td>Critical / High / Medium / Low</td></tr>
+<tr><td>Status</td><td>Not Started / In Progress / Blocked / Review / Complete</td></tr>
+<tr><td>Start / Due / Actual Finish</td><td>Yes</td></tr>
+<tr><td>Dependency</td><td>Task / RFI / Document / Approval / Change</td></tr>
+<tr><td>Evidence</td><td>Attachments, screenshots, comments, document/model link</td></tr>
+<tr><td>Reminder / Escalation</td><td>Before due date and after overdue</td></tr>
+<tr><td>History</td><td>Reassignment, due-date change, status changes</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2>10. Document Workflow – Add to Current Product</h2>
+<div class="flow">
+<span>Draft / WIP</span><span>Internal Review</span><span>Shared / Coordination</span><span>Client Review</span><span>Approved</span><span>Issued</span><span>Superseded</span><span>Archived</span>
+</div>
+
+<p class="small">Statuses must be configurable by client/project. Do not hard-code one standard naming scheme globally.</p>
+
+<h3>Document Metadata</h3>
+<ul>
+<li>Document ID / Number</li>
+<li>Title / Type</li>
+<li>Discipline / Package / Location</li>
+<li>Stage / Purpose</li>
+<li>Working Version</li>
+<li>Formal Revision</li>
+<li>Status / Suitability</li>
+<li>Prepared / Checked / Reviewed / Approved</li>
+<li>Created / Reviewed / Approved / Issued dates</li>
+<li>Linked Task / RFI / Change / Transmittal / Model</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>11. Review / Approval / E-Signature – Extend Existing Pharma Logic</h2>
+<p class="small">The existing Pharma sign-off concept should become a reusable approval engine.</p>
+
+<div class="flow">
+<span>Submit</span><span>Checker</span><span>Reviewer</span><span>QA/QC</span><span>Approver</span><span>Client / Authority</span><span>Issue</span>
+</div>
+
+<ul>
+<li>Parallel or sequential review</li>
+<li>Mandatory / optional reviewer</li>
+<li>Comments / markups / response</li>
+<li>Return for revision</li>
+<li>Approval with meaning/status</li>
+<li>Electronic signature where project requires it</li>
+<li>Signature audit record</li>
+<li>Approval history</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>12. New Functional Modules to Add After Project Creation</h2>
+<table>
+<tr><th>Module</th><th>Scope</th></tr>
+<tr><td>RFI / Technical Query</td><td>Question, owner, drawing/model link, due date, response, impact, closure.</td></tr>
+<tr><td>Issues / Clash</td><td>Issue location, viewpoint, assignee, due date, resolution, verification.</td></tr>
+<tr><td>Transmittals</td><td>Issue package, recipient, purpose, revision list, date, acknowledgement.</td></tr>
+<tr><td>Change Control</td><td>Request, technical review, cost/time/design/BIM impact, approval, implementation, closure.</td></tr>
+<tr><td>QA/QC</td><td>Checklists, internal QC, model QC, document QC, evidence.</td></tr>
+<tr><td>Construction / PMC</td><td>Submittal, material approval, WIR/MIR/ITP, NCR, site instruction, punch.</td></tr>
+<tr><td>Commissioning</td><td>Pre-commissioning, test, witness, result, deficiency, retest, acceptance.</td></tr>
+<tr><td>Handover</td><td>As-built, O&M, assets/COBie, warranties, training, test records, final dossier.</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2>13. Industry-Specific Templates – Keep Existing Pharma Templates</h2>
+<table>
+<tr><th>Industry</th><th>Additional Template Packs</th></tr>
+<tr><td>Pharma</td><td>Keep current Pharma registers + URS/DQ/IQ/OQ/PQ, validation, qualification, controlled evidence, cleanroom, regulatory market logic.</td></tr>
+<tr><td>Hospital</td><td>Medical gas, OT/ICU, healthcare HVAC, room/equipment requirements, infection-control related checks, authority submissions.</td></tr>
+<tr><td>Solar / Renewable</td><td>PV layout, string/inverter, transformer, SCADA, BESS, grid interface, testing, performance, commissioning, assets.</td></tr>
+<tr><td>Semiconductor</td><td>Cleanroom, tool hook-up, specialty gas, process utilities, exhaust, UPW, high-purity piping, sub-fab, commissioning.</td></tr>
+<tr><td>Common</td><td>Architecture/Structure/MEP, approvals, coordination, shop drawings, construction, testing, as-built/O&M.</td></tr>
+</table>
+</section>
+
+<section class="card">
+<h2>14. Final Handover Logic – Add as Last Project Stage</h2>
+<div class="flow">
+<span>As-Built Drawings</span><span>As-Built BIM</span><span>O&M</span><span>Asset Register / COBie</span><span>Test Certificates</span><span>Commissioning</span><span>Warranties</span><span>Training</span><span>Final Dossier</span><span>Client Acceptance</span>
+</div>
+
+<div class="callout">
+The project should not show <b>Handover Complete</b> until all mandatory handover items are approved or formally waived by an authorized user.
+</div>
+</section>
+
+<section class="card">
+<h2>15. Recommended Development Sequence</h2>
+<ol>
+<li><strong>P0:</strong> Fix current project wizard state / Next-step bug.</li>
+<li><strong>P0:</strong> Add Industry + Facility + Service Type into current Step 2.</li>
+<li><strong>P0:</strong> Make Registers dynamic instead of Pharma-only.</li>
+<li><strong>P0:</strong> Upgrade Documents with version/revision/review/approval/audit.</li>
+<li><strong>P0:</strong> Upgrade My Work into full task engine.</li>
+<li><strong>P1:</strong> Add RFI, Issue, Transmittal, Decision, Change modules.</li>
+<li><strong>P1:</strong> Add BIM-specific register and model/coordination controls.</li>
+<li><strong>P1:</strong> Add construction QA/QC modules.</li>
+<li><strong>P2:</strong> Add commissioning and final handover dashboard.</li>
+<li><strong>P2:</strong> Add AI/knowledge engine after the underlying project data model is stable.</li>
+</ol>
+</section>
+
+<section class="card">
+<h2>16. Final Developer Summary</h2>
+<div class="callout ok">
+<strong>Do not delete the old Pharma system.</strong><br><br>
+1. Keep its authentication, existing modules, Pharma registers, market logic, audit/signature concepts.<br>
+2. Convert Pharma-specific project setup fields into reusable multi-industry fields.<br>
+3. Add Hospital, Energy/High-Tech and Common templates beside Pharma.<br>
+4. Use the same task, document, revision, approval, RFI and handover engine for every industry.<br>
+5. Keep industry-specific logic as configurable templates, not separate applications.
+</div>
+</section>
+
+</div>
+</body>
+</html>

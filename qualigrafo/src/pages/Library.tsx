@@ -192,6 +192,8 @@ export default function Library() {
   const pack: LibPack | undefined = packs?.find((p) => p.market === market) ?? packs?.find((p) => p.versions.length) ?? packs?.[0]
   const version = pack?.versions.find((v) => v.id === vid) ?? draftOf(pack) ?? approvedOf(pack) ?? pack?.versions[0]
   const empty = !!packs && packs.every((p) => !p.versions.length)
+  /** Nothing approved anywhere: every project created in this state gets no requirements at all. */
+  const nothingApproved = !!packs && packs.every((p) => !approvedOf(p))
 
   const starter = async () => {
     try { const r = await api<{ created: string[] }>('POST', '/library/starter'); toast(`Starter drafts created: ${r.created.join(', ')}`); await reload() } catch (e) { toast(errorText(e), 'warn') }
@@ -204,6 +206,15 @@ export default function Library() {
     <>
       <PageHead title="Requirement library" sub="The organisation's approved requirement packs per market. Projects take their requirements from the approved version; every new version is reviewed by a second editor and offered to projects as an update." />
       {error && <div className="notice err">{error}</div>}
+      {nothingApproved && (
+        <div className="notice err small" style={{ marginBottom: 12 }} role="alert">
+          <b>No version is approved yet, so no project can receive a single requirement.</b> A project created now
+          starts empty and stays empty until a version is approved here. Approval is a two-person step: under the
+          four-eyes rule the editor who prepares or last edits a version <b>cannot</b> approve it. So a second
+          administrator or Owner / QA account has to exist <b>and be able to sign in</b> — an invited account still
+          holding its temporary password does not count. Check that under <b>Users &amp; access</b>.
+        </div>
+      )}
       {empty && (
         <section className="card" style={{ marginBottom: 14 }}>
           <Empty title="No requirement library yet">

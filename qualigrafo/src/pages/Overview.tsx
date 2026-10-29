@@ -2,7 +2,8 @@ import { markets } from '../data/reference'
 import { coverage, evidenceState, handoverGates, isOverdue, TODAY, useRegisters, useStore } from '../store'
 import { ballInCourt } from '../work'
 import type { Holder } from '../work'
-import { Applic, Badge, DocBadge, MarketChip, PageHead, Stat, StateBadge, fmtDate, go, useUI } from '../components/ui'
+import { Applic, Badge, DocBadge, MarketChip, PageHead, Stat, StateBadge, fmtDate, go, home, useUI } from '../components/ui'
+import { approvedOf, useLibraryPacks } from '../library'
 import { Check, Circle } from 'lucide-react'
 
 export default function Overview() {
@@ -10,6 +11,7 @@ export default function Overview() {
   const s = useStore()
   const { docs, reqs, markets: sel, audit, role, baseline, profile } = s
   const open = useUI((u) => u.open)
+  const { packs } = useLibraryPacks()
   const scoped = reqs.filter((r) => sel.includes(r.market))
   const c = coverage(scoped, docs)
   const overdue = docs.filter(isOverdue)
@@ -17,9 +19,21 @@ export default function Overview() {
   const gates = handoverGates(s)
   // A new project opens empty: say what still has to be set up instead of letting the first RFI or
   // evidence link fail. The card disappears by itself once the four steps are done.
+  // Markets in scope that have no approved library version at all: until one is approved the project cannot
+  // receive a single requirement, and the step above ("apply the update") has nothing to apply. Only relevant
+  // while the project really has no requirements — a project that already holds some was served by an earlier
+  // version, and saying "it cannot get any" would be wrong.
+  const noPack = packs && !scoped.length ? sel.filter((m) => !approvedOf(packs.find((p) => p.market === m))) : []
   const setup = [
     { done: !!s.systems.filter((x) => x.active).length, label: 'Register the systems and equipment', hint: 'RFIs, inspections and non-conformances are raised against a registered system.', page: 'registers' as const },
-    { done: !!scoped.length, label: 'Bring the requirements in', hint: 'Approve the market pack in the requirement library, then apply the update to this project.', page: 'updates' as const },
+    {
+      done: !!scoped.length,
+      label: 'Bring the requirements in',
+      hint: noPack.length
+        ? `No library version is approved for ${noPack.map((m) => markets[m].name).join(', ')}, so this project has no requirements yet. A version has to be approved in the requirement library first — and the four-eyes rule means the person who prepares it cannot be the person who approves it, so two library editors are needed.`
+        : 'Approve the market pack in the requirement library, then apply the update to this project.',
+      page: 'updates' as const,
+    },
     { done: !!scoped.length && !scoped.every((r) => r.applicability === 'Assessment pending'), label: 'Decide applicability', hint: 'Select the requirements in the register and record one decision with its rationale.', page: 'requirements' as const },
     { done: !!docs.length, label: 'Register the expected documents', hint: 'Each deliverable with its responsible company and due date; the contractor then uploads the file.', page: 'documents' as const },
   ]
@@ -34,6 +48,13 @@ export default function Overview() {
       {role !== 'Contractor' && !!todo.length && (
         <section className="card setup" aria-label="Project set-up">
           <h2 style={{ marginTop: 0 }}>Finish the project set-up <span className="muted small" style={{ fontWeight: 400 }}>{setup.length - todo.length} of {setup.length} done</span></h2>
+          {!!noPack.length && (
+            <div className="notice err small" style={{ marginBottom: 10 }}>
+              <b>This project has no requirements, and cannot get any yet.</b> Nothing is approved in the requirement
+              library for {noPack.map((m) => markets[m].name).join(', ')}.
+              <button className="link small" style={{ marginLeft: 6 }} onClick={() => home('library')}>Open the requirement library →</button>
+            </div>
+          )}
           <ul className="setuplist">
             {setup.map((x) => (
               <li key={x.label} className={x.done ? 'done' : ''}>

@@ -1593,6 +1593,32 @@ try {
     loginLimiter.reset()
     tokens.Consultant = (await call('POST', '/auth/login', { email: EMAIL.Consultant, password: PASSWORD })).json.token
   }
+
+  // An administrator sees that every project exists, including the ones they are not a member of, while the portfolio
+  // itself stays membership-driven. Proven with a project whose team is the Owner / QA alone, read by a second
+  // administrator who is not on it (the consultant, promoted for the length of this check and demoted again).
+  // Placed last on purpose: granting and withdrawing administrator rights writes security events and queues e-mails,
+  // which would otherwise disturb the job-health figures asserted in OQ-API-33.
+  {
+    ok((await call('GET', '/admin/projects', undefined, tokens.Consultant)).status === 403, 'a non-administrator cannot list every project')
+    const solo = await call('POST', '/projects', { ...spec, name: 'Administrator Visibility Plant', code: 'ADM-001', companies: [], members: [spec.members[0]] }, QA)
+    ok(solo.status === 201, 'a project can be created with the Owner / QA as its only member')
+    const all = (await call('GET', '/admin/projects', undefined, QA)).json.projects
+    ok(all.every((p: any) => typeof p.members === 'number' && 'myRole' in p && typeof p.status === 'string'), 'each row carries the team size, the role the reader holds and the status')
+    ok(all.find((p: any) => p.code === 'ADM-001').members === 1, 'the team size is reported')
+
+    const cons = (await call('GET', '/admin/users', undefined, QA)).json.users.find((u: any) => u.email === 'consultant@qualigrafo.test')
+    ok((await call('PATCH', `/admin/users/${cons.id}`, { isAdmin: true }, QA)).status === 200, 'an administrator can grant administrator rights')
+    const seen = (await call('GET', '/admin/projects', undefined, tokens.Consultant)).json.projects
+    const theirs = new Set((await call('GET', '/projects', undefined, tokens.Consultant)).json.projects.map((p: any) => p.profile.id))
+    ok(seen.length === all.length, 'a second administrator sees every project on the installation, not only their own')
+    ok(!theirs.has('ADM-001'), 'the project they are not on stays out of their membership-driven portfolio')
+    ok(seen.find((p: any) => p.code === 'ADM-001')?.myRole === null, 'but it is listed for them, with no role of their own')
+    ok(seen.filter((p: any) => theirs.has(p.code)).every((p: any) => p.myRole !== null), 'and the projects they are on carry their role')
+    ok((await call('GET', '/projects/ADM-001', undefined, tokens.Consultant)).status === 403, 'listing a project is not access to it: opening it is still refused')
+    ok((await call('PATCH', `/admin/users/${cons.id}`, { isAdmin: false }, QA)).status === 200, 'administrator rights can be withdrawn again')
+    ok((await call('GET', '/admin/projects', undefined, tokens.Consultant)).status === 403, 'after the withdrawal the list is refused again')
+  }
 } finally {
   server.close()
   await prisma.$disconnect()

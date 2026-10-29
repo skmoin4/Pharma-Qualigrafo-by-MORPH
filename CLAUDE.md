@@ -1,14 +1,19 @@
 # Qualigrafo — working notes for every session
 
-Pharma engineering evidence software (documents, requirements, evidence, sign-off, handover) being turned from a demo
-into production software for pharma engineering teams. **Read this first, then `PRODUCTION_PLAN.md` §5 (progress) and
+Engineering evidence software (documents, requirements, evidence, sign-off, handover) turned from a demo into
+production software — built pharma-first and, since the client's feedback of 2026-10-29, being widened into a
+**multi-industry engineering + BIM + document-control platform** (pharma, hospital / healthcare, energy & high-tech,
+common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 plan) and §5 (progress so far) and
 `server/BACKEND_NOTES.md` (API, design, run instructions).**
 
 ## Where the work stands (resume here)
 
-- ⚠️ **Pending test:** Docker deployment + GitHub Actions have never run (no Docker here, branch not pushed). The user
-  chose to keep this pending. When the branch is pushed, check the CI jobs `checks`, `oq`, `deploy` first and fix
-  Linux / Docker issues before anything else.
+- ⚠️ **CI is red (checked 2026-10-29).** The branch is pushed and CI has run **7 times, all failures**: each stops in
+  `checks` at `npm audit --omit=dev --audit-level=high`, so `oq` and `deploy` are **skipped** — OQ and Docker are
+  *still* unverified in CI. `server/` ships **two high-severity DoS advisories** (body-parser, multer) + one moderate
+  (fast-uri); `npm audit fix` covers all three, the frontend is clean. **Fix this before Phase 5 step 1**, then read
+  the first green run's `oq` / `deploy` jobs and fix the Linux / Docker issues there. Full list of what is still owed
+  from earlier phases: `PRODUCTION_PLAN.md` §7.
 
 - Branch: **`production-backend`**, kept in sync with `main` (user asked to push everything to `main` on
   2026-10-26; fast-forwarded, both branches now point at the same history). Commit only when the user asks; end
@@ -58,8 +63,45 @@ into production software for pharma engineering teams. **Read this first, then `
   screen (`components/Session.tsx`) uses the same language. Keep the test hooks: labels `Email` / `Password` /
   `Temporary password` / `New password` / `Confirm new password` / `Unlock password`, heading `Sign in`, buttons
   `Sign in` / `Unlock` / `Change password`.
-- **Next: Phase 3 / step 6 — P4 object storage** (S3 / Azure Blob, same content-addressed keys, virus scan on upload).
-  Then P5 (SSO / MFA, httpOnly-cookie sessions).
+- **Client feedback (2026-10-29) — this is now the main track.** The client tested the product and sent six HTML
+  specifications + a LinkedIn carousel: `clientnew/` (their files, unedited). Qualigrafo becomes **multi-industry**:
+  four industry groups (Energy & High-Tech / Hospital / Pharma / Common) + facility sub-type + a mandatory
+  **service type (Design only / BIM only / Design + BIM)**, from which registers, workflows and deliverables are
+  generated. Their own rules: upgrade the existing app (no rebuild), **one wizard only** (new fields inside the
+  existing step 2, no separate industry page), **one project table** (industry = templates, not separate apps).
+  Plan, gap analysis, decisions, step order and the testing gate: **`PRODUCTION_PLAN.md` §6 (Phase 5)**.
+  Phase 5 runs **before** the remaining Phase 3 steps; Phase 4 (Revit add-in) merges into Phase 5 step 7.
+- **Phase 5 / step 0 is done (2026-10-29). Next: Phase 5 / step 1 — project classification + the unified wizard**
+  (`PRODUCTION_PLAN.md` §6.5 step 1). Before it, **push the branch**: CI then runs with the dependency fix, `checks`
+  should pass for the first time, and `oq` / `deploy` run for the first time ever (§7). Still open from step 0: the
+  client's QA has to approve the India library version (two people, four-eyes — the drafts are prepared and the Admin
+  account is their author), the in-product warning that files are not durable on the trial instance needs a setting,
+  and the trial instance still has no SMTP.
+- **What step 0 found, for context (do not re-investigate).** The client used the **Admin** account. **The wizard works** — steps 1 → 5 all advance, Next was never
+  disabled, Back kept India, no console errors, no failed requests — and their project `FBG` ("dfv") was created
+  through it on 2026-10-26. **Their three P0 claims are not reproducible.** The audit trail shows the real failure:
+  the project was created **empty** (`Requirements: no approved library pack for IN`; 0 reqs, 0 docs, 0 systems) and
+  they stopped there. Why it was empty is a chain they could not break: no library version is approved for any market
+  (`GET /library` → `versions: []` ×5); `approveVersion()` enforces **four-eyes** (author / last editor cannot
+  approve); and only **one** account can act, because `skmoeen1436@gmail.com` and `tiengineers01@gmail.com` both still
+  have `mustChangePassword: true` and SHOAIB is not even an editor (`isAdmin: false`, Owner / QA nowhere). One editor →
+  four-eyes impossible → no approved library → every project empty. **`UAT_REPORT.md` §3.3 predicted this and its §4
+  hand-over checklist (two usable Owner / QA accounts, SMTP, approve the starter library) was not applied before the
+  client got the URL — this is a hand-over failure, not a code defect.** Code defects found alongside: a reload loses
+  the whole wizard draft (component state only, `plantCountry` defaults to `'SA'`); "New project" is in the Portfolio
+  header, not the sidebar, and `#/new` falls back to Portfolio **silently** (only `#/new-project` works); an empty
+  project is created with no message; stuck invited accounts are invisible to an admin; an admin does not see projects
+  they are not a member of (`BENIN001`). **All of those are fixed** — what step 0 shipped, and what it deliberately
+  left for the client's QA, is listed in `PRODUCTION_PLAN.md` §6.7.
+  Full evidence: `PRODUCTION_PLAN.md` §6.5 step 0.
+- **Live trial instance (client-facing):** `https://qualigrafo.onrender.com` — Render free plan, branch `main`, Neon
+  database, API + built frontend in one service (`STATIC_DIR`), `IDLE_TIMEOUT_MIN: 15` (`render.yaml`). Free instances
+  spin down when idle, so the first request after a pause is slow. State on 2026-10-29: **3 users** (Admin =
+  `smoin4425@gmail.com`; QA Lead = `skmoeen1436@gmail.com` and SHOAIB = `tiengineers01@gmail.com` — both were stuck
+  on `mustChangePassword` and were reset on 2026-10-29, so a second library editor can sign in), **2 projects**
+  (`FBG` "dfv" — still empty; `BENIN001` "BENIN" — QA Lead's, now listed for Admin under "Other projects on this
+  installation"), **unverified starter drafts prepared but nothing approved yet**, no SMTP. The sidebar still reads "Pharma engineering evidence" and has to change
+  with Phase 5. Never load fixtures or wipe anything here — it is the client's data.
 
 - **User's own free hosting (2026-10-26, separate from the Docker customer-install path):** database is
   **Neon** (serverless Postgres) — `neon.ts` / `.neon/` / `.env.local` at the repo root (git-ignored; `.env.local`
@@ -73,9 +115,14 @@ into production software for pharma engineering teams. **Read this first, then `
   filled in on Render's dashboard before first deploy.
 - New requirement or test? Add it to `server/src/validation/catalogue.ts` (URS + risk + OQ case); API blocks start with
   `section('OQ-API-nn')`, a new browser suite gets an OQ-UI case. The API suite fails if the catalogue is inconsistent.
-  After Phase 2: Phase 3 (platform: P1–P7) and Phase 4 (real Revit add-in) — see `PRODUCTION_PLAN.md` §2–3.
+  After Phase 2: Phase 3 (platform: P1–P7) and Phase 5 (multi-industry; absorbs Phase 4's Revit add-in) — see
+  `PRODUCTION_PLAN.md` §2–3 and §6.
 - Every step is delivered the same way: backend + UI + API tests + a browser suite + screenshots checked + both docs
-  updated (`PRODUCTION_PLAN.md` §5 entry with "Next:", `BACKEND_NOTES.md` progress row + API table) + offer a commit.
+  updated (`PRODUCTION_PLAN.md` §6.7 entry with "Next:" for Phase 5 steps, §5 for older phases; `BACKEND_NOTES.md`
+  progress row + API table) + offer a commit. Phase 5 also has a fixed testing gate — **`PRODUCTION_PLAN.md` §6.6**:
+  full OQ stays green (never fewer checks), the client's own test case stays in the suite, migrations are rename-only
+  and verified against old-shape fixtures, and every pharma suite must still pass **unedited** after a feature is
+  generalised.
 
 - **Readiness rehearsal (2026-10-25):** the whole customer journey was run on an empty database (install →
   `create-admin` → users → project wizard → library approval → requirements → document → upload → two-stage
@@ -120,16 +167,19 @@ into production software for pharma engineering teams. **Read this first, then `
 
 ```bash
 # API suite (in-process, needs a fresh DB each run)
-cd server && npm run fixtures:load && npm test            # currently 598 checks, all passing
+cd server && npm run fixtures:load && npm test            # currently 610 checks, all passing
 
 # Browser suites: each suite needs freshly loaded fixtures; use separate ports so nothing clashes
 cd qualigrafo && npm run build
 PORT=4100 npx tsx src/index.ts                             # from server/, background
 API_URL=http://localhost:4100 npx vite preview --port 8082 --strictPort   # from qualigrafo/, background
-for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
+for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
 ```
 
-- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) = 587 checks, all passing.
+- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 41 (e2e18) = 628 checks, all passing. Full OQ: 1238 of 1238 in 52 test cases.
+- **Each suite needs its own freshly loaded fixtures, and nothing else may touch the test database while a suite or
+  the API suite runs** — a second API server on the same database writes monitoring rows and job heartbeats and makes
+  the OQ-API-33 figures fail at random. Stop your debug servers before running `npm test` or `validation:oq`.
 - Whole OQ in one command (API + all browser suites, own servers on 4100 / 8082, ~8 min): `cd server && npm run validation:oq -- --by "Name"`,
   then `npm run validation:pack -- --by "Name"` -> `server/validation/out/` (git-ignored).
 - E-mail: without `SMTP_HOST` mail is recorded as "Not sent"; the API test runs its own fake SMTP server. Fixtures

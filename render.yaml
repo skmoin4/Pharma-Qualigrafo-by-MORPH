@@ -2,6 +2,16 @@
 # (Express serves qualigrafo/dist; the browser calls /api on the same origin — no CORS needed).
 # Deploy: connect this repo on https://dashboard.render.com/blueprints, then fill in the
 # secret env vars below (Neon connection strings, JWT_SECRET) in the Render dashboard.
+#
+# ⚠ FILES ARE NOT DURABLE HERE. No persistent disk is attached, and a Render instance has an ephemeral
+# filesystem, so everything written to STORAGE_DIR (uploaded documents and drawings) and to BACKUP_DIR
+# (local backup sets) is lost on every deploy, restart and wake-from-spin-down. The database is on Neon
+# and does survive. This instance is therefore a demonstration and trial environment only: tell anyone
+# testing on it to keep their own master copies of the files they upload.
+# The fix is Phase 3 / P4 (object storage, S3 or Azure Blob), planned right after Phase 5 step 3 —
+# see PRODUCTION_PLAN.md §6.4.11. The Docker install in deploy/ uses real volumes and is not affected.
+#
+# A free instance also spins down when idle, so the first request after a pause takes tens of seconds.
 services:
   - type: web
     name: qualigrafo

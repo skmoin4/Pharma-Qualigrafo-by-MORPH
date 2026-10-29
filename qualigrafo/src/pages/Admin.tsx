@@ -210,6 +210,8 @@ export default function Admin() {
   }
   const list = (users ?? []).filter((u) => `${u.name} ${u.email} ${u.company ?? ''}`.toLowerCase().includes(q.toLowerCase()))
   const selected = users?.find((u) => u.id === sel) ?? null
+  /** Invited but never used: still on a temporary password and never signed in. Easy to miss, and it blocks four-eyes. */
+  const stuck = (users ?? []).filter((u) => u.active && u.mustChangePassword && !u.lastLoginAt)
 
   return (
     <>
@@ -228,6 +230,15 @@ export default function Admin() {
           <div className="stat"><div className="l">Administrators</div><div className="v">{users ? users.filter((u) => u.isAdmin).length : '–'}</div><div className="s">Two are needed for the four-eyes rule</div></div>
           <div className="stat"><div className="l">Without project access</div><div className="v">{users ? users.filter((u) => !u.memberships.length).length : '–'}</div><div className="s">Accounts that cannot open a project yet</div></div>
         </div>
+        {!!stuck.length && (
+          <div className="notice err small mt" role="alert">
+            <b>{stuck.length === 1 ? 'One invited account has never been used.' : `${stuck.length} invited accounts have never been used.`}</b>{' '}
+            {stuck.map((u) => u.name).join(', ')} still {stuck.length === 1 ? 'holds' : 'hold'} a temporary password and
+            {stuck.length === 1 ? ' has' : ' have'} never signed in, so {stuck.length === 1 ? 'that person' : 'those people'} cannot act yet.
+            This matters for the four-eyes rule: approving a requirement-library version needs a second person who can
+            actually sign in. Open the account below and set a new temporary password, or send the current one again.
+          </div>
+        )}
         <div className="admin-grid mt">
           <section className="card flush">
             <div style={{ padding: 12 }}><input className="input" placeholder="Search name, email or company…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search users" /></div>

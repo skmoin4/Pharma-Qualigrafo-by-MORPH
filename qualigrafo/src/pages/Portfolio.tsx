@@ -1,10 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowRight, ExternalLink, Plus } from 'lucide-react'
 import { markets } from '../data/reference'
+import { api, errorText } from '../api'
 import { TODAY, useStore } from '../store'
 import { Badge, Empty, MarketChip, PageHead, Stat, fmtDate, openProjectRoute } from '../components/ui'
 import type { PageKey } from '../components/ui'
 import type { MarketKey, WorkItem } from '../types'
+
+/** One row of `GET /admin/projects`: every project on the installation, with the reader's own role if they have one. */
+interface AdminProject {
+  code: string; name: string; client: string; status: string; phase: string; facility: string
+  plantCountry: string; createdAt: string; companies: string[]; members: number; myRole: string | null
+}
 
 /**
  * Every project the user belongs to (archived ones only on request), from the server's portfolio summaries: figures and
@@ -134,7 +141,53 @@ export default function Portfolio() {
           {!recent.length && <tr><td><Empty title="No activity yet" /></td></tr>}
         </tbody></table></div>
       </section>
+
+      {session?.isAdmin && <AllProjects mine={new Set(everything.map((a) => a.meta.id))} showArchived={showArchived} />}
     </>
+  )
+}
+
+/**
+ * Administrator view: every project on the installation, including the ones the administrator is not a member of.
+ * The portfolio above stays membership-driven, because role is what every permission in a project is built on —
+ * so a project without a membership is listed but not opened; the administrator gives themselves a role first,
+ * under Users & access, and that grant is audited like any other membership change.
+ */
+function AllProjects({ mine, showArchived }: { mine: Set<string>; showArchived: boolean }) {
+  const [all, setAll] = useState<AdminProject[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    api<{ projects: AdminProject[] }>('GET', '/admin/projects').then((r) => setAll(r.projects)).catch((e) => setError(errorText(e)))
+  }, [])
+  // Only the projects that are missing from the portfolio above. Together the two tables are the whole
+  // installation, and no project is listed twice on the same page.
+  // The Active / Archived switch above governs this list too, so a project cannot sit under "Active" in one table
+  // and under "Archived" in another.
+  const rows = all?.filter((p) => !mine.has(p.code) && (p.status === 'Archived') === showArchived) ?? null
+  const hiddenArchived = (all ?? []).filter((p) => !mine.has(p.code) && p.status === 'Archived').length
+  return (
+    <section className="card flush mt">
+      <h2>Other projects on this installation <span className="muted small" style={{ fontWeight: 400 }}>administrator view{rows ? ` · ${rows.length} ${showArchived ? 'archived ' : ''}project${rows.length === 1 ? '' : 's'} you are not a member of${!showArchived && hiddenArchived ? ` · ${hiddenArchived} more archived (see the Archived tab)` : ''}` : ''}</span></h2>
+      {error && <div className="notice err small" style={{ margin: '0 16px 12px' }}>{error}</div>}
+      <div className="tablewrap" style={{ border: 0, borderRadius: 0 }}><table>
+        <thead><tr><th>Project</th><th>Facility</th><th>Team</th><th>Your access</th></tr></thead>
+        <tbody>
+          {(rows ?? []).map((p) => (
+            <tr key={p.code}>
+              <td>
+                <span>{p.name}</span>
+                <small>{p.code} · {p.client} · {p.phase}{p.status !== 'Active' ? ` · ${p.status}` : ''}</small>
+              </td>
+              <td className="small">{p.facility}<small><MarketChip m={p.plantCountry as MarketKey} /> {markets[p.plantCountry as MarketKey]?.name ?? p.plantCountry}</small></td>
+              <td className="small">{p.members} {p.members === 1 ? 'person' : 'people'}</td>
+              <td><span className="row" style={{ gap: 6 }}><Badge tone="amber">No membership</Badge><button className="link small" onClick={() => { window.location.hash = '#/admin' }}>Give yourself a role →</button></span></td>
+            </tr>
+          ))}
+          {rows && !rows.length && <tr><td colSpan={4}><Empty title={showArchived ? 'No archived projects outside your portfolio' : 'Nothing hidden from you'}>You are a member of every project on this installation.</Empty></td></tr>}
+          {!all && !error && <tr><td colSpan={4} className="muted small">Loading…</td></tr>}
+        </tbody>
+      </table></div>
+    </section>
   )
 }
 

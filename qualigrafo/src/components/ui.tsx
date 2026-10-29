@@ -14,12 +14,22 @@ export type HomeKey = 'portfolio' | 'work' | 'watch' | 'admin' | 'new' | 'librar
 export const PAGE_KEYS: PageKey[] = ['overview', 'setup', 'registers', 'requirements', 'evidence', 'inspector', 'documents', 'reviews', 'comments', 'rfis', 'inspections', 'findings', 'changes', 'actions', 'handover', 'packages', 'updates', 'activity', 'sources', 'schedule', 'audit', 'templates', 'team', 'risks', 'ncrs', 'vendor', 'rehearsal', 'transmittals']
 
 /* ---------- hash router (no dependency) ---------- */
-export function parseHash(): { project: string | null; page: PageKey; home: HomeKey } {
+/** Every address that opens a home page. `new` keeps the short alias because people guess it. */
+const HOME_ROUTES: Record<string, HomeKey> = {
+  '': 'portfolio', '#': 'portfolio', '#/': 'portfolio',
+  '#/work': 'work', '#/watch': 'watch', '#/admin': 'admin', '#/library': 'library',
+  '#/new-project': 'new', '#/new': 'new', '#/profile': 'profile',
+}
+/** `unknown` carries an address that matched nothing, so the shell can say so instead of showing Portfolio in silence. */
+export function parseHash(): { project: string | null; page: PageKey; home: HomeKey; unknown: string | null } {
   const h = window.location.hash
   const m = h.match(/^#\/p\/([^/]+)\/?([^/]*)/)
-  if (!m) return { project: null, page: 'overview', home: h === '#/work' ? 'work' : h === '#/watch' ? 'watch' : h === '#/admin' ? 'admin' : h === '#/library' ? 'library' : h === '#/new-project' ? 'new' : h === '#/profile' ? 'profile' : 'portfolio' }
+  if (!m) {
+    const home = HOME_ROUTES[h]
+    return { project: null, page: 'overview', home: home ?? 'portfolio', unknown: home ? null : h || null }
+  }
   const page = (PAGE_KEYS as string[]).includes(m[2]) ? (m[2] as PageKey) : 'overview'
-  return { project: decodeURIComponent(m[1]), page, home: 'portfolio' }
+  return { project: decodeURIComponent(m[1]), page, home: 'portfolio', unknown: null }
 }
 export function useRoute() {
   const [r, setR] = useState(parseHash)

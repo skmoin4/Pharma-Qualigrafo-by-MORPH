@@ -16,15 +16,33 @@ const STEPS = ['Basics', 'Scope & markets', 'Registers', 'Team', 'Review'] as co
 
 interface DirUser { id: string; name: string; email: string; company: string | null }
 
+/**
+ * The draft survives a reload of the same tab. Without this, a reload (or anything that remounts the page, such as
+ * a server that was asleep and an error the user answered with "Reload") silently restarted the wizard on step 1
+ * with the default country selected — which is what a tester reads as "my entries were lost".
+ */
+const DRAFT_KEY = 'qualigrafo.newProject.draft'
+const readDraft = (): { step: number; f: Spec } | null => {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const d = JSON.parse(raw) as { step?: number; f?: Spec }
+    return d.f ? { step: Math.min(Math.max(d.step ?? 0, 0), STEPS.length - 1), f: d.f } : null
+  } catch { return null /* storage blocked or unreadable draft */ }
+}
+const clearDraft = () => { try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* storage blocked */ } }
+
 export default function NewProject() {
   const { session, createProject, toast } = useStore()
-  const [step, setStep] = useState(0)
+  const saved = useMemo(() => readDraft(), [])
+  const [step, setStep] = useState(saved?.step ?? 0)
   const [users, setUsers] = useState<DirUser[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [extra, setExtra] = useState('')
+  const [resumed, setResumed] = useState(!!saved)
   const { packs } = useLibraryPacks()
-  const [f, setF] = useState<Spec>({
+  const [f, setF] = useState<Spec>(saved?.f ?? {
     code: '', name: '', client: '', site: '', plantCountry: 'SA', markets: [], facility: 'Non-sterile formulation', scope: 'New plant', phase: 'Design', ownerStandards: '',
     disciplines: [...STANDARD_DISCIPLINES], companies: [],
     members: session ? [{ userId: session.id, role: 'Owner / QA', scope: null }] : [],
@@ -32,29 +50,39 @@ export default function NewProject() {
   useEffect(() => {
     api<{ users: DirUser[] }>('GET', '/directory/users').then((r) => setUsers(r.users)).catch((e) => setError(errorText(e)))
   }, [])
+  useEffect(() => {
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, f })) } catch { /* storage blocked: the wizard still works, a reload just starts over */ }
+  }, [step, f])
 
   const companyNames = useMemo(() => [f.client.trim(), ...f.companies.map((c) => c.name.trim())].filter(Boolean), [f.client, f.companies])
-  /** Problems that block the current step; shown under the step and disable "Next". */
-  const problems = useMemo(() => {
-    const p: string[] = []
+  /**
+   * Problems that block the current step, keyed by the field they belong to so each one can be shown on its own
+   * field instead of only as a list at the bottom. "Next" stays disabled while any of them is present, and names
+   * the first one, so a disabled button is never silent.
+   */
+  const issues = useMemo(() => {
+    const p: Record<string, string> = {}
     if (step === 0) {
-      if (f.name.trim().length < 3) p.push('Project name (at least 3 characters)')
-      if (f.client.trim().length < 2) p.push('Client')
-      if (f.site.trim().length < 2) p.push('Site / location')
-      if (f.code && !/^[A-Za-z0-9][A-Za-z0-9-]{2,19}$/.test(f.code.trim())) p.push('Project code: 3–20 letters, digits or dashes')
+      if (f.name.trim().length < 3) p.name = 'Project name needs at least 3 characters.'
+      if (f.client.trim().length < 2) p.client = 'Name the client that owns the plant.'
+      if (f.site.trim().length < 2) p.site = 'Give the site or location.'
+      if (f.code && !/^[A-Za-z0-9][A-Za-z0-9-]{2,19}$/.test(f.code.trim())) p.code = 'Project code: 3–20 letters, digits or dashes.'
     }
     if (step === 2) {
-      if (!f.disciplines.length) p.push('At least one discipline')
-      if (f.companies.some((c) => c.name.trim().length < 2)) p.push('Every company needs a name')
-      if (new Set(companyNames).size !== companyNames.length) p.push('Company names must be unique')
+      if (!f.disciplines.length) p.disciplines = 'Choose at least one discipline.'
+      if (f.companies.some((c) => c.name.trim().length < 2)) p.companies = 'Every company needs a name.'
+      else if (new Set(companyNames).size !== companyNames.length) p.companies = 'Company names must be unique.'
     }
     if (step === 3) {
-      if (!f.members.some((m) => m.role === 'Owner / QA')) p.push('At least one Owner / QA')
-      if (f.members.some((m) => !m.userId)) p.push('Choose a person on every team row')
-      if (new Set(f.members.map((m) => m.userId)).size !== f.members.length) p.push('Each person once (one role per project)')
+      if (!f.members.some((m) => m.role === 'Owner / QA')) p.members = 'The team needs at least one Owner / QA.'
+      else if (f.members.some((m) => !m.userId)) p.members = 'Choose a person on every team row.'
+      else if (new Set(f.members.map((m) => m.userId)).size !== f.members.length) p.members = 'Each person can hold only one role on a project.'
     }
     return p
   }, [step, f, companyNames])
+  const problems = useMemo(() => Object.values(issues), [issues])
+  /** The message that belongs under one field. */
+  const fieldError = (k: string) => (issues[k] ? <p className="small" style={{ color: 'var(--red)', margin: '4px 0 0' }} role="alert">{issues[k]}</p> : null)
 
   const toggleMarket = (k: MarketKey, on: boolean) => setF({ ...f, markets: on ? [...f.markets, k] : f.markets.filter((x) => x !== k) })
   const toggleDiscipline = (d: string, on: boolean) => setF({ ...f, disciplines: on ? [...f.disciplines, d] : f.disciplines.filter((x) => x !== d) })
@@ -66,13 +94,21 @@ export default function NewProject() {
     const r = await createProject({ ...f, code: f.code?.trim() || undefined, markets: f.markets.filter((m) => m !== f.plantCountry) })
     setBusy(false)
     if (r.error) return setError(r.error)
+    clearDraft()
     toast(`Project ${r.code} created`)
     openProjectRoute(r.code!, 'registers')
   }
+  const cancel = () => { clearDraft(); home() }
 
   return (
     <>
-      <PageHead title="New project" sub="Set up a project in five steps. Everything except the project code can be changed later; facility, scope and markets changes create a new requirement baseline." actions={<button className="btn" onClick={() => home()}>Cancel</button>} />
+      <PageHead title="New project" sub="Set up a project in five steps. Everything except the project code can be changed later; facility, scope and markets changes create a new requirement baseline." actions={<button className="btn" onClick={cancel}>Cancel</button>} />
+      {resumed && (
+        <div className="notice info small" style={{ marginBottom: 12 }}>
+          <b>Draft restored.</b> Your entries from before are still here, on the step you left.
+          <button className="link small" style={{ marginLeft: 8 }} onClick={() => { clearDraft(); setResumed(false); window.location.reload() }}>Start a new project instead</button>
+        </div>
+      )}
       <div className="steps" style={{ marginBottom: 16 }}>
         {STEPS.map((s, i) => <span key={s} className={`step ${i < step ? 'on' : i === step ? 'cur' : ''}`}>{i < step ? '✓ ' : `${i + 1}. `}{s}</span>)}
       </div>
@@ -82,13 +118,13 @@ export default function NewProject() {
           <>
             <h2>Basics</h2>
             <div className="grid g2">
-              <div><label className="lab" style={{ marginTop: 0 }}>Project name</label><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Riyadh Oral Solids Line 3" /></div>
-              <div><label className="lab" style={{ marginTop: 0 }}>Project code (optional)</label><input className="input" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="Generated automatically, e.g. PRJ-004" /></div>
-              <div><label className="lab">Client (plant owner)</label><input className="input" value={f.client} onChange={(e) => setF({ ...f, client: e.target.value })} placeholder="Company that owns the plant" /></div>
-              <div><label className="lab">Site / location</label><input className="input" value={f.site} onChange={(e) => setF({ ...f, site: e.target.value })} placeholder="City, country" /></div>
+              <div><label className="lab" style={{ marginTop: 0 }}>Project name</label><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Riyadh Oral Solids Line 3" />{fieldError('name')}</div>
+              <div><label className="lab" style={{ marginTop: 0 }}>Project code (optional)</label><input className="input" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="Generated automatically, e.g. PRJ-004" />{fieldError('code')}</div>
+              <div><label className="lab">Client (plant owner)</label><input className="input" value={f.client} onChange={(e) => setF({ ...f, client: e.target.value })} placeholder="Company that owns the plant" />{fieldError('client')}</div>
+              <div><label className="lab">Site / location</label><input className="input" value={f.site} onChange={(e) => setF({ ...f, site: e.target.value })} placeholder="City, country" />{fieldError('site')}</div>
               <div><label className="lab">Plant country</label><select className="input" value={f.plantCountry} onChange={(e) => setF({ ...f, plantCountry: e.target.value as MarketKey })}>{(Object.keys(markets) as MarketKey[]).map((k) => <option key={k} value={k}>{markets[k].name}</option>)}</select></div>
             </div>
-            <p className="muted small">The plant country decides the local authority and is always in regulatory scope. The project code cannot be changed later.</p>
+            <p className="muted small">The plant country decides the local authority and is always in regulatory scope — on the next step it is ticked as a target market and cannot be unticked. The project code cannot be changed later.</p>
           </>
         )}
 
@@ -124,6 +160,7 @@ export default function NewProject() {
                 <label className="lab" style={{ marginTop: 0 }}>Disciplines</label>
                 {allDisciplines.map((d) => <label key={d} className="row" style={{ padding: '3px 0' }}><input type="checkbox" checked={f.disciplines.includes(d)} onChange={(e) => toggleDiscipline(d, e.target.checked)} /><span>{d}</span></label>)}
                 <div className="row" style={{ marginTop: 6 }}><input className="input" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="Add another discipline" aria-label="Additional discipline" /><button type="button" className="btn" disabled={extra.trim().length < 2} onClick={() => { setF({ ...f, disciplines: [...new Set([...f.disciplines, extra.trim()])] }); setExtra('') }}><Plus size={13} /> Add</button></div>
+                {fieldError('disciplines')}
               </div>
               <div>
                 <label className="lab" style={{ marginTop: 0 }}>Companies on the project</label>
@@ -136,6 +173,7 @@ export default function NewProject() {
                   </div>
                 ))}
                 <button type="button" className="btn" style={{ marginTop: 8 }} onClick={() => setF({ ...f, companies: [...f.companies, { name: '', kind: 'Main contractor' }] })}><Plus size={13} /> Add company</button>
+                {fieldError('companies')}
                 <p className="muted small">More companies and the system / equipment list can be added after creation under Companies &amp; systems.</p>
               </div>
             </div>
@@ -158,6 +196,7 @@ export default function NewProject() {
               ))}</tbody>
             </table></div>
             <button type="button" className="btn" style={{ marginTop: 8 }} onClick={() => setF({ ...f, members: [...f.members, { userId: '', role: 'Contractor', scope: null }] })}><Plus size={13} /> Add person</button>
+            {fieldError('members')}
           </>
         )}
 
@@ -185,7 +224,10 @@ export default function NewProject() {
         <div className="row sb" style={{ marginTop: 16 }}>
           <button type="button" className="btn" disabled={step === 0} onClick={() => setStep(step - 1)}><ArrowLeft size={13} /> Back</button>
           {step < STEPS.length - 1
-            ? <button type="button" className="btn pri" disabled={problems.length > 0} onClick={() => setStep(step + 1)}>Next <ArrowRight size={13} /></button>
+            ? <span className="row" style={{ gap: 10 }}>
+                {problems.length > 0 && <span className="small" style={{ color: 'var(--red)' }}>{problems[0]}</span>}
+                <button type="button" className="btn pri" disabled={problems.length > 0} title={problems[0] ?? undefined} onClick={() => setStep(step + 1)}>Next <ArrowRight size={13} /></button>
+              </span>
             : <button type="button" className="btn pri" disabled={busy} onClick={submit}><Check size={13} /> {busy ? 'Creating…' : 'Create project'}</button>}
         </div>
       </section>

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Qualigrafo – Comprehensive Industry Group UI</title>
+<style>
+:root{
+ --nav:#102a43;--nav2:#173f73;--bg:#f5f7fb;--card:#fff;--line:#dce5ef;
+ --text:#1f2937;--muted:#667085;--blue:#2563eb;--bluebg:#edf4ff;
+ --green:#15803d;--amber:#b45309;--purple:#7c3aed
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text)}
+.app{display:flex;min-height:100vh}
+.side{width:235px;background:linear-gradient(180deg,#102a43,#091c30);color:#fff;padding:24px 18px;position:fixed;inset:0 auto 0 0}
+.brand{font-size:23px;font-weight:800}.tag{font-size:11px;color:#cbd8e6;margin:6px 0 26px}
+.nav{padding:11px 12px;border-radius:9px;margin:4px 0;color:#d9e5f2;font-size:14px}.nav.active{background:#1d4f82;font-weight:700}
+.main{margin-left:235px;width:calc(100% - 235px)}
+.top{height:68px;background:#fff;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;padding:0 28px}
+.wrap{max-width:1200px;margin:26px auto;padding:0 24px 50px}
+h1{font-size:28px;color:#102a43;margin:0 0 7px}.intro{color:var(--muted)}
+.panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;margin-top:20px;box-shadow:0 6px 18px rgba(15,23,42,.05)}
+.panel h2,.panel h3{margin-top:0;color:#102a43}.hint{color:var(--muted);font-size:13px}
+.groups{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.group{border:1px solid var(--line);border-radius:13px;padding:17px;cursor:pointer;min-height:132px;background:#fff}
+.group.selected{border:2px solid var(--blue);background:#f7faff}
+.group strong{display:block;margin:8px 0 5px;color:#102a43}.group small{color:var(--muted);line-height:1.45}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+label{display:block;font-size:12px;font-weight:700;color:#344054;margin-bottom:6px}
+select,input{width:100%;padding:11px 12px;border:1px solid #ccd7e4;border-radius:9px;background:#fff;font-size:14px}
+.category{border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px;background:#fbfdff}
+.category h4{margin:0 0 10px;color:#174a7c}
+.pills{display:flex;gap:7px;flex-wrap:wrap}
+.pill{padding:7px 10px;border-radius:999px;background:#eef4fb;border:1px solid #d7e3f1;font-size:12px}
+.note{padding:14px 16px;border-radius:10px;background:#f0fdf4;border-left:4px solid #22c55e;margin-top:16px;font-size:13px}
+.warn{background:#fff7ed;border-left-color:#f59e0b}
+.service-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.service{border:1px solid var(--line);border-radius:12px;padding:16px;cursor:pointer}
+.service.selected{border:2px solid var(--purple);background:#faf7ff}
+.table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
+.table th,.table td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}.table th{background:#edf4ff;color:#102a43}
+.custom{display:none;margin-top:12px}.custom.show{display:block}
+.flow{padding:14px 16px;border-radius:10px;background:#edf5ff;border-left:4px solid var(--blue);font-weight:800}
+.actions{display:flex;justify-content:flex-end;margin-top:20px}.btn{border:0;background:var(--blue);color:#fff;padding:12px 18px;border-radius:9px;font-weight:800}
+@media(max-width:950px){.side{display:none}.main{margin-left:0;width:100%}.groups{grid-template-columns:1fr 1fr}.grid2,.service-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="side">
+ <div class="brand">Qualigrafo</div>
+ <div class="tag">Engineering • BIM • Evidence</div>
+ <div class="nav active">＋ Create Project</div><div class="nav">Portfolio</div><div class="nav">My Work</div>
+ <div class="nav">Documents</div><div class="nav">RFIs & Issues</div><div class="nav">Requirement Library</div><div class="nav">Users & Access</div>
+</aside>
+
+<main class="main">
+<div class="top"><strong>Project Creation – Industry Setup</strong><span style="font-size:13px;color:#667085">Admin</span></div>
+<div class="wrap">
+<h1>Step 2 – Industry Group & Facility Type</h1>
+<p class="intro">Facility list is intentionally broad. If a client facility is not listed, select <strong>Other / Custom Facility</strong> and enter the exact client terminology.</p>
+
+<section class="panel">
+<h3>Select Main Industry Group</h3>
+<div class="groups" id="groups">
+ <div class="group selected" data-group="energy"><div>⚡</div><strong>1. Energy & High-Tech</strong><small>Solar, renewable energy, semiconductor and related high-tech facilities.</small></div>
+ <div class="group" data-group="hospital"><div>🏥</div><strong>2. Hospital / Healthcare</strong><small>Hospitals, clinics, diagnostics, specialty and ambulatory facilities.</small></div>
+ <div class="group" data-group="pharma"><div>🧪</div><strong>3. Pharma Industry</strong><small>API, formulations, sterile, biologics, cleanroom and pharma support facilities.</small></div>
+ <div class="group" data-group="common"><div>🏢</div><strong>4. Common / Other Projects</strong><small>Residential, commercial, education, hospitality, data center, infrastructure and others.</small></div>
+</div>
+</section>
+
+<section class="panel">
+<h3>Facility / Project Sub-Type</h3>
+<p class="hint">This field replaces the old Pharma-only “Facility Type”. The options below change automatically based on the selected industry.</p>
+
+<div class="grid2">
+ <div>
+  <label>Primary Facility Type</label>
+  <select id="facility"></select>
+ </div>
+ <div>
+  <label>Secondary / Combined Facility Type (Optional)</label>
+  <select id="secondary"><option>None</option></select>
+ </div>
+</div>
+
+<div class="custom" id="customBox">
+ <label style="margin-top:12px">Custom Facility Type</label>
+ <input placeholder="Enter exact client facility type, e.g. Photomask Plant, Cancer Day-Care Centre, Pilot Biotech Facility">
+</div>
+
+<div id="catalog"></div>
+
+<div class="note">
+<strong>No project should get blocked:</strong> every group includes <b>Other / Custom Facility</b>. Also allow Primary + Secondary selection because a client may have a combined facility such as <b>Solar + BESS</b>, <b>Hospital + Medical College</b>, or <b>API + Formulation + Warehouse</b>.
+</div>
+</section>
+
+<section class="panel">
+<h3>Service Type – Common for Every Facility</h3>
+<div class="service-grid" id="services">
+ <div class="service selected"><strong>Design Only</strong><p>Engineering calculations, reports, drawings, equipment schedules, GFC/IFC and approvals.</p></div>
+ <div class="service"><strong>BIM Only</strong><p>Modeling, LOD, coordination, clash detection, shop drawings, COBie and as-built.</p></div>
+ <div class="service"><strong>Design + BIM</strong><p>Design and BIM together in one connected workflow.</p></div>
+</div>
+</section>
+
+<section class="panel">
+<h3>Final Logic</h3>
+<div class="flow">Industry Group → Facility Type → Optional Combined Facility → Design / BIM / Both → Discipline → Stage → Standards → Tasks → Deliverables</div>
+<div class="note warn">Developer rule: do not hard-code the workflow only by industry name. Workflow must be generated from the combination of <b>Industry + Facility Type + Service Type + Discipline + Stage + Country</b>.</div>
+<div class="actions"><button class="btn">Continue to Scope & Disciplines →</button></div>
+</section>
+
+</div>
+</main>
+</div>
+
+<script>
+const data={
+energy:{
+ options:[
+ "Solar PV – Utility Scale / Ground Mounted",
+ "Solar PV – Rooftop",
+ "Solar PV – Floating Solar",
+ "Solar PV – Carport / Canopy",
+ "Solar Thermal / CSP",
+ "Wind Energy – Onshore",
+ "Wind Energy – Offshore",
+ "Battery Energy Storage System (BESS)",
+ "Hybrid Renewable Plant – Solar + Wind + BESS",
+ "Hydropower / Small Hydro",
+ "Biomass / Biogas / Waste-to-Energy",
+ "Geothermal Energy",
+ "Green Hydrogen / Electrolyser Facility",
+ "Microgrid / Distributed Energy",
+ "Renewable Energy Utility / Substation / Grid Interface",
+ "Semiconductor – Front-End Wafer Fab / Foundry",
+ "Semiconductor – IDM Facility",
+ "Semiconductor – ATMP / OSAT",
+ "Semiconductor – Assembly, Test & Packaging",
+ "Semiconductor – Advanced Packaging",
+ "Semiconductor – R&D / Pilot Fab",
+ "Semiconductor – Photomask Facility",
+ "Semiconductor – Wafer / Materials Facility",
+ "Semiconductor Equipment Manufacturing",
+ "Semiconductor Cleanroom / Sub-Fab",
+ "Semiconductor Central Utility Plant / Process Utility Facility",
+ "Other / Custom Facility"
+ ],
+ catalog:{
+  "Solar & Renewable":["Utility Solar","Rooftop Solar","Floating Solar","Wind","BESS","Hybrid Plant","Hydro","Biomass / Biogas","Geothermal","Green Hydrogen","Microgrid"],
+  "Semiconductor":["Front-End Fab / Foundry","IDM","ATMP / OSAT","Assembly/Test/Packaging","Advanced Packaging","R&D / Pilot Fab","Photomask","Wafer / Materials","Equipment Manufacturing","Cleanroom / Sub-Fab","Central Utilities"]
+ }
+},
+hospital:{
+ options:[
+ "General Hospital",
+ "Multi-Speciality Hospital",
+ "Super-Speciality Hospital",
+ "Teaching Hospital / Medical College",
+ "Cancer / Oncology Hospital",
+ "Cardiac Hospital",
+ "Maternity / Women & Child Hospital",
+ "Children's / Paediatric Hospital",
+ "Orthopaedic Hospital",
+ "Eye Hospital",
+ "Dental Hospital / Dental College",
+ "Mental Health / Psychiatric Facility",
+ "Rehabilitation Centre",
+ "Emergency / Trauma Centre",
+ "Ambulatory / Day-Care / Day-Surgery Centre",
+ "Clinic / Polyclinic",
+ "Diagnostic / Imaging Centre",
+ "Pathology / Laboratory Facility",
+ "Dialysis Centre",
+ "IVF / ART Centre",
+ "Blood Bank / Transfusion Centre",
+ "Long-Term Care / Assisted Living / Senior Care",
+ "Home-Care / Community Healthcare Facility",
+ "Other / Custom Facility"
+ ],
+ catalog:{
+  "Hospital Facilities":["General","Multi-Speciality","Super-Speciality","Teaching / Medical College","Oncology","Cardiac","Maternity","Paediatric","Orthopaedic","Eye","Dental","Mental Health"],
+  "Outpatient & Support":["Day Care / Ambulatory","Clinic","Diagnostics","Pathology Lab","Dialysis","IVF / ART","Blood Bank","Rehab","Trauma","Long-Term Care"]
+ }
+},
+pharma:{
+ options:[
+ "API / Drug Substance Manufacturing",
+ "API Intermediate Manufacturing",
+ "Oral Solid Dosage – Tablet / Capsule",
+ "Oral Liquid / Syrup Manufacturing",
+ "Topical / Ointment / Cream Manufacturing",
+ "Sterile Injectable Facility",
+ "SVP / LVP / Parenteral Facility",
+ "Biologics / Biopharmaceutical Facility",
+ "Vaccine Manufacturing Facility",
+ "Biosimilar Facility",
+ "Oncology / Cytotoxic / HPAPI Facility",
+ "Beta-Lactam / Penicillin / Cephalosporin Facility",
+ "Hormone / Steroid Facility",
+ "Inhalation / DPI / MDI Facility",
+ "Nutraceutical / Supplement Facility",
+ "R&D / Formulation Development Centre",
+ "Pilot Plant / Scale-Up Facility",
+ "QC / Analytical / Microbiology Laboratory",
+ "Cleanroom Facility",
+ "Pharma Packaging Facility",
+ "Pharma Warehouse / Distribution Centre",
+ "Cold Storage / Cold Chain Facility",
+ "Central Utility / Process Utility Facility",
+ "Other / Custom Facility"
+ ],
+ catalog:{
+  "Manufacturing":["API","Intermediates","OSD","Oral Liquid","Topical","Sterile Injectables","SVP/LVP","Biologics","Vaccines","Biosimilars","Oncology / HPAPI","Beta-Lactam","Hormones","Inhalation"],
+  "Support Facilities":["R&D","Pilot Plant","QC / Micro Lab","Cleanroom","Packaging","Warehouse","Cold Chain","Central Utilities"]
+ }
+},
+common:{
+ options:[
+ "Residential – High-Rise Apartment",
+ "Residential – Low-Rise / Mid-Rise",
+ "Residential – Villa / Bungalow",
+ "Residential – Township / Gated Community",
+ "Residential – Staff Housing / Hostel / Dormitory",
+ "Commercial – Office Building / Corporate HQ",
+ "Commercial – Business Park",
+ "Commercial – Shopping Mall / Retail",
+ "Commercial – Mixed-Use Development",
+ "Education – School",
+ "Education – College",
+ "Education – University / Campus",
+ "Education – Research / Laboratory Building",
+ "Hospitality – Hotel",
+ "Hospitality – Resort",
+ "Hospitality – Serviced Apartment",
+ "Hospitality – Convention / Banquet Facility",
+ "Data Center – Enterprise",
+ "Data Center – Colocation",
+ "Data Center – Hyperscale",
+ "Data Center – Edge",
+ "Industrial / Manufacturing – General Factory",
+ "Industrial – Automotive / Assembly",
+ "Industrial – Food & Beverage",
+ "Industrial – Textile",
+ "Industrial – Heavy Engineering",
+ "Warehouse / Logistics – General Warehouse",
+ "Warehouse / Logistics – Distribution Centre",
+ "Warehouse / Logistics – Cold Storage",
+ "Warehouse / Logistics – Fulfilment Centre",
+ "Airport / Aviation – Passenger Terminal",
+ "Airport / Aviation – Cargo Terminal",
+ "Airport / Aviation – Hangar / MRO",
+ "Infrastructure – Metro / Railway",
+ "Infrastructure – Roads / Transport",
+ "Infrastructure – Water / Sewage / Utilities",
+ "Infrastructure – Public / Government Building",
+ "Religious / Cultural / Community Facility",
+ "Sports / Stadium / Arena",
+ "Other / Custom Facility"
+ ],
+ catalog:{
+  "Residential":["High-Rise","Low/Mid-Rise","Villa","Township","Staff Housing / Hostel"],
+  "Commercial & Education":["Office","Business Park","Mall / Retail","Mixed Use","School","College","University","Research Building"],
+  "Hospitality & Data Center":["Hotel","Resort","Serviced Apartment","Convention","Enterprise DC","Colocation DC","Hyperscale DC","Edge DC"],
+  "Industrial & Logistics":["Factory","Automotive","Food & Beverage","Textile","Heavy Engineering","Warehouse","Distribution Centre","Cold Storage","Fulfilment"],
+  "Airport & Infrastructure":["Terminal","Cargo","Hangar / MRO","Metro / Railway","Roads","Water / Sewage / Utilities","Public Building","Sports / Stadium"]
+ }
+}
+};
+
+let group="energy";
+
+function render(){
+ const d=data[group], f=document.getElementById("facility"), s=document.getElementById("secondary");
+ f.innerHTML=d.options.map(x=>`<option>${x}</option>`).join("");
+ s.innerHTML=`<option>None</option>`+d.options.filter(x=>x!=="Other / Custom Facility").map(x=>`<option>${x}</option>`).join("");
+ let out="";
+ for(const [k,arr] of Object.entries(d.catalog)){
+   out+=`<div class="category"><h4>${k}</h4><div class="pills">${arr.map(x=>`<span class="pill">${x}</span>`).join("")}</div></div>`;
+ }
+ document.getElementById("catalog").innerHTML=out;
+ document.getElementById("customBox").classList.remove("show");
+}
+document.querySelectorAll(".group").forEach(el=>{
+ el.onclick=()=>{
+  document.querySelectorAll(".group").forEach(x=>x.classList.remove("selected"));
+  el.classList.add("selected");group=el.dataset.group;render();
+ }
+});
+document.getElementById("facility").addEventListener("change",e=>{
+ document.getElementById("customBox").classList.toggle("show",e.target.value==="Other / Custom Facility");
+});
+document.querySelectorAll(".service").forEach(el=>{
+ el.onclick=()=>{document.querySelectorAll(".service").forEach(x=>x.classList.remove("selected"));el.classList.add("selected")}
+});
+render();
+</script>
+</body>
+</html>

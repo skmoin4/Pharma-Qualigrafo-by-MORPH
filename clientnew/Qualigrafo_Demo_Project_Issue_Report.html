@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Qualigrafo - Pharma Demo Project Issue Report</title>
+  <style>
+    body{
+      margin:0;
+      font-family:Arial, Helvetica, sans-serif;
+      background:#f4f7fb;
+      color:#1f2937;
+    }
+    .wrap{
+      max-width:1100px;
+      margin:40px auto;
+      padding:0 20px 40px;
+    }
+    .hero{
+      background:linear-gradient(135deg,#0f2f5f,#183f7a);
+      color:white;
+      padding:34px;
+      border-radius:18px;
+      box-shadow:0 12px 30px rgba(15,47,95,.18);
+    }
+    .hero h1{margin:0 0 8px;font-size:32px;}
+    .hero p{margin:6px 0;color:#dbeafe;}
+    .badge{
+      display:inline-block;
+      margin-top:14px;
+      background:#fee2e2;
+      color:#991b1b;
+      padding:7px 12px;
+      border-radius:999px;
+      font-size:13px;
+      font-weight:700;
+    }
+    .card{
+      background:white;
+      border-radius:16px;
+      padding:24px;
+      margin-top:22px;
+      box-shadow:0 8px 24px rgba(31,41,55,.07);
+    }
+    h2{margin-top:0;color:#0f2f5f;font-size:22px;}
+    h3{color:#183f7a;margin-bottom:8px;}
+    table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:14px;
+      font-size:14px;
+    }
+    th,td{
+      border:1px solid #dbe3ef;
+      padding:12px;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      background:#edf4ff;
+      color:#0f2f5f;
+    }
+    .critical{color:#b91c1c;font-weight:700;}
+    .high{color:#c2410c;font-weight:700;}
+    .ok{color:#166534;font-weight:700;}
+    ul,ol{line-height:1.65;}
+    .code{
+      background:#0b1220;
+      color:#d1fae5;
+      padding:14px 16px;
+      border-radius:10px;
+      overflow:auto;
+      font-family:Consolas, monospace;
+      font-size:13px;
+    }
+    .footer{
+      text-align:center;
+      color:#64748b;
+      font-size:13px;
+      margin-top:28px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Qualigrafo – Pharma Demo Project Issue Report</h1>
+      <p>Test Project: <strong>Demo Project</strong></p>
+      <p>Module Tested: Project Creation Wizard</p>
+      <span class="badge">Project creation blocked by wizard/navigation issues</span>
+    </section>
+
+    <section class="card">
+      <h2>1. Test Configuration Used</h2>
+      <table>
+        <tr><th>Field</th><th>Value Used</th></tr>
+        <tr><td>Project Name</td><td>Demo Project</td></tr>
+        <tr><td>Client</td><td>Demo Client</td></tr>
+        <tr><td>Site / Location</td><td>India</td></tr>
+        <tr><td>Plant Country</td><td>India</td></tr>
+        <tr><td>Facility Type</td><td>Non-sterile formulation</td></tr>
+        <tr><td>Project Scope</td><td>New Plant</td></tr>
+        <tr><td>Project Phase</td><td>Design</td></tr>
+        <tr><td>Target Market</td><td>India – CDSCO / State Licensing</td></tr>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>2. Actual Problems Found</h2>
+      <table>
+        <tr>
+          <th>Priority</th>
+          <th>Issue</th>
+          <th>Actual Behaviour</th>
+          <th>Expected Behaviour</th>
+        </tr>
+        <tr>
+          <td class="critical">P0 – Critical</td>
+          <td>Wizard cannot progress</td>
+          <td>After completing Step 1 and Step 2, clicking <strong>Next</strong> sends the user back to an earlier step instead of progressing.</td>
+          <td>Valid data should move the user sequentially from Step 1 → 2 → 3 → 4 → 5.</td>
+        </tr>
+        <tr>
+          <td class="critical">P0 – Critical</td>
+          <td>Plant Country value resets</td>
+          <td>The selected Plant Country does not reliably remain saved. It can revert to the default country when moving between steps.</td>
+          <td>The selected country must persist for the entire wizard and project lifecycle.</td>
+        </tr>
+        <tr>
+          <td class="critical">P0 – Critical</td>
+          <td>Step 2 state is not persistent</td>
+          <td>Facility type, market and scope information appears to lose state when navigation changes.</td>
+          <td>All selections must remain intact until project creation is completed or the user manually changes them.</td>
+        </tr>
+        <tr>
+          <td class="high">P1 – High</td>
+          <td>Regulatory market logic depends on unstable country state</td>
+          <td>Plant Country controls the local regulatory authority, but because the country can reset, the regulatory scope becomes unreliable.</td>
+          <td>Country and regulatory authority should remain synchronized and validated.</td>
+        </tr>
+        <tr>
+          <td class="high">P1 – High</td>
+          <td>Steps 3–5 cannot be tested</td>
+          <td>Registers, Team and Review/Create could not be reached due to the wizard issue.</td>
+          <td>All steps must be accessible after previous required fields are completed.</td>
+        </tr>
+        <tr>
+          <td class="high">P1 – High</td>
+          <td>Project is not actually created</td>
+          <td>The entered project data does not reach the final Create action.</td>
+          <td>The Review step should display a summary and create the project successfully.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>3. Current Wizard Structure</h2>
+      <ol>
+        <li><strong>Basics</strong> – Project name, client, location, plant country</li>
+        <li><strong>Scope & Markets</strong> – Facility type, project scope, phase, target markets</li>
+        <li><strong>Registers</strong> – Regulatory/document registers</li>
+        <li><strong>Team</strong> – Project team and roles</li>
+        <li><strong>Review</strong> – Final review and project creation</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>4. Existing Pharma Logic Observed</h2>
+      <p>The current system is strongly pharma-oriented and already contains useful pharma-specific configuration.</p>
+      <ul>
+        <li>Facility Types: API, Non-sterile Formulation, Sterile Products, Biologics, Warehouse</li>
+        <li>Project Scope: New Plant, Expansion, Renovation, Equipment Installation</li>
+        <li>Markets / Authorities: SFDA, CDSCO, EMA, FDA, MHRA</li>
+        <li>Platform Modules visible: Portfolio, My Work, Regulatory Watch, Requirement Library, Users & Access</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>5. Developer Fix Order</h2>
+      <ol>
+        <li><strong>Fix wizard state management first.</strong> Form values must be stored centrally and not reset on step change.</li>
+        <li><strong>Fix Plant Country persistence.</strong> The selected country must not revert to the default value.</li>
+        <li><strong>Fix Next button routing.</strong> The button should validate the current step and navigate only to the next step.</li>
+        <li><strong>Synchronize Plant Country and Target Market.</strong> If India is selected, India/CDSCO should be auto-included and retained.</li>
+        <li><strong>Add clear validation messages.</strong> If a required field is missing, show the exact field instead of silently returning to another step.</li>
+        <li><strong>Preserve Step 2 selections.</strong> Facility Type, Scope, Phase and Markets must survive Back/Next navigation.</li>
+        <li><strong>Verify final Create flow.</strong> Review page should summarize all data before final creation.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>6. Recommended Technical Check</h2>
+      <div class="code">
+Check wizard form-state handling:
+- React/local state vs global projectDraft state
+- Route/step re-render resetting defaults
+- select input defaultValue vs controlled value
+- onChange not writing to persistent state
+- Step navigation re-initializing project model
+- validation handler redirecting incorrectly
+- plantCountry → targetMarkets dependency overwriting user state
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>7. Current Test Result</h2>
+      <p class="critical">FAILED – Demo Project was not created because the wizard could not reliably proceed beyond the initial setup steps.</p>
+      <p>After the above P0 issues are fixed, the same Demo Project should be created again and then Steps 3, 4 and 5 should be tested in detail.</p>
+    </section>
+
+    <div class="footer">Qualigrafo – Internal QA / Project Setup Review</div>
+  </div>
+</body>
+</html>
