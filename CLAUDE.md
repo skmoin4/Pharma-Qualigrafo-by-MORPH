@@ -80,10 +80,18 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
   existing step 2, no separate industry page), **one project table** (industry = templates, not separate apps).
   Plan, gap analysis, decisions, step order and the testing gate: **`PRODUCTION_PLAN.md` §6 (Phase 5)**.
   Phase 5 runs **before** the remaining Phase 3 steps; Phase 4 (Revit add-in) merges into Phase 5 step 7.
-- **Phase 5 / steps 0, 1 and 2 are done. Next: Phase 5 / step 2b — requirement starter packs** for hospital,
-  solar / renewable, semiconductor and common buildings (unverified starter content, §6.4.3), then **step 3**
-  (document control: version vs formal revision). Step 2 shipped the engine but no new requirement *content*, so a
-  non-pharma project arrives with its disciplines and deliverables but no requirements yet.
+- **Phase 5 / steps 0, 1, 2 and 2b are done. Next: Phase 5 / step 3 — document control** (`PRODUCTION_PLAN.md`
+  §6.5 step 3): `DocRevision` records with previous-revision link, reason for issue, suitability, prepared /
+  checked / approved / issued, superseded retained and searchable, revision compare and tree, automatic revision
+  register, and per-project configurable status / suitability codes.
+- **Step 2b (2026-10-30): starter requirement content for all four industry groups.** `domain/starterLibrary.ts`
+  is keyed by industry and market: `starterFor(industry, market)`. **The pharma per-market sets must stay exactly as
+  they are** (SA 17, IN 9, EU 7, US 3 — asserted in OQ-API-37), because pharma installations have already approved
+  them. Everything new is topic-level with no clause, edition or effective date: the customer's reviewer supplies
+  those and a second editor approves. Energy items say whether they are renewable or semiconductor, via `facilities`.
+  `POST /library/starter` takes `{ industries }`. Outside pharma the authority label is
+  "National and local authorities — confirm per project" (`authorityFor` in `qualigrafo/src/industries.ts`): do not
+  name a non-pharma regulator per country.
 - **Step 2 (2026-10-30): a project is generated from its classification.** `server/src/domain/templates.ts` is the
   one resolver — used by `GET /reference/template` (the wizard's preview) **and** by `createProject`, so the preview
   cannot drift from what is created. Deliverables are registered as `Missing` R00 owned by the client; each carries a
@@ -202,7 +210,7 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
 
 ```bash
 # API suite (in-process, needs a fresh DB each run)
-cd server && npm run fixtures:load && npm test            # currently 666 checks, all passing
+cd server && npm run fixtures:load && npm test            # currently 682 checks, all passing
 
 # Browser suites: each suite needs freshly loaded fixtures; use separate ports so nothing clashes
 cd qualigrafo && npm run build
@@ -211,7 +219,7 @@ API_URL=http://localhost:4100 npx vite preview --port 8082 --strictPort   # from
 for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18 e2e19 e2e20; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
 ```
 
-- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 46 (e2e18) + 38 (e2e19) + 26 (e2e20) = 697 checks, all passing. Full OQ: 1363 of 1363 in 56 test cases.
+- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 46 (e2e18) + 38 (e2e19) + 31 (e2e20) = 702 checks, all passing. Full OQ: 1384 of 1384 in 57 test cases.
 - **Each suite needs its own freshly loaded fixtures, and nothing else may touch the test database while a suite or
   the API suite runs** — a second API server on the same database writes monitoring rows and job heartbeats and makes
   the OQ-API-33 figures fail at random. Stop your debug servers before running `npm test` or `validation:oq`.

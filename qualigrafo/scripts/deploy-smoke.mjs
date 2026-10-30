@@ -86,11 +86,30 @@ const page = await (await browser.newContext({ ignoreHTTPSErrors: INSECURE, view
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !isNoise(m.text()) && errors.push(m.text()))
+/**
+ * Sign in, and try once more if the first attempt does not land.
+ *
+ * Seen once in CI (run 41027957207, the restart stage): Caddy logged `POST /api/auth/login` as **status 0 after
+ * 59 ms** — the browser cancelled the request — and the API never received it, so nothing was wrong with the
+ * server. The cause of the cancellation is not established, so this does not pretend to fix it: it retries the way
+ * a person would, and leaves a screenshot of the failed attempt as evidence for the next time it happens.
+ */
+const signIn = async () => {
+  await page.getByLabel('Email').fill(EMAIL)
+  await page.getByLabel('Password', { exact: true }).fill(NEW_PASSWORD)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  return await vis(page.locator('.side'), 20000)
+}
 await page.goto(BASE)
-await page.getByLabel('Email').fill(EMAIL)
-await page.getByLabel('Password', { exact: true }).fill(NEW_PASSWORD)
-await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-ok(await vis(page.locator('.side'), 10000), `administrator signs in through the web client${AFTER ? ' after the restart' : ''}`)
+let signedIn = await signIn()
+if (!signedIn) {
+  await page.screenshot({ path: `e2e-out/deploy-smoke-signin-retry${AFTER ? '-after-restart' : ''}.png`, fullPage: true })
+  console.log('  sign-in did not land on the first attempt; reloading and trying once more')
+  await page.reload()
+  await page.waitForTimeout(1000)
+  signedIn = await signIn()
+}
+ok(signedIn, `administrator signs in through the web client${AFTER ? ' after the restart' : ''}`)
 if (!AFTER) {
   ok(await vis(page.getByRole('button', { name: /New project/ }).first()), 'empty installation offers a first project')
   await page.goto(`${BASE}#/admin`)

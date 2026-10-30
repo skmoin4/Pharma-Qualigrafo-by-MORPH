@@ -13,6 +13,7 @@ import { createServer } from 'node:net'
 import { OQ_CASES, URS, catalogueProblems, oqCase, riskPriority, traceability } from '../src/validation/catalogue.ts'
 import { runIq } from '../src/services/iq.ts'
 import { evidenceState, handoverGates, today } from '../src/domain/rules.ts'
+import { starterFor } from '../src/domain/starterLibrary.ts'
 import type { ProjectData, Role } from '../src/domain/types.ts'
 
 const server = app.listen(0)
@@ -609,9 +610,11 @@ try {
   let packs = (await lib(tokens.Contractor, 'GET', '')).json.packs
   ok(packs.length === 5 && packs.every((p: any) => p.versions.length === 0), 'library readable by every user; empty on a new installation')
   ok((await lib(tokens.Contractor, 'POST', '/starter')).status === 403, 'only library editors load the starter template')
-  const st = await lib(QA, 'POST', '/starter')
-  ok(st.status === 201 && st.json.created.join() === 'SA (17),EU (7),IN (9),US (3)', `starter template loaded as drafts (${st.json.created.join(', ')})`)
-  ok((await lib(QA, 'POST', '/starter')).status === 422, 'starter cannot be loaded twice')
+  ok((await lib(QA, 'POST', '/starter', { industries: [] })).status === 422, 'at least one industry group has to be chosen')
+  // Phase 5 / step 2b: an installation loads only the industries it works in. This one is pharma.
+  const st = await lib(QA, 'POST', '/starter', { industries: ['Pharma'] })
+  ok(st.status === 201 && st.json.created.join() === 'SA (17),IN (9),EU (7),US (3)', `starter template loaded as drafts (${st.json.created.join(', ')})`)
+  ok((await lib(QA, 'POST', '/starter', { industries: ['Pharma'] })).status === 422, 'starter cannot be loaded twice')
   packs = st.json.packs
   const vid = (m: string, status = 'Draft') => packs.find((p: any) => p.market === m).versions.find((v: any) => v.status === status)?.id as string
   const sa1 = vid('SA')
@@ -697,6 +700,51 @@ try {
   ok(hp.reqs.some((r) => r.libraryKey === 'TOPIC-01'), 'but an item that filters on no industry still applies to it')
   const pharmaNow = (await get(LP, QA)).json.project as ProjectData
   ok(pharmaNow.updates.some((u) => u.kind === 'Library' && u.summary.includes('1 new')), 'the pharma project is offered the new pharma-only item as a library update')
+
+  // ---------------------------------------------------------------- industry starter packs (Phase 5 / step 2b)
+  section('OQ-API-37')
+  {
+    // The pharma content is unchanged by this step: the per-market sets a pharma installation already approved.
+    ok(starterFor('Pharma', 'SA').length === 17 && starterFor('Pharma', 'EU').length === 7 && starterFor('Pharma', 'IN').length === 9 && starterFor('Pharma', 'US').length === 3, 'the pharma starter sets are exactly the ones that shipped before')
+    ok(starterFor('Pharma', 'UK').length === 0, 'and pharma still has no UK content')
+
+    const hospital = starterFor('Hospital / Healthcare', 'SA')
+    const energy = starterFor('Energy & High-Tech', 'SA')
+    const common = starterFor('Common buildings', 'SA')
+    ok(hospital.length > 0 && energy.length > 0 && common.length > 0, `the three new industry groups have starter content (${hospital.length}, ${energy.length}, ${common.length} topics)`)
+    ok(hospital.some((i) => /medical gas/i.test(i.title)) && common.some((i) => /fire strategy/i.test(i.title)), 'the topics are the ones those industries actually evidence')
+
+    // Energy holds two worlds, so its items say which: a solar farm must not inherit cleanroom requirements.
+    const semi = energy.filter((i) => i.key.startsWith('SEM-'))
+    const solar = energy.filter((i) => i.key.startsWith('SOL-'))
+    ok(semi.length > 0 && semi.every((i) => (i.facilities ?? []).length > 0 && (i.facilities ?? []).every((f) => /^Semiconductor/.test(f))), 'semiconductor items are limited to semiconductor facilities')
+    ok(solar.length > 0 && solar.every((i) => (i.facilities ?? []).length > 0 && (i.facilities ?? []).every((f) => !/^Semiconductor/.test(f))), 'solar and renewable items are limited to the renewable facilities')
+
+    // End to end: this installation adds hospital content. Only UK has no version yet, so that is where it lands.
+    const hos = await lib(QA, 'POST', '/starter', { industries: ['Hospital / Healthcare'] })
+    ok(hos.status === 201 && hos.json.created.join() === `UK (${hospital.length})`, `a second industry can be added later (${hos.json.created.join(', ')})`)
+    const ukDraft = (await lib(QA, 'GET', '')).json.packs.find((p: any) => p.market === 'UK').versions[0]
+    const ukItems = (await lib(QA, 'GET', `/versions/${ukDraft.id}`)).json.version.items
+    ok(ukItems.length > 0 && ukItems.every((i: any) => i.industries.join() === 'Hospital / Healthcare'), 'every loaded item carries the industry group it belongs to')
+    ok(ukItems.every((i: any) => i.clause === ''), 'and stays topic-level: no clause is asserted for it')
+    ok((await lib(RV, 'POST', `/versions/${ukDraft.id}/approve`, { reason: 'Hospital topics accepted as starting scope', password: 'Reviewer-2026-lib' })).status === 200, 'the hospital pack is approved under the same four-eyes rule')
+
+    const mk2 = (industryGroup: string, facilityType: string, code: string, disciplines: string[]) => call('POST', '/projects', {
+      name: `UK ${code}`, client: 'Nova Pharma Ltd', site: 'London', projectCountry: 'UK', markets: [],
+      industryGroup, facilityType, serviceType: 'Design only', scope: 'New plant', projectStage: 'Detailed design',
+      ownerStandards: '', disciplines, companies: [], code,
+      members: [{ userId: ids['Owner / QA'], role: 'Owner / QA' }],
+    }, QA)
+
+    ok((await mk2('Hospital / Healthcare', 'General hospital', 'UK-HOS', ['HVAC', 'Medical Gas'])).status === 201, 'a UK hospital project is created')
+    const uh = (await get('/projects/UK-HOS', QA)).json.project as ProjectData
+    ok(uh.reqs.length > 0 && uh.reqs.every((r) => r.libraryKey?.startsWith('HOS-')), 'it receives the hospital requirements, and only those')
+    ok(uh.reqs.every((r) => r.applicability === 'Assessment pending'), 'they arrive for assessment, not pre-decided')
+
+    ok((await mk2('Pharma', 'Sterile products', 'UK-PHA', ['HVAC'])).status === 201, 'a UK pharma project is created on the same installation')
+    const up = (await get('/projects/UK-PHA', QA)).json.project as ProjectData
+    ok(up.reqs.length === 0, 'and receives nothing: the only approved UK pack is for another industry')
+  }
 
   // adding a market in Setup brings its library
   ok((await lib(RV, 'POST', `/versions/${vid('IN')}/approve`, { reason: 'Accepted as starting scope', password: 'Reviewer-2026-lib' })).status === 200, 'IN pack approved')
@@ -1317,7 +1365,7 @@ try {
     const C = tokens.Consultant
     // catalogue: every requirement traced, every test case verifies something, risk method as specified
     ok(catalogueProblems().length === 0, `validation catalogue consistent${catalogueProblems().length ? ': ' + catalogueProblems().join('; ') : ''}`)
-    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 36, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
+    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 37, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
     ok(riskPriority('High', 'High', 'Low') === 'High' && riskPriority('High', 'Medium', 'Medium') === 'High' && riskPriority('Medium', 'Medium', 'High') === 'Low' && riskPriority('Low', 'Low', 'Low') === 'Medium', 'GAMP 5 risk priority: class from severity x probability, priority from class x detectability')
     const t = traceability(null)
     ok(t.every((u) => u.verdict === 'Not executed' || u.verdict === 'Procedural') && t.length === URS.length, 'traceability without results: Not executed / Procedural, never Pass')
@@ -1467,6 +1515,9 @@ try {
 
   section('OQ-API-33')
   {
+    // The API rate limit is 600 requests per window outside NODE_ENV=test, and the suite is now long enough to
+    // reach it before this block starts; every later block resets it for the same reason.
+    resetApiRate()
     const fs = await import('node:fs')
     const os = await import('node:os')
     const path = await import('node:path')

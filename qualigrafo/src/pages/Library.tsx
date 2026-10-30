@@ -197,6 +197,13 @@ export default function Library() {
   const { session, toast } = useStore()
   const editor = !!session?.canCreateProjects
   const { packs, error, reload } = useLibraryPacks()
+  const { ref: industries } = useIndustries()
+  /**
+   * Nothing is ticked to begin with, as with the industry group in the project wizard. Loading all four by default
+   * would hand a pharma installation sixty-odd hospital, solar and building topics to review and approve, which is
+   * work they never asked for; and choosing one for them would be the old pharma bias in a new place.
+   */
+  const [starterGroups, setStarterGroups] = useState<string[]>([])
   const [market, setMarket] = useState<string | null>(null)
   const [vid, setVid] = useState<string | null>(null)
   const pack: LibPack | undefined = packs?.find((p) => p.market === market) ?? packs?.find((p) => p.versions.length) ?? packs?.[0]
@@ -206,7 +213,7 @@ export default function Library() {
   const nothingApproved = !!packs && packs.every((p) => !approvedOf(p))
 
   const starter = async () => {
-    try { const r = await api<{ created: string[] }>('POST', '/library/starter'); toast(`Starter drafts created: ${r.created.join(', ')}`); await reload() } catch (e) { toast(errorText(e), 'warn') }
+    try { const r = await api<{ created: string[] }>('POST', '/library/starter', { industries: starterGroups }); toast(`Starter drafts created: ${r.created.join(', ')}`); await reload() } catch (e) { toast(errorText(e), 'warn') }
   }
   const newDraft = async (m: string) => {
     try { const r = await api<{ version: LibVersion }>('POST', `/library/packs/${m}/drafts`); toast(`Draft v${r.version.version} created`); await reload(); setVid(r.version.id) } catch (e) { toast(errorText(e), 'warn') }
@@ -229,7 +236,20 @@ export default function Library() {
         <section className="card" style={{ marginBottom: 14 }}>
           <Empty title="No requirement library yet">
             Projects get their requirements from approved library packs. Start from the unverified starter template (topic-level, no clauses) and verify it, or import your own packs as CSV.
-            {editor && <><br /><button className="btn pri" style={{ marginTop: 10 }} onClick={starter}><FilePlus2 size={14} /> Load unverified starter template</button></>}
+            {editor && (
+              <>
+                <div className="row wrap" style={{ justifyContent: 'center', gap: 10, marginTop: 12 }}>
+                  {(industries?.groups ?? []).map((g) => (
+                    <label key={g.key} className="row" style={{ gap: 4 }}>
+                      <input type="checkbox" checked={starterGroups.includes(g.key)} onChange={(e) => setStarterGroups(e.target.checked ? [...starterGroups, g.key] : starterGroups.filter((x) => x !== g.key))} />
+                      <span className="small">{g.key}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="muted small" style={{ marginTop: 6 }}>Choose the industries this installation works in — a requirement is only ever offered to a project of its own industry group. More can be added later.</p>
+                <button className="btn pri" style={{ marginTop: 6 }} disabled={!starterGroups.length} onClick={starter}><FilePlus2 size={14} /> Load unverified starter template</button>
+              </>
+            )}
           </Empty>
         </section>
       )}

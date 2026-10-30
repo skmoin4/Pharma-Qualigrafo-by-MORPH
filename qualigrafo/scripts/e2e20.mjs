@@ -121,6 +121,13 @@ await page.waitForTimeout(1500)
 ok(!(await text()).includes('Revit model snapshots'), 'a design-only commission is not offered BIM pages')
 await shot('04-design-only-sources')
 
+// ---- 5b. the governing authority is not a medicines regulator on a non-pharma project
+await go('sources', 'setup')
+await page.waitForTimeout(1500)
+const setup = await text()
+ok(setup.includes('National and local authorities'), 'a hospital project is not told that SFDA or the FDA governs it')
+ok(!/SFDA/.test(setup), 'the pharma regulator names are gone from a non-pharma project')
+
 // ---- 6. a draft saved before the template loaded still gets its disciplines
 await basics('Reloaded Clinic')
 await pick('Hospital / Healthcare').click()
@@ -138,12 +145,18 @@ ok(!(await next().isDisabled()), 'so the step can be passed instead of being stu
 // ---- 7. a library item can be restricted to an industry group
 await page.goto(BASE + '#/library')
 await page.waitForTimeout(1500)
+// Phase 5 / step 2b: an installation loads only the industries it works in. This one is a hospital practice.
+ok(await page.getByRole('button', { name: /Load unverified starter template/ }).isDisabled(), 'nothing is loaded until an industry is chosen')
+await page.locator('label', { hasText: 'Hospital / Healthcare' }).locator('input[type=checkbox]').check()
+await shot('05-starter-industry-choice')
 await page.getByRole('button', { name: /Load unverified starter template/ }).click()
-await page.waitForTimeout(2500)
+await page.waitForTimeout(3000)
 const lib = await text()
-ok(lib.includes('Pharma'), 'the starter template we ship states that it applies to Pharma, so it cannot reach another industry')
-ok(lib.includes('All facility types'), 'and that it applies to every facility type of that industry')
-await shot('05-library-industries')
+ok(/Hospital \/ Healthcare/.test(lib), 'the loaded requirements state the industry group they belong to')
+ok(/Medical [Gg]as/.test(lib), 'the hospital topics are there')
+ok(!/Premises layout|Purified water/.test(lib), 'and the pharma topics were not loaded, because that industry was unticked')
+ok(/Unverified starter template/.test(lib), 'the pack is still marked unverified until the customer approves it')
+await shot('06-library-hospital-pack')
 
 ok(!errors.length, `no browser errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`)
 await browser.close()

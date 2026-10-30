@@ -66,3 +66,16 @@ export function useTemplate(c: { industryGroup: string; facilityType: string; se
   }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
   return { template, error }
 }
+
+/**
+ * What to call the governing authority for a market in a given industry (decision §6.4.5: the regulatory-authority
+ * logic stays but becomes industry-aware). The named authorities in the market reference data are the **medicines**
+ * regulators — SFDA, CDSCO, EMA, FDA, MHRA — so showing them on a hospital or solar project would be plainly wrong.
+ * Outside pharma the governing bodies differ per country, per facility and often per municipality, and naming one
+ * would be regulatory content we are not entitled to assert, so the label says where to look instead.
+ */
+export const authorityFor = (industryGroup: string, pharmaAuthority: string) =>
+  industryGroup === 'Pharma' ? pharmaAuthority : 'National and local authorities — confirm per project'
+
+export const referenceBaseFor = (industryGroup: string, pharmaBase: string) =>
+  industryGroup === 'Pharma' ? pharmaBase : 'Applicable national building, fire, electrical and sector codes, as confirmed for this project'

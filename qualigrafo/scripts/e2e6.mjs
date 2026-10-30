@@ -60,6 +60,8 @@ ok(!(await vis(page.getByRole('button', { name: 'Add requirement' }), 800)), 'co
 // ---- Owner / QA loads the starter and edits the SA draft
 await switchRole(page, 'Owner / QA')
 await lib()
+// Phase 5 / step 2b: the starter template covers four industry groups and none is loaded unless it is chosen.
+await page.locator('label', { hasText: 'Pharma' }).locator('input[type=checkbox]').check()
 await page.getByRole('button', { name: 'Load unverified starter template' }).click()
 ok(await toast('Starter drafts created'), 'starter template loaded as drafts')
 ok(await vis(page.locator('.lib-grid h2', { hasText: 'v1' }).first()), 'first pack draft v1 opened')

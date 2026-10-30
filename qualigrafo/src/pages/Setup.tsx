@@ -3,7 +3,7 @@ import { ExternalLink } from 'lucide-react'
 import { markets } from '../data/reference'
 import { useStore } from '../store'
 import type { BimRequirement, IndustryGroup, MarketKey, Scope, ServiceType } from '../types'
-import { CUSTOM_FACILITY, facilitiesOf, includesBim, useIndustries } from '../industries'
+import { CUSTOM_FACILITY, authorityFor, facilitiesOf, includesBim, referenceBaseFor, useIndustries } from '../industries'
 import { Badge, MarketChip, PageHead, fmtDate, home } from '../components/ui'
 import { approvedOf, draftOf, useLibraryPacks } from '../library'
 
@@ -220,8 +220,8 @@ export default function Setup() {
               {(Object.keys(markets) as MarketKey[]).map((k) => { const pk = packs?.find((p) => p.market === k), a = approvedOf(pk), d = draftOf(pk); return (
                 <tr key={k}>
                   <td><MarketChip m={k} /> {markets[k].name}</td>
-                  <td>{markets[k].authority}</td>
-                  <td>{markets[k].base}</td>
+                  <td>{authorityFor(profile.industryGroup, markets[k].authority)}</td>
+                  <td>{referenceBaseFor(profile.industryGroup, markets[k].base)}</td>
                   <td>{!packs ? <span className="muted small">Loading…</span> : a ? <><Badge tone="green">Library v{a.version} approved · {a.items} items</Badge><small>{a.approvedByName}{a.approvedAt ? ` · ${fmtDate(a.approvedAt)}` : ''}{a.starter ? ' · from unverified starter' : ''}{d ? ` · draft v${d.version} in progress` : ''}</small></> : <><Badge tone="amber">{d ? `Draft v${d.version} · not approved` : 'No library pack'}</Badge><small>Projects get no requirements for this market until a version is approved</small></>}</td>
                   <td><a href={markets[k].url} target="_blank" rel="noopener noreferrer">Official source <ExternalLink size={11} /></a></td>
                 </tr>

@@ -7,7 +7,7 @@ import type { NewProject as Spec } from '../store'
 import type { BimRequirement, IndustryGroup, MarketKey, Role, Scope, ServiceType } from '../types'
 import { Badge, MarketChip, PageHead, home, openProjectRoute } from '../components/ui'
 import { approvedOf, useLibraryPacks } from '../library'
-import { CUSTOM_FACILITY, classificationText, facilitiesOf, includesBim, useIndustries, useTemplate } from '../industries'
+import { CUSTOM_FACILITY, authorityFor, classificationText, facilitiesOf, includesBim, useIndustries, useTemplate } from '../industries'
 
 /** One line per service type, from the client's own specification. */
 const SERVICE_HINT: Record<string, string> = {
@@ -213,7 +213,7 @@ export default function NewProject() {
                 {(Object.keys(markets) as MarketKey[]).map((k) => (
                   <label key={k} className="row" style={{ padding: '4px 0', fontWeight: 500 }}>
                     <input type="checkbox" checked={k === f.projectCountry || f.markets.includes(k)} disabled={k === f.projectCountry} onChange={(e) => toggleMarket(k, e.target.checked)} />
-                    <MarketChip m={k} /> {markets[k].name} <span className="muted small">{markets[k].authority}{k === f.projectCountry ? ' · project country' : ''}</span>
+                    <MarketChip m={k} /> {markets[k].name} <span className="muted small">{f.industryGroup ? authorityFor(f.industryGroup, markets[k].authority) : markets[k].authority}{k === f.projectCountry ? ' · project country' : ''}</span>
                   </label>
                 ))}
               </div>

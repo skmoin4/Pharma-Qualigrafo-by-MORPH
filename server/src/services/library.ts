@@ -4,8 +4,9 @@ import { prisma } from '../db.ts'
 import type { Tx } from '../db.ts'
 import { ALL_FACILITIES, MARKETS } from '../domain/enums.ts'
 import { INDUSTRY_GROUPS, isIndustryGroup } from '../domain/industries.ts'
+import type { IndustryGroup } from '../domain/industries.ts'
 import { markets as MARKET_INFO } from '../domain/reference.ts'
-import { STARTER_LIBRARY } from '../domain/starterLibrary.ts'
+import { STARTER_INDUSTRIES, STARTER_LIBRARY, starterFor, starterMarkets } from '../domain/starterLibrary.ts'
 import type { MarketKey } from '../domain/types.ts'
 import { forbidden, notFound, rule } from '../lib/http.ts'
 import { securityLog } from '../lib/security.ts'
@@ -107,22 +108,29 @@ async function packFor(tx: Tx, market: MarketKey) {
   return tx.libraryPack.upsert({ where: { market }, update: {}, create: { market, name: `${MARKET_INFO[market].name} (${MARKET_INFO[market].authority})` } })
 }
 
-/** Creates DRAFT v1 packs from the unverified starter template for every market that has no library yet. */
-export async function loadStarter(user: AuthUser) {
+/**
+ * Creates DRAFT v1 packs from the unverified starter template for every market that has no library yet.
+ * `industries` says which industry groups to include (default: all of them). Each item is written with the industry
+ * group it belongs to, so a pack can hold several industries and a project only ever receives its own — without it
+ * an empty list would mean "applies everywhere", which is what a customer's own item still means.
+ */
+export async function loadStarter(user: AuthUser, industries: IndustryGroup[] = STARTER_INDUSTRIES) {
   await assertEditor(user)
+  const chosen = STARTER_INDUSTRIES.filter((i) => industries.includes(i))
+  if (!chosen.length) throw rule('Choose at least one industry group to load.')
   const made = await prisma.$transaction(async (tx) => {
     await lock(tx)
     const out: string[] = []
-    for (const [m, items] of Object.entries(STARTER_LIBRARY) as [MarketKey, NonNullable<(typeof STARTER_LIBRARY)[MarketKey]>][]) {
+    for (const m of starterMarkets(chosen, MARKETS)) {
+      const items = chosen.flatMap((industry) => starterFor(industry, m).map((i) => ({ ...i, industries: [industry] })))
+      if (!items.length) continue
       const pack = await packFor(tx, m)
       if (await tx.libraryVersion.count({ where: { packId: pack.id } })) continue
       await tx.libraryVersion.create({
         data: {
-          packId: pack.id, version: 1, status: 'Draft', starter: true, note: 'Unverified starter template: topic-level entries. Verify against the official texts, add clause, source version and effective date, then approve.',
+          packId: pack.id, version: 1, status: 'Draft', starter: true, note: `Unverified starter template for ${chosen.join(', ')}: topic-level entries. Verify against the official texts, add clause, source version and effective date, then approve.`,
           createdByUserId: user.id, createdByName: user.name, updatedByUserId: user.id,
-          // The starter content is pharma: without this it would apply to every industry group, because an empty
-          // list means "all". A customer authoring their own items still gets "all" when they filter on nothing.
-          items: { create: items.map((i, position) => ({ ...i, position, facilities: [], industries: ['Pharma'] })) },
+          items: { create: items.map(({ key, title, topic, discipline, critical, facilities, industries: ind }, position) => ({ key, title, topic, discipline, critical, position, facilities: facilities ?? [], industries: ind })) },
         },
       })
       out.push(`${m} (${items.length})`)

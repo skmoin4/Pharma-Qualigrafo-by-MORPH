@@ -36,8 +36,11 @@ engineering teams can run real projects on, and the order in which to build it.
 > generated from the classification and registered as Missing, deliverables that follow the service type (and BIM
 > pages with them), and a per-industry filter on requirement library items (§6.7).
 >
-> **Next: Phase 5 step 2b** — requirement starter packs for the three non-pharma industries, then step 3 (document
-> control). Session guide: `CLAUDE.md`.
+> **Phase 5 / step 2b is done (2026-10-30)** — requirement starter packs for hospital, energy & high-tech and common
+> buildings, loaded per industry by choice, with the pharma sets unchanged and the authority label no longer naming a
+> medicines regulator on a non-pharma project (§6.7).
+>
+> **Next: Phase 5 step 3** — document control: version vs formal revision (§6.5 step 3). Session guide: `CLAUDE.md`.
 
 | Phase | Status |
 |---|---|
@@ -1008,6 +1011,44 @@ Two extra rules for this phase, because it touches shipped records:
   before. The existing pharma browser suites are the proof and must not be edited to accommodate new behaviour.
 
 ### 6.7 Progress
+
+#### Phase 5 / step 2b — industry requirement packs (done 2026-10-30)
+
+Step 2 shipped the engine; this is the content that goes through it. A non-pharma project now arrives with
+requirements as well as disciplines and deliverables.
+
+| Part | What was done |
+|---|---|
+| Three new topic sets | Hospital / Healthcare (15 topics), Energy & High-Tech (21), Common buildings (13), beside the pharma sets. The topics are the ones those industries actually evidence — medical gas purity and verification, isolation-room pressure regimes, radiation shielding; array stringing, earthing and lightning, grid connection and protection settings; fire strategy and means of escape, façade performance, accessibility |
+| Pharma is untouched | The per-market pharma sets (SA 17, IN 9, EU 7, US 3) are **byte-for-byte** what pharma installations already approved, restored from the previous revision rather than retyped, and asserted as such in the suite |
+| One group, two worlds | Inside Energy & High-Tech every item states whether it belongs to the **renewable** or the **semiconductor** facilities, so a solar farm is never given cleanroom or specialty-gas requirements and a wafer fab is never given array stringing |
+| Loaded by choice | `POST /library/starter` takes the industry groups to load, and the library's empty state offers them as tick boxes. A hospital practice loads hospital content only. Each loaded item records its industry group, so the step-2 filter keeps it to projects of that industry |
+| Authority naming (decision §6.4.5) | The market reference data names the **medicines** regulators — SFDA, CDSCO, EMA, FDA, MHRA — which is simply wrong on a hospital or solar project. In a project context the label is now industry-aware: outside pharma it reads "National and local authorities — confirm per project". Naming a specific non-pharma regulator per country would be regulatory content we are not entitled to assert |
+
+**What these packs are.** Topic-level entries with **no clause, edition or effective date**, exactly like the pharma
+starter template: a list of topics an engineering project in that industry normally has to evidence, not regulation
+and not a claim of completeness. The customer's own qualified reviewer supplies the instrument and clause and a
+second editor approves it, under the same four-eyes rule. The version stays marked as an unverified starter until
+they do. The topics are the same in every market on purpose: what changes per country is the governing instrument,
+which is precisely the part we leave blank — writing different topic sets per country would be inventing regulatory
+judgement.
+
+**No industry is loaded unless it is chosen.** The first version ticked all four by default, which handed a pharma
+installation sixty-odd hospital, solar and building topics to verify and approve — work nobody asked for — and
+`e2e6` caught it by reading 66 items where it expected 19. Ticking one group for the customer would have been the
+old pharma bias in a new place, so the button stays disabled until they choose, exactly as the industry group and
+service type do in the project wizard. `e2e6` gained one line to tick Pharma; not one of its assertions changed.
+
+**A test-infrastructure limit this step reached.** The API rate limit is 600 requests per window outside
+`NODE_ENV=test`, and the suite had grown long enough to reach it before the monitoring block ran, which surfaced as
+two unrelated-looking failures in that block. It now resets the limit at the start of that block, as the later
+blocks already did.
+
+Tests: **API 682 checks** (was 666: OQ-API-37 — the pharma sets asserted unchanged, the three new topic sets, the
+renewable / semiconductor split, loading a second industry later, and end to end a UK hospital project that receives
+the hospital requirements while a UK pharma project on the same installation receives none). `e2e20` grew to **31
+checks**. Full OQ: **1384 of 1384 in 57 test cases** (682 API + 702 browser), up from 1363 in 56, with no case losing
+a check.
 
 #### Phase 5 / step 2 — template engine (done 2026-10-30)
 

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { AlertOctagon, CheckCircle2, Printer } from 'lucide-react'
 import { markets } from '../data/reference'
 import { evidenceState, useStore } from '../store'
+import { authorityFor, referenceBaseFor } from '../industries'
 import { Applic, Badge, Empty, MarketChip, PageHead, R, StateBadge, fmtDate, useUI } from '../components/ui'
 
 const STROKE = { ok: '#1c7a4f', wait: '#cf9322', bad: '#cf5a4f' }
@@ -71,7 +72,7 @@ export function EvidenceMap() {
 }
 
 export function Inspector() {
-  const { reqs, docs, markets: sel } = useStore()
+  const { reqs, docs, markets: sel, profile } = useStore()
   const open = useUI((s) => s.open)
   const list = reqs.filter((r) => sel.includes(r.market) && r.applicability !== 'Assessment pending')
   const [id, setId] = useState(list.find((r) => r.id === 'REQ-008')?.id ?? list[0]?.id)
@@ -94,7 +95,7 @@ export function Inspector() {
             </div></div>
             <div className="node"><div className="nbox">
               <b>Source and applicability</b>
-              <p className="small" style={{ margin: '5px 0' }}>{m.authority} — {m.base}</p>
+              <p className="small" style={{ margin: '5px 0' }}>{authorityFor(profile.industryGroup, m.authority)} — {referenceBaseFor(profile.industryGroup, m.base)}</p>
               <p className="small muted">{r.topic}</p>
               <p className="small" style={{ marginTop: 6 }}><Applic a={r.applicability} /> {r.rationale}</p>
             </div></div>

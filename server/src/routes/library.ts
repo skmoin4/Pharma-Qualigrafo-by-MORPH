@@ -3,6 +3,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { ALL_FACILITIES, MARKETS } from '../domain/enums.ts'
+import { INDUSTRY_GROUPS } from '../domain/industries.ts'
 import { currentUser, reauthenticate } from '../middleware/auth.ts'
 import { securityLog } from '../lib/security.ts'
 import * as L from '../services/library.ts'
@@ -19,7 +20,8 @@ library.get('/', async (_req, res) => { res.json({ packs: await L.listLibrary() 
 library.get('/versions/:id', async (req, res) => { res.json({ version: await L.getVersion(req.params.id) }) })
 
 library.post('/starter', async (req, res) => {
-  const made = await L.loadStarter(currentUser(req))
+  const b = z.object({ industries: z.array(z.enum(INDUSTRY_GROUPS)).optional() }).parse(req.body ?? {})
+  const made = await L.loadStarter(currentUser(req), b.industries)
   res.status(201).json({ created: made, packs: await L.listLibrary() })
 })
 library.post('/packs/:market/drafts', async (req, res) => {
