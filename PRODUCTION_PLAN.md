@@ -32,7 +32,12 @@ engineering teams can run real projects on, and the order in which to build it.
 > with their own facility lists, mandatory service type, project stage, the BIM requirement block, a rename-only
 > migration with the backfill proven on old-shape rows (`npm run migration:check`), and portfolio filters (§6.7).
 >
-> **Next: Phase 5 step 2** — the template engine (§6.5 step 2). Session guide: `CLAUDE.md`.
+> **Phase 5 / step 2 is done (2026-10-30)** — the template engine: per-industry disciplines, a deliverable register
+> generated from the classification and registered as Missing, deliverables that follow the service type (and BIM
+> pages with them), and a per-industry filter on requirement library items (§6.7).
+>
+> **Next: Phase 5 step 2b** — requirement starter packs for the three non-pharma industries, then step 3 (document
+> control). Session guide: `CLAUDE.md`.
 
 | Phase | Status |
 |---|---|
@@ -1003,6 +1008,62 @@ Two extra rules for this phase, because it touches shipped records:
   before. The existing pharma browser suites are the proof and must not be edited to accommodate new behaviour.
 
 ### 6.7 Progress
+
+#### Phase 5 / step 2 — template engine (done 2026-10-30)
+
+A project is now given what its classification implies instead of pharma defaults. This is the step that answers the
+client's actual failure: their project was created **empty**, so there was nothing to do next.
+
+| Part | What was done |
+|---|---|
+| The engine | `server/src/domain/templates.ts` resolves a classification to a template: the **disciplines** of its industry group and facility type, the **deliverables** it owes, and the specialised controls the industry expects. One resolver serves both the wizard's preview and creation, so what the wizard promises is exactly what creation does |
+| Disciplines per industry | Pharma keeps the eight it always had (so every pharma suite passes unedited). Hospital gets medical gas, medical equipment, ICT & nurse call; common buildings get façade and site coordination. **Inside Energy & High-Tech the facility type still decides**: a solar project gets array, grid interface, SCADA and BESS, a semiconductor fab gets cleanroom, high-purity piping, specialty gases and tool hook-up |
+| Deliverables | Project-wide deliverables plus a set per chosen discipline, registered as documents with status **Missing** at revision R00, owned by the client for the team to reassign. Due dates are a staged starting plan derived from the project stage — said so in the wizard, because the wizard asks for no programme |
+| The service type decides what exists | Every deliverable carries a **track**. A design-only commission is given no model, BEP or MIDP; a BIM-only commission is given no calculations or specifications; Design + BIM gets both. The same rule reaches the interface: BIM pages are not offered on a design-only project, the Revit connector starts on for a BIM commission and off otherwise — **but anything already published stays visible**, because a classification change must never hide records that exist |
+| It can be switched off | A team that brings its own register unticks the generation in the wizard; the project is then created with an empty register and that choice is audited. The alternative — forcing a template on everyone — would repeat the mistake of deciding for the customer |
+| Library applicability per industry | `LibraryItem.industries` (migration `library_industry_applicability`, a nullable column). Empty still means "all", which is what every item authored before this step holds, **but the starter library we ship now states `Pharma`** — otherwise its topics would land on a hospital or solar project simply because they filtered on nothing. The library editor offers the industry groups, and narrows the facility list to the ticked ones rather than offering all 112 |
+| Audit | Creation records what was generated: how many deliverables, how many critical, from which template, and to whom they were assigned — or that no template was applied |
+
+**What this step does not do.** No requirement *content* for the new industries: the hospital, solar / renewable,
+semiconductor and common-building starter packs are **step 2b**, deliberately separated so the engine could ship and
+be tested first. A non-pharma project therefore gets its disciplines and its deliverable register, but its
+requirements only once a library pack for its market is approved and marked for its industry.
+
+**One behaviour deliberately changed.** The API suite asserted that a new project "starts with no records". It no
+longer does — that assertion encoded exactly the emptiness the client complained about, so it was rewritten to
+assert the new behaviour (deliverables registered as Missing, each belonging to a discipline of the project). It is
+the only assertion in the whole suite that was changed rather than added.
+
+**A test bug this step exposed.** `waitIdle` in the API suite waited for the backup to stop being "busy", but a
+backup is no longer busy while its **test restore** is still running. With a larger database the check began reading
+`verifyStatus: 'Running'` instead of `'Verified'`. It now waits for the verification as `deploy-smoke.mjs` already
+did — the same class of latent flakiness that the pg_dump bug showed up as on CI.
+
+**Critical is kept rare.** "Critical" drives the handover gates and the reminders, so the template marks only the
+formally issued artefacts — GFC / IFC drawings, as-built drawings, the commissioning and testing plan and the
+handover dossier index. A first draft marked calculations, layouts and models critical too, which made 43 of 73
+deliverables critical; a register where most rows are critical says nothing at all. It is now about one in five.
+
+**A defect the OQ caught, in this step's own code.** The chosen disciplines mirror the template until the user
+edits them, and "edited" was wrongly taken to include "a draft was restored". A draft saved **before** the template
+had loaded holds no disciplines, so after a reload the list stayed empty and the Registers step could never be
+passed — the same class of defect as the one the client reported in step 0, found this time by `e2e18` (the client's
+own test case) dropping from 46 checks to 24. It is fixed, and `e2e20` now covers the exact sequence. Note that the
+**total** would have looked like a small dip; the per-case counts are what showed a suite aborting, which is why
+§6.6's regression gate compares per case.
+
+Tests: **API 666 checks** (was 634: OQ-API-36 for the template engine — per-industry disciplines, solar against
+semiconductor inside one group, the track rules per service type, generation and its opt-out, the connector
+following the service type — plus the industry filter proved end to end in the library block, where a pharma-only
+item is kept off a hospital project while an item that filters on nothing still reaches it). New browser suite
+**`e2e20.mjs` with 26 checks**. Full OQ: **1363 of 1363 in 56 test cases** (666 API + 697 browser), up from 1305 in
+54. Gates of §6.6: regression green with no case losing a check, the client's own test case (`e2e18`) still at 46,
+migration additive and nullable (`npm run migration:check` re-run), scale unchanged, CI green.
+
+**Next: Phase 5 / step 2b — industry requirement packs**, then **step 3** (document control: version vs formal
+revision, §6.5 step 3). The packs are unverified starter templates the customer's own quality unit approves
+(decision §6.4.3), and they are what makes a hospital or solar project arrive with requirements as well as
+deliverables.
 
 #### Phase 5 / step 1 — project classification + unified wizard (done 2026-10-30)
 

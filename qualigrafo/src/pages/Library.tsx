@@ -7,12 +7,10 @@ import { useStore } from '../store'
 import { markets } from '../data/reference'
 import { Badge, Empty, MarketChip, PageHead, fmtDate } from '../components/ui'
 import { parseCsv } from './Registers'
+import { CUSTOM_FACILITY, useIndustries } from '../industries'
 
-// The facility types library items are authored against today. The server accepts any industry group's facility
-// type, so hospital and energy packs can be authored; offering them per industry here is Phase 5 step 2.
-const FAC: string[] = ['API', 'Non-sterile formulation', 'Sterile products', 'Biologics', 'Warehouse']
-type ItemForm = { key: string; title: string; topic: string; discipline: string; facilities: string[]; critical: boolean; clause: string; sourceVersion: string; effective: string; guidance: string }
-const EMPTY: ItemForm = { key: '', title: '', topic: '', discipline: '', facilities: [], critical: false, clause: '', sourceVersion: '', effective: '', guidance: '' }
+type ItemForm = { key: string; title: string; topic: string; discipline: string; facilities: string[]; industries: string[]; critical: boolean; clause: string; sourceVersion: string; effective: string; guidance: string }
+const EMPTY: ItemForm = { key: '', title: '', topic: '', discipline: '', facilities: [], industries: [], critical: false, clause: '', sourceVersion: '', effective: '', guidance: '' }
 const tone = (s: string) => (s === 'Approved' ? 'green' : s === 'Draft' ? 'amber' : '')
 const changeTone = (c: string) => (c === 'Added' || c === 'New' ? 'blue' : c.startsWith('Changed') ? 'amber' : '')
 
@@ -20,7 +18,12 @@ function ItemEditor({ initial, keyLocked, onSave, onCancel }: { initial: ItemFor
   const [f, setF] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { ref: industries } = useIndustries()
   const save = async () => { setBusy(true); const er = await onSave(f); setBusy(false); setError(er) }
+  // Offering 112 facility types at once is unusable: the ticked industry groups narrow the list, and with none
+  // ticked the item applies everywhere, so every group's facility types are offered.
+  const groups = (industries?.groups ?? []).filter((g) => !f.industries.length || f.industries.includes(g.key))
+  const facilityChoices = [...new Set(groups.flatMap((g) => g.facilities))].filter((x) => x !== CUSTOM_FACILITY)
   const set = (k: keyof ItemForm, v: unknown) => setF({ ...f, [k]: v })
   return (
     <div className="card" style={{ margin: '8px 0', background: 'rgba(255, 255, 255, 0.55)' }}>
@@ -34,8 +37,11 @@ function ItemEditor({ initial, keyLocked, onSave, onCancel }: { initial: ItemFor
         <div><label className="lab">Critical</label><label className="row" style={{ height: 30 }}><input type="checkbox" checked={f.critical} onChange={(e) => set('critical', e.target.checked)} /><span className="small">Critical requirement</span></label></div>
       </div>
       <label className="lab">Topic / scope note</label><input className="input" value={f.topic} onChange={(e) => set('topic', e.target.value)} aria-label="Item topic" />
+      <label className="lab">Applies to industry groups (none ticked = all)</label>
+      <div className="row wrap">{(industries?.groups ?? []).map((g) => <label key={g.key} className="row" style={{ gap: 4 }}><input type="checkbox" checked={f.industries.includes(g.key)} onChange={(e) => set('industries', e.target.checked ? [...f.industries, g.key] : f.industries.filter((y) => y !== g.key))} /><span className="small">{g.key}</span></label>)}</div>
       <label className="lab">Applies to facility types (none ticked = all)</label>
-      <div className="row wrap">{FAC.map((x) => <label key={x} className="row" style={{ gap: 4 }}><input type="checkbox" checked={f.facilities.includes(x)} onChange={(e) => set('facilities', e.target.checked ? [...f.facilities, x] : f.facilities.filter((y) => y !== x))} /><span className="small">{x}</span></label>)}</div>
+      <p className="muted small" style={{ margin: '0 0 4px' }}>Only the facility types of the ticked industry groups are offered; with none ticked, every group's are.</p>
+      <div className="row wrap">{facilityChoices.map((x) => <label key={x} className="row" style={{ gap: 4 }}><input type="checkbox" checked={f.facilities.includes(x)} onChange={(e) => set('facilities', e.target.checked ? [...f.facilities, x] : f.facilities.filter((y) => y !== x))} /><span className="small">{x}</span></label>)}</div>
       <label className="lab">Guidance for reviewers (optional)</label><textarea className="input" style={{ minHeight: 48 }} value={f.guidance} onChange={(e) => set('guidance', e.target.value)} aria-label="Item guidance" />
       {error && <div className="notice err small" style={{ marginTop: 8 }}>{error}</div>}
       <div className="row" style={{ marginTop: 10 }}><button className="btn pri" disabled={busy} onClick={save}>Save item</button><button className="btn" onClick={onCancel}>Cancel</button></div>
@@ -43,7 +49,7 @@ function ItemEditor({ initial, keyLocked, onSave, onCancel }: { initial: ItemFor
   )
 }
 
-const CSV_HEAD: Record<string, keyof ItemForm> = { key: 'key', title: 'title', topic: 'topic', discipline: 'discipline', facilities: 'facilities', 'facility types': 'facilities', critical: 'critical', clause: 'clause', section: 'clause', 'source version': 'sourceVersion', edition: 'sourceVersion', effective: 'effective', 'effective date': 'effective', guidance: 'guidance' }
+const CSV_HEAD: Record<string, keyof ItemForm> = { key: 'key', title: 'title', topic: 'topic', discipline: 'discipline', facilities: 'facilities', 'facility types': 'facilities', industries: 'industries', 'industry groups': 'industries', critical: 'critical', clause: 'clause', section: 'clause', 'source version': 'sourceVersion', edition: 'sourceVersion', effective: 'effective', 'effective date': 'effective', guidance: 'guidance' }
 function csvItems(text: string): { rows: ItemForm[]; error: string | null } {
   const t = parseCsv(text)
   if (t.length < 2) return { rows: [], error: 'Needs a header row and at least one item.' }
@@ -149,13 +155,16 @@ function VersionView({ id, editor, onChanged }: { id: string; editor: boolean; o
         <thead><tr><th>Key</th><th>Requirement</th><th>Discipline</th><th>Applies to</th><th>Source</th>{v.comparedWith !== null || draft ? <th>Change</th> : null}<th /></tr></thead>
         <tbody>
           {shown.map((i) => edit === i.id ? (
-            <tr key={i.id}><td colSpan={7}><ItemEditor initial={{ key: i.key, title: i.title, topic: i.topic, discipline: i.discipline, facilities: i.facilities, critical: i.critical, clause: i.clause, sourceVersion: i.sourceVersion, effective: i.effective, guidance: i.guidance }} keyLocked onSave={(f) => saveItem(f, i)} onCancel={() => setEdit(null)} /></td></tr>
+            <tr key={i.id}><td colSpan={7}><ItemEditor initial={{ key: i.key, title: i.title, topic: i.topic, discipline: i.discipline, facilities: i.facilities, industries: i.industries ?? [], critical: i.critical, clause: i.clause, sourceVersion: i.sourceVersion, effective: i.effective, guidance: i.guidance }} keyLocked onSave={(f) => saveItem(f, i)} onCancel={() => setEdit(null)} /></td></tr>
           ) : (
             <tr key={i.id}>
               <td style={{ whiteSpace: 'nowrap' }}><b>{i.key}</b>{i.critical && <small style={{ color: 'var(--red)' }}>Critical</small>}</td>
               <td>{i.title}{i.topic && <small>{i.topic}</small>}</td>
               <td>{i.discipline}</td>
-              <td>{i.facilities.length ? i.facilities.join(', ') : <span className="muted">All facilities</span>}</td>
+              <td className="small">
+                {(i.industries ?? []).length ? (i.industries ?? []).join(', ') : <span className="muted">All industries</span>}
+                <small>{i.facilities.length ? i.facilities.join(', ') : 'All facility types'}</small>
+              </td>
               <td>{i.clause || i.sourceVersion || i.effective ? <>{i.clause || '—'}<small>{[i.sourceVersion, i.effective].filter(Boolean).join(' · ')}</small></> : <span className="muted small">Clause not recorded</span>}</td>
               {v.comparedWith !== null || draft ? <td><Badge tone={changeTone(i.change)} dot={false}>{i.change}</Badge></td> : null}
               <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{canEdit && <><button className="iconbtn" onClick={() => { setEdit(i.id); setImporting(false) }} aria-label={`Edit ${i.key}`}><Pencil size={13} /></button> <button className="iconbtn" onClick={() => { if (confirm(`Remove ${i.key} from this draft?`)) void call(api('DELETE', `/library/items/${i.id}`), `${i.key} removed`) }} aria-label={`Remove ${i.key}`}><Trash2 size={13} /></button></>}</td>

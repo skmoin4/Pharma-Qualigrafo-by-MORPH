@@ -11,9 +11,17 @@ export async function approvedVersion(tx: Tx, market: string) {
   return tx.libraryVersion.findFirst({ where: { status: 'Approved', pack: { market } }, include: { items: { orderBy: { position: 'asc' } }, pack: true } })
 }
 
-/** Items that apply to the facility type (an empty list applies to every facility). */
-export const forFacility = <T extends { facilities: unknown }>(items: T[], facility: string) =>
-  items.filter((i) => { const f = (i.facilities as string[]) ?? []; return !f.length || f.includes(facility) })
+/**
+ * Items that apply to a project: both the facility filter and, since Phase 5 / step 2, the industry filter. An empty
+ * (or absent) list means "every one of them", which is what every item authored before this step holds — except the
+ * starter library we ship, which states `Pharma` so that its topics do not land on a hospital or solar project.
+ */
+export const forProject = <T extends { facilities: unknown; industries?: unknown }>(items: T[], project: { industryGroup: string; facilityType: string }) =>
+  items.filter((i) => {
+    const f = (i.facilities as string[]) ?? []
+    const g = (i.industries as string[] | null) ?? []
+    return (!f.length || f.includes(project.facilityType)) && (!g.length || g.includes(project.industryGroup))
+  })
 
 const dueIn = (days: number) => { const d = new Date(`${today()}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d }
 
@@ -48,10 +56,10 @@ async function createRequirements(tx: Tx, projectId: string, market: string, ver
 }
 
 /** Add the approved library items of one market to a project. Returns the new requirement codes and any disciplines created. */
-export async function instantiateMarket(tx: Tx, project: { id: string; facilityType: string }, market: string) {
+export async function instantiateMarket(tx: Tx, project: { id: string; industryGroup: string; facilityType: string }, market: string) {
   const v = await approvedVersion(tx, market)
   if (!v) return { version: null, codes: [] as string[], disciplines: [] as string[] }
-  const items = forFacility(v.items, project.facilityType)
+  const items = forProject(v.items, project)
   const disciplines = await ensureDisciplines(tx, project.id, items.map((i) => i.discipline))
   const codes = await createRequirements(tx, project.id, market, v.id, items)
   return { version: v, codes, disciplines }
@@ -60,9 +68,9 @@ export async function instantiateMarket(tx: Tx, project: { id: string; facilityT
 const CHANGE_FIELDS = ['title', 'topic', 'discipline', 'critical', 'clause', 'sourceVersion', 'effective'] as const
 
 /** Difference between a project's library requirements for a market and a library version (facility-filtered). */
-export async function diffForProject(tx: Tx, project: { id: string; facilityType: string }, market: string, versionId: string) {
+export async function diffForProject(tx: Tx, project: { id: string; industryGroup: string; facilityType: string }, market: string, versionId: string) {
   const v = await tx.libraryVersion.findUniqueOrThrow({ where: { id: versionId }, include: { items: { orderBy: { position: 'asc' } } } })
-  const items = forFacility(v.items, project.facilityType)
+  const items = forProject(v.items, project)
   const reqs = await tx.requirement.findMany({ where: { projectId: project.id, market, libraryKey: { not: null } } })
   const byKey = new Map(reqs.map((r) => [r.libraryKey!, r]))
   const added = items.filter((i) => !byKey.has(i.key))
@@ -74,7 +82,7 @@ export async function diffForProject(tx: Tx, project: { id: string; facilityType
 }
 
 /** Apply a library version to a project (called when Owner / QA judges the library update applicable). */
-export async function applyLibraryVersion(tx: Tx, project: { id: string; facilityType: string }, market: string, versionId: string) {
+export async function applyLibraryVersion(tx: Tx, project: { id: string; industryGroup: string; facilityType: string }, market: string, versionId: string) {
   const d = await diffForProject(tx, project, market, versionId)
   const disciplines = await ensureDisciplines(tx, project.id, [...d.added, ...d.changed.map((c) => c.item)].map((i) => i.discipline))
   const addedCodes = await createRequirements(tx, project.id, market, versionId, d.added)

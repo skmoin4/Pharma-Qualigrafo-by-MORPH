@@ -11,7 +11,7 @@ export const library = Router()
 
 const zItem = z.object({
   key: z.string().max(40), title: z.string().max(300), topic: z.string().max(500).optional(), discipline: z.string().max(80),
-  facilities: z.array(z.string().max(80)).max(ALL_FACILITIES.length).optional(), critical: z.boolean().optional(),
+  facilities: z.array(z.string().max(80)).max(ALL_FACILITIES.length).optional(), industries: z.array(z.string().max(60)).max(4).optional(), critical: z.boolean().optional(),
   clause: z.string().max(300).optional(), sourceVersion: z.string().max(200).optional(), effective: z.string().max(10).optional(), guidance: z.string().max(4000).optional(),
 })
 

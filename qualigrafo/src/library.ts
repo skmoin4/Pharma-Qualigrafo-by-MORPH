@@ -9,7 +9,7 @@ export interface LibVersionSummary {
 }
 export interface LibPack { market: MarketKey; name: string; hasStarter: boolean; versions: LibVersionSummary[] }
 export interface LibItem {
-  id: string; key: string; title: string; topic: string; discipline: string; facilities: string[]; critical: boolean
+  id: string; key: string; title: string; topic: string; discipline: string; facilities: string[]; industries: string[]; critical: boolean
   clause: string; sourceVersion: string; effective: string; guidance: string; change: string
 }
 export interface LibVersion {

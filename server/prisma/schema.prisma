@@ -769,6 +769,9 @@ model LibraryItem {
   discipline    String
   /// Facility types the item applies to; empty = all.
   facilities    Json
+  /// Industry groups the item applies to; empty/absent = all. Phase 5 / step 2: a pharma topic with no facility
+  /// filter must not land on a hospital project just because it filtered on nothing.
+  industries    Json?
   critical      Boolean        @default(false)
   clause        String         @default("")
   sourceVersion String         @default("")

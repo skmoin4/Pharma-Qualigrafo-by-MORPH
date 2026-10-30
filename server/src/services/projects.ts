@@ -10,6 +10,8 @@ import { securityLog } from '../lib/security.ts'
 import type { AuthUser } from '../middleware/auth.ts'
 import type { Ctx } from './ctx.ts'
 import { instantiateMarket } from './libraryProjects.ts'
+import { generateDeliverables } from './templates.ts'
+import { templateFor } from '../domain/templates.ts'
 
 /** Administrators, and anyone who is Owner / QA on at least one project, may create projects. */
 export async function canCreateProjects(user: { id: string; isAdmin: boolean }) {
@@ -32,6 +34,8 @@ export interface CreateProject {
   scope: Scope
   projectStage: string
   bimRequirement?: BimRequirement
+  /** Default true: register the industry template's deliverables. Off for a team that brings its own register. */
+  generateDeliverables?: boolean
   ownerStandards: string
   disciplines: string[]
   companies: { name: string; kind: string }[]
@@ -138,17 +142,25 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
       code = `PRJ-${String(max + 1).padStart(3, '0')}`
     }
     const p = await tx.project.create({
-      data: { code, name, client, site, projectCountry: b.projectCountry, markets, ...cls, bimRequirement: bimJson(cls.bimRequirement), scope: b.scope, ownerStandards: b.ownerStandards.trim(), baseline: 1, createdByUserId: user.id },
+      data: { code, name, client, site, projectCountry: b.projectCountry, markets, ...cls, bimRequirement: bimJson(cls.bimRequirement), scope: b.scope,
+        // The Revit connector belongs to a BIM commission; a design-only project starts standalone.
+        revitMode: includesBim(cls.serviceType), ownerStandards: b.ownerStandards.trim(), baseline: 1, createdByUserId: user.id },
     })
     await tx.baseline.create({ data: { projectId: p.id, v: 1, byRole: 'Owner / QA', byUserId: user.id, reason: 'Project created' } })
     await tx.discipline.createMany({ data: disciplines.map((n, i) => ({ projectId: p.id, name: n, position: i + 1 })) })
     await tx.company.createMany({ data: [...companies].map(([n, kind]) => ({ projectId: p.id, name: n, kind })) })
     await tx.membership.createMany({ data: b.members.map((m) => ({ userId: m.userId, projectId: p.id, role: m.role, companyScope: m.scope?.trim() || null })) })
     const audit = (text: string) => ({ projectId: p.id, role: user.isAdmin ? 'Administrator' : 'Owner / QA', userId: user.id, userName: user.name, text, requestId })
+    // Deliverables from the industry template, registered as "Missing" so the register states what is expected.
+    // Opt-out: a team that keeps its own register ticks the generation off in the wizard.
+    const template = templateFor(cls.industryGroup, cls.facilityType, cls.serviceType, disciplines)
+    const generated = b.generateDeliverables === false
+      ? null
+      : await generateDeliverables(tx, { id: p.id, projectStage: cls.projectStage }, template, client, { role: user.isAdmin ? 'Administrator' : 'Owner / QA', userId: user.id })
     // Approved library requirements for every target market (filtered by facility type), all "Assessment pending".
     const libraryLines: string[] = []
     for (const m of markets) {
-      const r = await instantiateMarket(tx, { id: p.id, facilityType: cls.facilityType }, m)
+      const r = await instantiateMarket(tx, { id: p.id, industryGroup: cls.industryGroup, facilityType: cls.facilityType }, m)
       libraryLines.push(r.version ? `${r.codes.length} requirement(s) from library ${m} v${r.version.version}${r.disciplines.length ? ` (disciplines added: ${r.disciplines.join(', ')})` : ''}` : `no approved library pack for ${m}`)
     }
     await tx.auditEvent.createMany({
@@ -156,6 +168,9 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
         audit(`Project ${code} created: ${name} (${client}, ${site}); markets ${markets.join(', ')}; ${classificationLine(cls)} · ${b.scope}`),
         ...b.members.map((m) => { const u = users.find((x) => x.id === m.userId)!; return audit(`Team: ${u.name} <${u.email}> added as ${m.role}${m.scope ? ` limited to ${m.scope}` : ''}`) }),
         audit(`Requirements: ${libraryLines.join('; ')}`),
+        audit(generated
+          ? `Deliverables: ${generated.documents} document(s) registered as Missing from the ${template.label} template (${generated.critical} critical), owner ${client}`
+          : 'Deliverables: no template applied (switched off at creation)'),
       ],
     })
     return code

@@ -64,7 +64,7 @@ export async function saveProfile(c: Ctx, p: {
   const before = (c.project.markets as string[]) ?? []
   const added = [...new Set([c.project.projectCountry, ...p.markets])].filter((m) => !before.includes(m))
   for (const m of added) {
-    const r = await instantiateMarket(c.tx, { id: c.project.id, facilityType: cls.facilityType }, m)
+    const r = await instantiateMarket(c.tx, { id: c.project.id, industryGroup: cls.industryGroup, facilityType: cls.facilityType }, m)
     if (r.version) await c.log(`${r.codes.length} requirement(s) added from library ${m} v${r.version.version}${r.disciplines.length ? `; disciplines added: ${r.disciplines.join(', ')}` : ''}`)
     else await c.log(`No approved library pack for ${m}: no requirements added`)
   }

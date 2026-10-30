@@ -12,7 +12,7 @@ import { maybeRunDaily, runReminders } from '../src/services/reminders.ts'
 import { createServer } from 'node:net'
 import { OQ_CASES, URS, catalogueProblems, oqCase, riskPriority, traceability } from '../src/validation/catalogue.ts'
 import { runIq } from '../src/services/iq.ts'
-import { evidenceState, handoverGates } from '../src/domain/rules.ts'
+import { evidenceState, handoverGates, today } from '../src/domain/rules.ts'
 import type { ProjectData, Role } from '../src/domain/types.ts'
 
 const server = app.listen(0)
@@ -492,7 +492,11 @@ try {
   const NP = `/projects/${made.json.code}`
   const np2 = (await get(NP, QA)).json.project as ProjectData
   ok(np2.profile.status === 'Active' && np2.baseline === 1 && np2.baselines[0].reason === 'Project created', 'new project starts active at baseline B1')
-  ok(np2.markets.join() === 'SA,EU' && np2.docs.length === 0 && np2.reqs.length === 0, 'project country kept in scope; starts with no records')
+  // Phase 5 / step 2: a new project is no longer empty — the industry template registers its deliverables as
+  // "Missing". Requirements still need an approved library version, which these fixtures do not have.
+  ok(np2.markets.join() === 'SA,EU' && np2.reqs.length === 0, 'project country kept in scope; no requirements without an approved library')
+  ok(np2.docs.length > 0 && np2.docs.every((d) => d.status === 'Missing' && d.rev === 0), 'the project starts with its deliverables registered as Missing, not with nothing')
+  ok(np2.docs.every((d) => np2.disciplines.some((x) => x.name === d.discipline)), 'every generated deliverable belongs to a discipline of the project')
   ok(np2.disciplines.map((d) => d.name).join('|') === 'Process Equipment|HVAC|Electrical|CQV', 'chosen disciplines in chosen order')
   ok(np2.companies.some((c) => c.name === 'Nova Pharma Ltd' && c.kind === 'Owner') && np2.companies.length === 3, 'client registered as Owner plus the listed companies')
   ok(np2.members.length === 4 && np2.members.some((m) => m.scope === 'AirCo'), 'team created with roles and vendor scope')
@@ -673,6 +677,26 @@ try {
   ok(r1.clause === 'Chapter 3, 3.1-3.5' && r1.libraryVersion === 2 && r1.applicability === 'Assessment pending', 'changed requirement updated and sent back for reassessment')
   ok(r2.applicability === 'Not applicable' && r2.rationale.includes('Removed from library SA v2'), 'removed item kept as "Not applicable" with the reason (history preserved)')
   ok(!lp.reqs.some((r) => r.libraryKey === 'STERILE-01'), 'facility filter respected')
+
+  // v3: an item restricted to one industry group (Phase 5 / step 2). An item that filters on nothing still
+  // applies everywhere — that is what every item authored before this step holds.
+  const d3 = await lib(RV, 'POST', '/packs/SA/drafts')
+  ok((await lib(RV, 'POST', `/versions/${d3.json.version.id}/items`, { key: 'PHARMA-ONLY-01', title: 'Qualification master plan for the facility', discipline: 'CQV', industries: ['Pharma'], critical: true })).status === 201, 'an item can be restricted to an industry group')
+  ok((await lib(RV, 'POST', `/versions/${d3.json.version.id}/items`, { key: 'BAD-INDUSTRY-01', title: 'Should not be accepted', discipline: 'CQV', industries: ['Shipbuilding'] })).json.error?.includes('unknown industry group') === true, 'an unknown industry group is refused')
+  ok((await lib(QA, 'POST', `/versions/${d3.json.version.id}/approve`, { reason: 'Industry applicability recorded', password: PASSWORD })).status === 200, 'v3 approved')
+
+  const hos = await call('POST', '/projects', {
+    name: 'Riyadh Day Surgery Centre', client: 'Nova Pharma Ltd', site: 'Riyadh', projectCountry: 'SA', markets: [],
+    industryGroup: 'Hospital / Healthcare', facilityType: 'Ambulatory / day-care / day-surgery centre', serviceType: 'Design only',
+    scope: 'New plant', projectStage: 'Detailed design', ownerStandards: '', disciplines: ['HVAC', 'Electrical'],
+    companies: [], members: [{ userId: ids['Owner / QA'], role: 'Owner / QA' }],
+  }, QA)
+  ok(hos.status === 201, 'a hospital project is created on the same installation as the pharma ones')
+  const hp = (await get(`/projects/${hos.json.code}`, QA)).json.project as ProjectData
+  ok(!hp.reqs.some((r) => r.libraryKey === 'PHARMA-ONLY-01'), 'the industry filter keeps a pharma-only requirement off a hospital project')
+  ok(hp.reqs.some((r) => r.libraryKey === 'TOPIC-01'), 'but an item that filters on no industry still applies to it')
+  const pharmaNow = (await get(LP, QA)).json.project as ProjectData
+  ok(pharmaNow.updates.some((u) => u.kind === 'Library' && u.summary.includes('1 new')), 'the pharma project is offered the new pharma-only item as a library update')
 
   // adding a market in Setup brings its library
   ok((await lib(RV, 'POST', `/versions/${vid('IN')}/approve`, { reason: 'Accepted as starting scope', password: 'Reviewer-2026-lib' })).status === 200, 'IN pack approved')
@@ -1293,7 +1317,7 @@ try {
     const C = tokens.Consultant
     // catalogue: every requirement traced, every test case verifies something, risk method as specified
     ok(catalogueProblems().length === 0, `validation catalogue consistent${catalogueProblems().length ? ': ' + catalogueProblems().join('; ') : ''}`)
-    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 35, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
+    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 36, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
     ok(riskPriority('High', 'High', 'Low') === 'High' && riskPriority('High', 'Medium', 'Medium') === 'High' && riskPriority('Medium', 'Medium', 'High') === 'Low' && riskPriority('Low', 'Low', 'Low') === 'Medium', 'GAMP 5 risk priority: class from severity x probability, priority from class x detectability')
     const t = traceability(null)
     ok(t.every((u) => u.verdict === 'Not executed' || u.verdict === 'Procedural') && t.length === URS.length, 'traceability without results: Not executed / Procedural, never Pass')
@@ -1336,7 +1360,10 @@ try {
     const savedDir = config.BACKUP_DIR
     Object.assign(config, { BACKUP_DIR: path.join(tmp, 'sets') })
     const ov = async () => (await call('GET', '/admin/backups', undefined, QA)).json
-    const waitIdle = async () => { for (let i = 0; i < 240 && (await ov()).busy; i++) await new Promise((r) => setTimeout(r, 250)) }
+    // A backup is no longer "busy" while its test restore is still running, so wait for the verification too,
+    // or a bigger database makes this read verifyStatus 'Running' instead of 'Verified'.
+    const working = async () => { const o = await ov(); return o.busy || o.runs[0]?.verifyStatus === 'Running' }
+    const waitIdle = async () => { for (let i = 0; i < 480 && (await working()); i++) await new Promise((r) => setTimeout(r, 250)) }
     const sets = () => fs.existsSync(BK.backupDir()) ? fs.readdirSync(BK.backupDir()).sort() : []
 
     let o = await ov()
@@ -1682,6 +1709,66 @@ try {
     const nova = (await get('/projects/PRJ-026', QA)).json.project as ProjectData
     ok(nova.profile.industryGroup === 'Pharma' && nova.profile.facilityType === 'Non-sterile formulation', 'an existing pharma project keeps its facility type as the pharma group facility type')
     ok(nova.profile.projectCountry === 'SA' && !!nova.profile.projectStage, 'the renamed country and stage columns carry their original values')
+  }
+
+  // ---------------------------------------------------------------- project templates (Phase 5 / step 2)
+  section('OQ-API-36')
+  {
+    resetApiRate()
+    const tpl = (q: Record<string, string>) => call('GET', `/reference/template?${new URLSearchParams(q)}`, undefined, QA)
+
+    const pharma = (await tpl({ industryGroup: 'Pharma', facilityType: 'Sterile products', serviceType: 'Design only' })).json
+    ok(pharma.disciplines.join() === 'Civil & Cleanroom,Process Equipment,Piping & Utilities,HVAC,Electrical,Instrumentation,Fire & Life Safety,CQV', 'a pharma project still starts with exactly the disciplines it always did')
+    const hospital = (await tpl({ industryGroup: 'Hospital / Healthcare', facilityType: 'General hospital', serviceType: 'Design only' })).json
+    ok(hospital.disciplines.includes('Medical Gas') && !hospital.disciplines.includes('CQV'), 'a hospital project gets medical gas, not pharma qualification')
+    const solar = (await tpl({ industryGroup: 'Energy & High-Tech', facilityType: 'Solar PV – rooftop', serviceType: 'Design only' })).json
+    const fab = (await tpl({ industryGroup: 'Energy & High-Tech', facilityType: 'Semiconductor – front-end wafer fab / foundry', serviceType: 'Design only' })).json
+    ok(solar.disciplines.includes('Solar PV & Array') && fab.disciplines.includes('High-Purity Piping'), 'inside one industry group the facility type still decides: solar and semiconductor differ')
+    ok(!solar.disciplines.includes('High-Purity Piping') && !fab.disciplines.includes('Solar PV & Array'), 'and neither borrows the disciplines of the other')
+    ok(hospital.addOns.some((a: string) => /medical gas/i.test(a)) && pharma.addOns.some((a: string) => /IQ \/ OQ \/ PQ/.test(a)), 'each industry names the specialised controls it expects')
+    ok((await tpl({ industryGroup: 'Shipbuilding', facilityType: 'x', serviceType: 'Design only' })).status === 400, 'an unknown classification cannot resolve a template')
+
+    // the service type decides which deliverables exist at all
+    const q = { industryGroup: 'Hospital / Healthcare', facilityType: 'General hospital', disciplines: 'HVAC' }
+    const design = (await tpl({ ...q, serviceType: 'Design only' })).json
+    const bim = (await tpl({ ...q, serviceType: 'BIM only' })).json
+    const both = (await tpl({ ...q, serviceType: 'Design + BIM' })).json
+    const titles = (t: any) => t.deliverables.map((d: any) => d.title).join(' | ')
+    ok(!/model|BEP|MIDP/i.test(titles(design)), 'a design-only commission is given no BIM deliverable')
+    ok(!/calculations|specification/i.test(titles(bim)), 'a BIM-only commission is given no design calculations or specifications')
+    ok(/model/i.test(titles(bim)) && /calculations/i.test(titles(design)), 'each one is given the deliverables of its own track')
+    ok(both.summary.total > design.summary.total && both.summary.total > bim.summary.total, 'Design + BIM is given both tracks')
+    ok(both.deliverables.every((d: any) => d.discipline === 'HVAC' || !hospital.disciplines.includes(d.discipline)), 'deliverables follow the disciplines that were chosen, not the whole list')
+
+    // creation registers them
+    const base = {
+      client: 'Nova Pharma Ltd', site: 'Riyadh', projectCountry: 'SA', markets: [],
+      industryGroup: 'Energy & High-Tech', facilityType: 'Solar PV – rooftop', serviceType: 'Design + BIM',
+      scope: 'New plant', projectStage: 'Detailed design', ownerStandards: '',
+      disciplines: ['Solar PV & Array', 'Electrical (LV / HV)'], companies: [],
+      members: [{ userId: ids['Owner / QA'], role: 'Owner / QA' }],
+    }
+    const made = await call('POST', '/projects', { ...base, name: 'Rooftop Solar Array', code: 'SOL-001' }, QA)
+    ok(made.status === 201, 'a solar project is created')
+    const sp = (await get('/projects/SOL-001', QA)).json.project as ProjectData
+    ok(sp.docs.length > 0 && sp.docs.every((d) => d.status === 'Missing' && d.rev === 0), 'its deliverables are registered as Missing')
+    ok(sp.docs.every((d) => d.owner === 'Nova Pharma Ltd'), 'each one is assigned to the client, for the team to reassign')
+    ok(sp.docs.some((d) => /discipline model/i.test(d.title)) && sp.docs.some((d) => /calculations/i.test(d.title)), 'a Design + BIM project gets both tracks')
+    ok(sp.docs.every((d) => sp.disciplines.some((x) => x.name === d.discipline)), 'every deliverable belongs to a discipline of the project')
+    ok(sp.revitMode === true, 'a BIM commission starts with the Revit connector on')
+    ok(sp.audit.some((a) => a.text.startsWith('Deliverables:') && a.text.includes('registered as Missing')), 'the generation is recorded in the audit trail')
+    const dues = sp.docs.map((d) => d.due)
+    ok(new Set(dues).size > 1 && dues.every((d) => d >= today()), 'due dates are a staged starting plan, not all the same day and not in the past')
+
+    const off = await call('POST', '/projects', { ...base, name: 'Own Register Solar', code: 'SOL-002', generateDeliverables: false }, QA)
+    ok(off.status === 201, 'a team that keeps its own register can switch the template off')
+    const sp2 = (await get('/projects/SOL-002', QA)).json.project as ProjectData
+    ok(sp2.docs.length === 0 && sp2.audit.some((a) => a.text.includes('no template applied')), 'then nothing is registered, and that choice is audited')
+
+    const designOnly = await call('POST', '/projects', { ...base, name: 'Design Only Solar', code: 'SOL-003', serviceType: 'Design only' }, QA)
+    const sp3 = (await get('/projects/SOL-003', QA)).json.project as ProjectData
+    ok(designOnly.status === 201 && !sp3.docs.some((d) => /model/i.test(d.title)), 'a design-only project registers no model deliverable')
+    ok(sp3.revitMode === false, 'and it starts standalone, without the Revit connector')
   }
 } finally {
   server.close()

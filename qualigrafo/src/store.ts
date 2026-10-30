@@ -189,6 +189,8 @@ export interface Classification {
 export interface NewProject extends Classification {
   code?: string; name: string; client: string; site: string; projectCountry: MarketKey; markets: MarketKey[]
   scope: Scope; ownerStandards: string; disciplines: string[]
+  /** Default true: register the industry template's deliverables (Phase 5 / step 2). */
+  generateDeliverables?: boolean
   companies: { name: string; kind: string }[]; members: { userId: string; role: Role; scope?: string | null }[]
 }
 /** A position on a drawing: 1-based page, normalised x / y (0..1). */

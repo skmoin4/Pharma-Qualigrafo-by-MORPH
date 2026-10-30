@@ -17,7 +17,8 @@ import { connector } from './routes/connector.ts'
 import { library } from './routes/library.ts'
 import { apiRateLimit } from './lib/security.ts'
 import { markets } from './domain/reference.ts'
-import { ASSET_HANDOVER, DEFAULT_BIM_REQUIREMENT, INDUSTRY_GROUP_INFO, LOD_LEVELS, PROJECT_SCOPES, PROJECT_STAGES, SERVICE_TYPES } from './domain/industries.ts'
+import { ASSET_HANDOVER, DEFAULT_BIM_REQUIREMENT, INDUSTRY_GROUP_INFO, LOD_LEVELS, PROJECT_SCOPES, PROJECT_STAGES, SERVICE_TYPES, isIndustryGroup, isServiceType } from './domain/industries.ts'
+import { disciplinesFor, templateFor, templateSummary } from './domain/templates.ts'
 import { today } from './domain/rules.ts'
 import { FILE_TYPES, MAX_UPLOAD_BYTES } from './services/storage.ts'
 import { APP_VERSION } from './services/iq.ts'
@@ -58,6 +59,25 @@ app.get('/api/reference/markets', (_req, res) => res.json({ markets }))
  * service types, stages, scopes and BIM options. The server owns these lists because it validates every project
  * against them, so the client reads them from here instead of keeping a second copy that could drift.
  */
+/**
+ * The project template for one classification (Phase 5 / step 2): the disciplines the project starts with, the
+ * deliverables that would be registered, and the specialised controls the industry expects. The wizard reads it
+ * live so that what it promises is exactly what creation will do — both come from `templateFor`.
+ */
+app.get('/api/reference/template', (req, res) => {
+  const q = (k: string) => String(req.query[k] ?? '')
+  const industryGroup = q('industryGroup')
+  const serviceType = q('serviceType')
+  if (!isIndustryGroup(industryGroup) || !isServiceType(serviceType)) {
+    res.status(400).json({ error: 'industryGroup and serviceType are required and must be known values.' })
+    return
+  }
+  const facilityType = q('facilityType')
+  const chosen = q('disciplines').split(',').map((d) => d.trim()).filter(Boolean)
+  const disciplines = chosen.length ? chosen : disciplinesFor(industryGroup, facilityType)
+  const t = templateFor(industryGroup, facilityType, serviceType, disciplines)
+  res.json({ label: t.label, disciplines: t.disciplines, addOns: t.addOns, summary: templateSummary(t), deliverables: t.deliverables })
+})
 app.get('/api/reference/industries', (_req, res) => res.json({
   groups: INDUSTRY_GROUP_INFO, serviceTypes: SERVICE_TYPES, stages: PROJECT_STAGES, scopes: PROJECT_SCOPES,
   lodLevels: LOD_LEVELS, assetHandover: ASSET_HANDOVER, defaultBim: DEFAULT_BIM_REQUIREMENT,

@@ -80,10 +80,18 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
   existing step 2, no separate industry page), **one project table** (industry = templates, not separate apps).
   Plan, gap analysis, decisions, step order and the testing gate: **`PRODUCTION_PLAN.md` §6 (Phase 5)**.
   Phase 5 runs **before** the remaining Phase 3 steps; Phase 4 (Revit add-in) merges into Phase 5 step 7.
-- **Phase 5 / steps 0 and 1 are done. Next: Phase 5 / step 2 — the template engine** (`PRODUCTION_PLAN.md` §6.5
-  step 2): registers, requirements, workflows and deliverables generated from industry + facility + service +
-  discipline + stage + country, plus the per-industry applicability filter on library packs and starter packs for the
-  three non-pharma groups (unverified starter content, §6.4.3).
+- **Phase 5 / steps 0, 1 and 2 are done. Next: Phase 5 / step 2b — requirement starter packs** for hospital,
+  solar / renewable, semiconductor and common buildings (unverified starter content, §6.4.3), then **step 3**
+  (document control: version vs formal revision). Step 2 shipped the engine but no new requirement *content*, so a
+  non-pharma project arrives with its disciplines and deliverables but no requirements yet.
+- **Step 2 (2026-10-30): a project is generated from its classification.** `server/src/domain/templates.ts` is the
+  one resolver — used by `GET /reference/template` (the wizard's preview) **and** by `createProject`, so the preview
+  cannot drift from what is created. Deliverables are registered as `Missing` R00 owned by the client; each carries a
+  **track** (`design` / `bim` / `any`) and the service type decides which tracks exist. BIM surfaces follow the
+  service type too (`includesBim(profile.serviceType)`), but anything already published stays visible — never hide
+  records that exist. The generation is opt-out in the wizard and audited either way. `LibraryItem.industries`:
+  empty means "all" (what every older item holds), and the starter library we ship is marked `Pharma` so its topics
+  cannot reach a hospital or solar project.
 - **Step 1 (2026-10-30) changed the project data model — read this before touching a project field.** `Project.facility`
   → **`facilityType`**, `phase` → **`projectStage`**, `plantCountry` → **`projectCountry`** (renames, one migration
   `project_classification`), plus new `industryGroup`, `secondaryFacilityType`, `customFacilityType`, `serviceType`
@@ -194,16 +202,16 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
 
 ```bash
 # API suite (in-process, needs a fresh DB each run)
-cd server && npm run fixtures:load && npm test            # currently 634 checks, all passing
+cd server && npm run fixtures:load && npm test            # currently 666 checks, all passing
 
 # Browser suites: each suite needs freshly loaded fixtures; use separate ports so nothing clashes
 cd qualigrafo && npm run build
 PORT=4100 npx tsx src/index.ts                             # from server/, background
 API_URL=http://localhost:4100 npx vite preview --port 8082 --strictPort   # from qualigrafo/, background
-for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18 e2e19; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
+for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18 e2e19 e2e20; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
 ```
 
-- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 46 (e2e18) + 38 (e2e19) = 671 checks, all passing. Full OQ: 1305 of 1305 in 54 test cases.
+- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 46 (e2e18) + 38 (e2e19) + 26 (e2e20) = 697 checks, all passing. Full OQ: 1363 of 1363 in 56 test cases.
 - **Each suite needs its own freshly loaded fixtures, and nothing else may touch the test database while a suite or
   the API suite runs** — a second API server on the same database writes monitoring rows and job heartbeats and makes
   the OQ-API-33 figures fail at random. Stop your debug servers before running `npm test` or `validation:oq`.

@@ -44,7 +44,7 @@ projects.post('/', async (req, res) => {
     serviceType: z.enum(SERVICE_TYPES),
     bimRequirement: z.object({ lod: z.enum(LOD_LEVELS), coordination: z.boolean(), assetHandover: z.enum(ASSET_HANDOVER) }).optional(),
     scope: z.enum(SCOPES), projectStage: z.string().max(120), ownerStandards: z.string().max(1000),
-    disciplines: z.array(z.string().max(80)).max(40),
+    disciplines: z.array(z.string().max(80)).max(40), generateDeliverables: z.boolean().optional(),
     companies: z.array(z.object({ name: z.string().max(120), kind: z.enum(COMPANY_KINDS) })).max(200),
     members: z.array(z.object({ userId: z.string().min(1), role: zRole, scope: z.string().max(120).nullable().optional() })).min(1).max(500),
   }).parse(req.body ?? {})

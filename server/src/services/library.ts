@@ -3,6 +3,7 @@
 import { prisma } from '../db.ts'
 import type { Tx } from '../db.ts'
 import { ALL_FACILITIES, MARKETS } from '../domain/enums.ts'
+import { INDUSTRY_GROUPS, isIndustryGroup } from '../domain/industries.ts'
 import { markets as MARKET_INFO } from '../domain/reference.ts'
 import { STARTER_LIBRARY } from '../domain/starterLibrary.ts'
 import type { MarketKey } from '../domain/types.ts'
@@ -15,7 +16,7 @@ import { diffForProject } from './libraryProjects.ts'
 import { canCreateProjects } from './projects.ts'
 
 export interface ItemInput {
-  key: string; title: string; topic?: string; discipline: string; facilities?: string[]; critical?: boolean
+  key: string; title: string; topic?: string; discipline: string; facilities?: string[]; industries?: string[]; critical?: boolean
   clause?: string; sourceVersion?: string; effective?: string; guidance?: string
 }
 
@@ -40,9 +41,12 @@ function normalise(i: ItemInput) {
   const facilities = [...new Set((i.facilities ?? []).map(clean).filter(Boolean))]
   const bad = facilities.find((f) => !ALL_FACILITIES.includes(f))
   if (bad) throw rule(`${key}: unknown facility type "${bad}". Use a facility type of one of the industry groups (or leave empty for all).`)
+  const industries = [...new Set((i.industries ?? []).map(clean).filter(Boolean))]
+  const badGroup = industries.find((g) => !isIndustryGroup(g))
+  if (badGroup) throw rule(`${key}: unknown industry group "${badGroup}". Use one of: ${INDUSTRY_GROUPS.join(', ')} (or leave empty for all).`)
   const effective = clean(i.effective)
   if (effective && !/^\d{4}-\d{2}-\d{2}$/.test(effective)) throw rule(`${key}: effective date must be YYYY-MM-DD.`)
-  return { key, title, topic: clean(i.topic), discipline, facilities, critical: !!i.critical, clause: clean(i.clause), sourceVersion: clean(i.sourceVersion), effective, guidance: (i.guidance ?? '').trim() }
+  return { key, title, topic: clean(i.topic), discipline, facilities, industries, critical: !!i.critical, clause: clean(i.clause), sourceVersion: clean(i.sourceVersion), effective, guidance: (i.guidance ?? '').trim() }
 }
 
 async function draftOf(tx: Tx, versionId: string) {
@@ -85,6 +89,7 @@ export async function getVersion(id: string) {
     if (!p) return base ? 'Added' : 'New'
     const diff = fields.filter((f) => p[f] !== i[f])
     if (JSON.stringify(p.facilities) !== JSON.stringify(i.facilities)) diff.push('facilities' as never)
+    if (JSON.stringify(p.industries ?? []) !== JSON.stringify(i.industries ?? [])) diff.push('industries' as never)
     return diff.length ? `Changed: ${diff.join(', ')}` : 'Unchanged'
   }
   return {
@@ -92,7 +97,7 @@ export async function getVersion(id: string) {
     createdByName: v.createdByName, createdByUserId: v.createdByUserId, updatedByUserId: v.updatedByUserId, approvedByName: v.approvedByName, approvedAt: v.approvedAt?.toISOString() ?? null, approvalReason: v.approvalReason,
     comparedWith: base ? base.version : null,
     removed: base ? base.items.filter((i) => !v.items.some((x) => x.key === i.key)).map((i) => ({ key: i.key, title: i.title })) : [],
-    items: v.items.map((i) => ({ id: i.id, key: i.key, title: i.title, topic: i.topic, discipline: i.discipline, facilities: i.facilities as string[], critical: i.critical, clause: i.clause, sourceVersion: i.sourceVersion, effective: i.effective, guidance: i.guidance, change: status(i) })),
+    items: v.items.map((i) => ({ id: i.id, key: i.key, title: i.title, topic: i.topic, discipline: i.discipline, facilities: i.facilities as string[], industries: (i.industries as string[] | null) ?? [], critical: i.critical, clause: i.clause, sourceVersion: i.sourceVersion, effective: i.effective, guidance: i.guidance, change: status(i) })),
   }
 }
 
@@ -115,7 +120,9 @@ export async function loadStarter(user: AuthUser) {
         data: {
           packId: pack.id, version: 1, status: 'Draft', starter: true, note: 'Unverified starter template: topic-level entries. Verify against the official texts, add clause, source version and effective date, then approve.',
           createdByUserId: user.id, createdByName: user.name, updatedByUserId: user.id,
-          items: { create: items.map((i, position) => ({ ...i, position, facilities: [] })) },
+          // The starter content is pharma: without this it would apply to every industry group, because an empty
+          // list means "all". A customer authoring their own items still gets "all" when they filter on nothing.
+          items: { create: items.map((i, position) => ({ ...i, position, facilities: [], industries: ['Pharma'] })) },
         },
       })
       out.push(`${m} (${items.length})`)
@@ -140,7 +147,7 @@ export async function newDraft(user: AuthUser, market: MarketKey) {
       data: {
         packId: pack.id, version: (last._max.version ?? 0) + 1, status: 'Draft', createdByUserId: user.id, createdByName: user.name, updatedByUserId: user.id,
         note: approved ? `Draft based on v${approved.version}.` : '',
-        items: { create: (approved?.items ?? []).map(({ key, position, title, topic, discipline, facilities, critical, clause, sourceVersion, effective, guidance }) => ({ key, position, title, topic, discipline, facilities: facilities as string[], critical, clause, sourceVersion, effective, guidance })) },
+        items: { create: (approved?.items ?? []).map(({ key, position, title, topic, discipline, facilities, industries, critical, clause, sourceVersion, effective, guidance }) => ({ key, position, title, topic, discipline, facilities: facilities as string[], industries: (industries as string[] | null) ?? [], critical, clause, sourceVersion, effective, guidance })) },
       },
     })
     return v.id

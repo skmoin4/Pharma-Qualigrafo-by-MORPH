@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, Check, Plus, Trash2 } from 'lucide-react'
 import { api, errorText } from '../api'
-import { disciplines as STANDARD_DISCIPLINES, markets } from '../data/reference'
+import { markets } from '../data/reference'
 import { useStore } from '../store'
 import type { NewProject as Spec } from '../store'
 import type { BimRequirement, IndustryGroup, MarketKey, Role, Scope, ServiceType } from '../types'
 import { Badge, MarketChip, PageHead, home, openProjectRoute } from '../components/ui'
 import { approvedOf, useLibraryPacks } from '../library'
-import { CUSTOM_FACILITY, classificationText, facilitiesOf, includesBim, useIndustries } from '../industries'
+import { CUSTOM_FACILITY, classificationText, facilitiesOf, includesBim, useIndustries, useTemplate } from '../industries'
 
 /** One line per service type, from the client's own specification. */
 const SERVICE_HINT: Record<string, string> = {
@@ -55,18 +55,32 @@ export default function NewProject() {
   const [resumed, setResumed] = useState(!!saved)
   const { packs } = useLibraryPacks()
   const { ref: industries, error: refError } = useIndustries()
+  /**
+   * The industry template decides which disciplines the project starts with and which deliverables it is given.
+   * The chosen disciplines mirror the template until the user edits them: after that their choice stands, because
+   * a list someone has curated must not be silently replaced when they go back and change a classification field.
+   */
+  // "Touched" means the user edited the list, not merely that a draft came back: a draft saved before the
+  // template had loaded holds no disciplines, and treating that as a choice would leave the step unable to pass.
+  const [disciplinesTouched, setDisciplinesTouched] = useState(!!saved?.f.disciplines.length)
   const [f, setF] = useState<Draft>(saved?.f ?? {
     code: '', name: '', client: '', site: '', projectCountry: 'SA', markets: [],
     industryGroup: '', facilityType: '', serviceType: '', scope: 'New plant', projectStage: 'Concept', ownerStandards: '',
-    disciplines: [...STANDARD_DISCIPLINES], companies: [],
+    disciplines: [], companies: [], generateDeliverables: true,
     members: session ? [{ userId: session.id, role: 'Owner / QA', scope: null }] : [],
   })
+  const { template } = useTemplate(f, f.disciplines)
   useEffect(() => {
     api<{ users: DirUser[] }>('GET', '/directory/users').then((r) => setUsers(r.users)).catch((e) => setError(errorText(e)))
   }, [])
   useEffect(() => {
     try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, f })) } catch { /* storage blocked: the wizard still works, a reload just starts over */ }
   }, [step, f])
+  const templateDisciplines = template?.disciplines.join(',')
+  useEffect(() => {
+    if (disciplinesTouched || !templateDisciplines) return
+    setF((cur) => ({ ...cur, disciplines: templateDisciplines.split(',') }))
+  }, [templateDisciplines, disciplinesTouched])
 
   // The BIM block is only shown, and only sent, when the service type includes BIM.
   const bim: BimRequirement = f.bimRequirement ?? industries?.defaultBim ?? { lod: 'LOD 300', coordination: true, assetHandover: 'None' }
@@ -109,8 +123,9 @@ export default function NewProject() {
   const fieldError = (k: string) => (issues[k] ? <p className="small" style={{ color: 'var(--red)', margin: '4px 0 0' }} role="alert">{issues[k]}</p> : null)
 
   const toggleMarket = (k: MarketKey, on: boolean) => setF({ ...f, markets: on ? [...f.markets, k] : f.markets.filter((x) => x !== k) })
-  const toggleDiscipline = (d: string, on: boolean) => setF({ ...f, disciplines: on ? [...f.disciplines, d] : f.disciplines.filter((x) => x !== d) })
-  const allDisciplines = [...STANDARD_DISCIPLINES, ...f.disciplines.filter((d) => !STANDARD_DISCIPLINES.includes(d))]
+  const toggleDiscipline = (d: string, on: boolean) => { setDisciplinesTouched(true); setF({ ...f, disciplines: on ? [...f.disciplines, d] : f.disciplines.filter((x) => x !== d) }) }
+  const offered = template?.disciplines ?? []
+  const allDisciplines = [...offered, ...f.disciplines.filter((d) => !offered.includes(d))]
   const setMember = (i: number, patch: Partial<Draft['members'][number]>) => setF({ ...f, members: f.members.map((m, j) => (j === i ? { ...m, ...patch, ...(patch.role && patch.role !== 'Contractor' ? { scope: null } : {}) } : m)) })
 
   const submit = async () => {
@@ -242,7 +257,12 @@ export default function NewProject() {
 
         {step === 2 && (
           <>
-            <h2>Registers</h2>
+            <h2>Standards &amp; registers</h2>
+            <p className="muted small" style={{ margin: '0 0 10px' }}>
+              {template
+                ? <>Generated from the classification: <b>{template.label}</b>. Everything here can be changed now or after the project is created.</>
+                : 'Choose the industry group and the service type on the previous step to see what this project will be given.'}
+            </p>
             <div className="grid g2">
               <div>
                 <label className="lab" style={{ marginTop: 0 }}>Disciplines</label>
@@ -265,6 +285,27 @@ export default function NewProject() {
                 <p className="muted small">More companies and the system / equipment list can be added after creation under Companies &amp; systems.</p>
               </div>
             </div>
+
+            {template && (
+              <div className="subcard" style={{ marginTop: 14 }}>
+                <h3 style={{ marginTop: 0 }}>Workspace to generate</h3>
+                <label className="row" style={{ fontWeight: 500 }}>
+                  <input type="checkbox" checked={f.generateDeliverables !== false} onChange={(e) => setF({ ...f, generateDeliverables: e.target.checked })} />
+                  <span>Register the <b>{template.summary.total} deliverable(s)</b> of this template ({template.summary.critical} critical)</span>
+                </label>
+                <p className="muted small" style={{ margin: '4px 0 10px 24px' }}>
+                  Each one is registered as <b>Missing</b> and assigned to {f.client || 'the client'}, so the register states what the project owes before anything is produced. Dates are a starting plan from the project stage — the register is where the real programme goes.
+                  {' '}{includesBim(f.serviceType) ? 'BIM deliverables (models, clash records, BEP / MIDP) are included because the service covers BIM.' : 'No BIM deliverables: this is a design-only commission.'}
+                  {' '}{f.serviceType === 'BIM only' ? 'Design calculations and specifications are left out.' : ''}
+                </p>
+                <div className="row wrap" style={{ gap: 5 }}>
+                  {template.summary.byStage.map((x) => <Badge key={x.stage} dot={false}>{x.stage}: {x.n}</Badge>)}
+                </div>
+                <label className="lab">Specialised controls this industry expects</label>
+                <div className="row wrap" style={{ gap: 5 }}>{template.addOns.map((a) => <Badge key={a} tone="blue" dot={false}>{a}</Badge>)}</div>
+                <p className="muted small" style={{ marginTop: 8 }}>Requirements come from the approved requirement library for the project's markets, filtered to this industry and facility type — shown on the Review step.</p>
+              </div>
+            )}
           </>
         )}
 
@@ -299,6 +340,7 @@ export default function NewProject() {
               {includesBim(f.serviceType) && <div><small>BIM requirement</small>{bim.lod} · coordination {bim.coordination ? 'yes' : 'no'} · handover {bim.assetHandover}</div>}
               <div><small>Markets</small><span className="row" style={{ gap: 4 }}>{[f.projectCountry, ...f.markets.filter((m) => m !== f.projectCountry)].map((m) => <MarketChip key={m} m={m} />)}</span></div>
               <div><small>Disciplines</small>{f.disciplines.join(', ')}</div>
+              <div><small>Deliverables</small>{f.generateDeliverables === false ? 'None — template switched off' : `${template?.summary.total ?? 0} registered as Missing`}</div>
               <div><small>Companies</small>{companyNames.join(', ')}</div>
               <div style={{ gridColumn: '1 / -1' }}><small>Team</small>{f.members.map((m) => { const u = users.find((x) => x.id === m.userId); return `${u?.name ?? '?'} (${m.role}${m.scope ? `, only ${m.scope}` : ''})` }).join(' · ')}</div>
             </div>

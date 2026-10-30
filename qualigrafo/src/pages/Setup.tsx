@@ -71,6 +71,7 @@ function Integrations() {
   return (
     <section className="card mt">
       <h2>Integrations <div className="seg"><button className={!revitMode ? 'on' : ''} disabled={!reviewer} onClick={() => mode(false)}>Standalone</button><button className={revitMode ? 'on' : ''} disabled={!reviewer} onClick={() => mode(true)}>Revit connector</button></div></h2>
+      {!includesBim(profile.serviceType) && <p className="muted small" style={{ marginTop: 0 }}>This is a <b>{profile.serviceType}</b> commission, so BIM pages are not shown. Switching the connector on here still works — change the service type on the project profile if the commission now includes BIM.</p>}
       <p className="muted small" style={{ marginTop: 0 }}>With the Revit connector on, the Qualigrafo add-in publishes model snapshots to this project and opens commented elements in Revit. Files can always be uploaded as well.{!reviewer && ' Consultant or Owner / QA switches the mode.'}</p>
       <div className="kv">
         <div><small>Add-in API address</small><span style={{ wordBreak: 'break-all' }}>{apiUrl}</span></div>

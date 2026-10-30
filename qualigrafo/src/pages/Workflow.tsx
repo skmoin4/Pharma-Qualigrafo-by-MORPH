@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { activeDocs, sourcePlan, useStore } from '../store'
+import { includesBim } from '../industries'
 import { Box } from 'lucide-react'
 import { SourceUploader, fmtBytes } from '../components/Files'
 import type { EventCategory } from '../types'
@@ -119,13 +120,15 @@ function RevitSnapshots() {
 }
 
 export function Sources() {
-  const { docs, imports, downloadFile, toast, role, revitMode, connector } = useStore()
+  const { docs, imports, downloadFile, toast, role, revitMode, connector, profile } = useStore()
   const open = useUI((s) => s.open)
   const [docId, setDocId] = useState(activeDocs(docs)[0]?.id ?? '')
-  const [tab, setTab] = useState<'files' | 'revit'>(revitMode ? 'revit' : 'files')
+  const [tab, setTab] = useState<'files' | 'revit'>(revitMode && includesBim(profile.serviceType) ? 'revit' : 'files')
   const doc = docs.find((d) => d.id === docId) ?? activeDocs(docs)[0]
   const download = async (id: string, name: string) => { const er = await downloadFile(id, name); if (er) toast(er, 'warn') }
-  const showRevit = revitMode || connector.models.length > 0
+  // Phase 5 / step 2: a design-only commission is not offered BIM at all. Anything already published stays
+  // visible either way — a classification change must never hide records that exist.
+  const showRevit = (includesBim(profile.serviceType) && revitMode) || connector.models.length > 0
 
   return (
     <>
