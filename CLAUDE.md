@@ -151,6 +151,12 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
   of, the Docker/Caddy two-container deployment in `deploy/`. `render.yaml` at the repo root is a Render Blueprint
   for this combined single-service deploy (free tier); needs the branch pushed to GitHub and the Neon secrets
   filled in on Render's dashboard before first deploy.
+- **Never write rows one at a time inside a transaction.** Project creation and `inProject` run as one transaction
+  against a database that, on a hosted installation, is a network away: ~35 ms per round trip there against ~0.3 ms
+  locally. A loop of 150 inserts is instant here and **over Prisma's 5 s default limit there** — that is how the
+  trial instance answered 500 to project creation on 2026-10-30 while the same code was fine locally. Use
+  `createMany`, and give every long transaction an explicit `{ timeout }` as `projects.ts`, `ctx.ts`,
+  `connector.ts` and `reminders.ts` do. This class of bug cannot be caught locally; look for it by reading the code.
 - New requirement or test? Add it to `server/src/validation/catalogue.ts` (URS + risk + OQ case); API blocks start with
   `section('OQ-API-nn')`, a new browser suite gets an OQ-UI case. The API suite fails if the catalogue is inconsistent,
   and `OQ_CASES` is what the OQ runner iterates — a suite that is not registered there simply never runs.

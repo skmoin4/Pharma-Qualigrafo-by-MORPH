@@ -174,7 +174,10 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
       ],
     })
     return code
-  })
+    // Creation writes the project, its registers, its team, the library requirements and the whole deliverable
+    // template in one transaction. Prisma's default limit is 5 s, which is ample on a local database and not
+    // ample on a hosted one; every other long transaction here sets its own limit for the same reason.
+  }, { timeout: 30_000 })
   for (const m of b.members) {
     const u = users.find((x) => x.id === m.userId)!
     await securityLog('membership.set', { email: u.email, userId: u.id, actorId: user.id, actorName: user.name, detail: `${code}: ${m.role}${m.scope ? ` (${m.scope})` : ''} (project created)` })

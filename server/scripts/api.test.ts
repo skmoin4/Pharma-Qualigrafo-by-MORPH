@@ -1408,10 +1408,18 @@ try {
     const savedDir = config.BACKUP_DIR
     Object.assign(config, { BACKUP_DIR: path.join(tmp, 'sets') })
     const ov = async () => (await call('GET', '/admin/backups', undefined, QA)).json
-    // A backup is no longer "busy" while its test restore is still running, so wait for the verification too,
-    // or a bigger database makes this read verifyStatus 'Running' instead of 'Verified'.
-    const working = async () => { const o = await ov(); return o.busy || o.runs[0]?.verifyStatus === 'Running' }
-    const waitIdle = async () => { for (let i = 0; i < 480 && (await working()); i++) await new Promise((r) => setTimeout(r, 250)) }
+    /**
+     * Waits for a backup *and* its test restore. A run stops being "busy" before the restore starts, and the
+     * restore has no status at all until it does, so going idle is not the signal: wait for busy to clear, give
+     * the verification a moment to appear, then wait for it to leave 'Running'. Without this, a slower or larger
+     * database makes the next check read `null` or `'Running'` instead of `'Verified'`.
+     */
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const waitIdle = async () => {
+      for (let i = 0; i < 240 && (await ov()).busy; i++) await pause(250)
+      for (let i = 0; i < 20 && (await ov()).runs[0]?.verifyStatus == null; i++) await pause(250)
+      for (let i = 0; i < 240 && (await ov()).runs[0]?.verifyStatus === 'Running'; i++) await pause(250)
+    }
     const sets = () => fs.existsSync(BK.backupDir()) ? fs.readdirSync(BK.backupDir()).sort() : []
 
     let o = await ov()

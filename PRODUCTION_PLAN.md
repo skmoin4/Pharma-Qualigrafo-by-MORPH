@@ -1012,6 +1012,32 @@ Two extra rules for this phase, because it touches shipped records:
 
 ### 6.7 Progress
 
+#### Phase 5 — fix: project creation failed on the hosted database (2026-10-30)
+
+Reported from the live trial instance: creating a hospital project answered **500**, while the same code created the
+same project instantly on a development machine.
+
+**Why.** Creation writes the project, its registers, its team, its library requirements and the whole deliverable
+template in **one transaction**, and three of those wrote one row at a time: 73 deliverables plus 73 history rows,
+the requirements of each market, and each missing discipline. That is roughly 150 round trips. On a local database
+they cost under a millisecond each; on the trial instance the application is on Render and the database is Neon, so
+each one costs 30–40 ms — about 5 s in total. Prisma's default transaction limit is **exactly 5 s**, and this was
+the one long transaction in the codebase that had not been given its own limit (`connector.ts`, `ctx.ts` and
+`reminders.ts` all set 15–30 s).
+
+**Fixed.** Deliverables are written as two statements instead of one per row, requirements and disciplines likewise,
+and the creation transaction is given a 30 s limit like the others. Behaviour is unchanged: the full OQ is
+**1384 of 1384** before and after.
+
+**Not reproduced locally**, and said so plainly: the development database is on the same machine, so the latency
+that causes it does not exist here. The diagnosis rests on the error appearing only against the hosted database, the
+round-trip count, and the default limit being the exact figure involved. Confirmation is the client creating that
+project again after the deploy.
+
+**Worth noting for later steps.** The requirement path had the same shape and had simply not been reached yet — the
+client's project had no approved library pack, so no requirements were written. It would have failed the moment they
+approved one. Any write loop inside `inProject` or project creation should be a `createMany`.
+
 #### Phase 5 / step 2b — industry requirement packs (done 2026-10-30)
 
 Step 2 shipped the engine; this is the content that goes through it. A non-pharma project now arrives with

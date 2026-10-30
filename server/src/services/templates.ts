@@ -4,6 +4,7 @@
 // expected to produce before anything has been produced, which is what the client asked for and the opposite of the
 // empty project they were handed. Nothing here is evidence or regulatory content — every row is a plan the project
 // team edits, reassigns or deletes.
+import { randomUUID } from 'node:crypto'
 import { PROJECT_STAGES } from '../domain/industries.ts'
 import { today } from '../domain/rules.ts'
 import type { DeliverableTemplate, ProjectTemplate } from '../domain/templates.ts'
@@ -41,21 +42,23 @@ export async function generateDeliverables(
   owner: string,
   by: { role: string; userId: string },
 ): Promise<GeneratedWorkspace> {
-  const rows: { t: DeliverableTemplate; code: string }[] = []
   const codes: { code: string }[] = []
-  for (const t of template.deliverables) {
+  const rows = template.deliverables.map((t) => {
     const code = nextCode('DOC', codes)
     codes.push({ code })
-    rows.push({ t, code })
-  }
-  for (const { t, code } of rows) {
-    await tx.document.create({
-      data: {
-        projectId: project.id, code, number: '', title: t.title, discipline: t.discipline, system: '',
-        rev: 0, status: 'Missing', owner, due: dueFor(t.stage, project.projectStage), critical: !!t.critical, signStage: 0,
-        history: { create: { rev: 0, status: 'Missing', byRole: by.role, byUserId: by.userId, note: `Registered from the ${template.label} template` } },
-      },
-    })
-  }
+    return { t, code, id: randomUUID() }
+  })
+  // Two statements, not two per deliverable: a template can hold a hundred rows, and a round trip each would take
+  // this transaction past its time limit on a database that is not on the same machine (seen on the hosted trial,
+  // where creating a hospital project answered 500 while the same code was instant locally).
+  await tx.document.createMany({
+    data: rows.map(({ t, code, id }) => ({
+      id, projectId: project.id, code, number: '', title: t.title, discipline: t.discipline, system: '',
+      rev: 0, status: 'Missing', owner, due: dueFor(t.stage, project.projectStage), critical: !!t.critical, signStage: 0,
+    })),
+  })
+  await tx.docHistory.createMany({
+    data: rows.map(({ id }) => ({ documentId: id, rev: 0, status: 'Missing', byRole: by.role, byUserId: by.userId, note: `Registered from the ${template.label} template` })),
+  })
   return { documents: rows.length, critical: rows.filter((r) => r.t.critical).length }
 }

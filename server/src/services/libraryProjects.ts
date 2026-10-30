@@ -29,29 +29,30 @@ const dueIn = (days: number) => { const d = new Date(`${today()}T00:00:00Z`); d.
 async function ensureDisciplines(tx: Tx, projectId: string, names: string[]) {
   const have = await tx.discipline.findMany({ where: { projectId } })
   let pos = have.reduce((m, d) => Math.max(m, d.position), 0)
-  const added: string[] = []
-  for (const n of [...new Set(names)]) {
-    if (have.some((d) => d.name === n)) continue
-    await tx.discipline.create({ data: { projectId, name: n, position: ++pos } })
-    added.push(n)
-  }
+  const added = [...new Set(names)].filter((n) => !have.some((d) => d.name === n))
+  if (added.length) await tx.discipline.createMany({ data: added.map((name) => ({ projectId, name, position: ++pos })) })
   return added
 }
 
+/**
+ * Writes a market's requirements in **one** statement. A pack can hold dozens of items and this runs inside the
+ * project-creation transaction, where a round trip each would spend the transaction's time limit on a database
+ * that is not on the same machine.
+ */
 async function createRequirements(tx: Tx, projectId: string, market: string, versionId: string, items: LibItem[]) {
   const codes = await tx.requirement.findMany({ where: { projectId }, select: { code: true } })
   const made: string[] = []
-  for (const i of items) {
+  const due = dueIn(30)
+  const data = items.map((i) => {
     const code = nextCode('REQ', [...codes, ...made.map((c) => ({ code: c }))])
     made.push(code)
-    await tx.requirement.create({
-      data: {
-        projectId, code, title: i.title, market, topic: i.topic, discipline: i.discipline, system: '', applicability: 'Assessment pending', rationale: '',
-        owner: 'Consultant', due: dueIn(30), critical: i.critical, clause: i.clause, sourceVersion: i.sourceVersion, effective: i.effective,
-        libraryKey: i.key, libraryVersionId: versionId,
-      },
-    })
-  }
+    return {
+      projectId, code, title: i.title, market, topic: i.topic, discipline: i.discipline, system: '', applicability: 'Assessment pending', rationale: '',
+      owner: 'Consultant', due, critical: i.critical, clause: i.clause, sourceVersion: i.sourceVersion, effective: i.effective,
+      libraryKey: i.key, libraryVersionId: versionId,
+    }
+  })
+  if (data.length) await tx.requirement.createMany({ data })
   return made
 }
 
