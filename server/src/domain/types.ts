@@ -1,3 +1,5 @@
+import type { BimRequirement, IndustryGroup, ServiceType } from './industries.ts'
+
 export type Role = 'Consultant' | 'Contractor' | 'Owner / QA'
 export type MarketKey = 'SA' | 'IN' | 'EU' | 'US' | 'UK'
 export type DocStatus = 'Missing' | 'Draft' | 'Under review' | 'Changes requested' | 'Accepted' | 'Void' | 'Superseded'
@@ -144,18 +146,25 @@ export type EvidenceState =
   | 'Evidence accepted'
   | 'Under assessment'
 
-export type Facility = 'API' | 'Non-sterile formulation' | 'Sterile products' | 'Biologics' | 'Warehouse'
-export type Scope = 'New plant' | 'Expansion' | 'Renovation' | 'Equipment installation'
+// The facility type and the project stage are reference data (src/domain/industries.ts), not unions: four industry
+// groups with their own lists, each ending with "Other / custom facility", cannot be enumerated here (decision §6.4.7).
+export type Scope = 'New plant' | 'Expansion' | 'Renovation' | 'Equipment installation' | 'Fit-out'
 
 export interface Profile {
   id: string
   name: string
   client: string
   site: string
-  facility: Facility
+  industryGroup: IndustryGroup
+  facilityType: string
+  secondaryFacilityType?: string
+  customFacilityType?: string
+  serviceType: ServiceType
   scope: Scope
-  phase: string
-  plantCountry: MarketKey
+  projectStage: string
+  projectCountry: MarketKey
+  /** Only set when the service type includes BIM. */
+  bimRequirement?: BimRequirement
   ownerStandards: string
   status: 'Active' | 'Archived'
   archivedAt?: string

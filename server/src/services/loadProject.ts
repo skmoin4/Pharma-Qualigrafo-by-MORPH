@@ -53,7 +53,7 @@ export async function loadProject(projectId: string, userId: string, scope: stri
 
   const libVersions = new Map((await prisma.libraryVersion.findMany({ where: { id: { in: [...new Set(reqs.map((r) => r.libraryVersionId).filter((x): x is string => !!x))] } }, select: { id: true, version: true } })).map((v) => [v.id, v.version]))
   const out: ProjectData = {
-    profile: { id: p.code, name: p.name, client: p.client, site: p.site, facility: p.facility as ProjectData['profile']['facility'], scope: p.scope as ProjectData['profile']['scope'], phase: p.phase, plantCountry: p.plantCountry as MarketKey, ownerStandards: p.ownerStandards, status: p.status as 'Active', archivedAt: p.archivedAt ? iso(p.archivedAt) : undefined, archivedReason: opt(p.archivedReason) },
+    profile: { id: p.code, name: p.name, client: p.client, site: p.site, industryGroup: p.industryGroup as ProjectData['profile']['industryGroup'], facilityType: p.facilityType, secondaryFacilityType: opt(p.secondaryFacilityType), customFacilityType: opt(p.customFacilityType), serviceType: p.serviceType as ProjectData['profile']['serviceType'], scope: p.scope as ProjectData['profile']['scope'], projectStage: p.projectStage, bimRequirement: (p.bimRequirement as unknown as ProjectData['profile']['bimRequirement']) ?? undefined, projectCountry: p.projectCountry as MarketKey, ownerStandards: p.ownerStandards, status: p.status as 'Active', archivedAt: p.archivedAt ? iso(p.archivedAt) : undefined, archivedReason: opt(p.archivedReason) },
     markets: p.markets as MarketKey[],
     baseline: p.baseline,
     revitMode: p.revitMode,

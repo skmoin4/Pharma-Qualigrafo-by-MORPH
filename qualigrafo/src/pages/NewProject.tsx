@@ -4,17 +4,29 @@ import { api, errorText } from '../api'
 import { disciplines as STANDARD_DISCIPLINES, markets } from '../data/reference'
 import { useStore } from '../store'
 import type { NewProject as Spec } from '../store'
-import type { Facility, MarketKey, Role, Scope } from '../types'
+import type { BimRequirement, IndustryGroup, MarketKey, Role, Scope, ServiceType } from '../types'
 import { Badge, MarketChip, PageHead, home, openProjectRoute } from '../components/ui'
 import { approvedOf, useLibraryPacks } from '../library'
+import { CUSTOM_FACILITY, classificationText, facilitiesOf, includesBim, useIndustries } from '../industries'
 
-const FAC: Facility[] = ['API', 'Non-sterile formulation', 'Sterile products', 'Biologics', 'Warehouse']
-const SCOPES: Scope[] = ['New plant', 'Expansion', 'Renovation', 'Equipment installation']
+/** One line per service type, from the client's own specification. */
+const SERVICE_HINT: Record<string, string> = {
+  'Design only': 'Engineering design, calculations, drawings, schedules, GFC / IFC, approvals.',
+  'BIM only': 'Modelling, coordination, clash detection, LOD, shop drawings, COBie / as-built.',
+  'Design + BIM': 'Full engineering design and BIM execution in one connected workflow.',
+}
 const KINDS = ['Engineering consultant', 'Main contractor', 'Subcontractor', 'Vendor / supplier', 'Other']
 const ROLES: Role[] = ['Owner / QA', 'Consultant', 'Contractor']
-const STEPS = ['Basics', 'Scope & markets', 'Registers', 'Team', 'Review'] as const
+const STEPS = ['Basics', 'Scope & classification', 'Registers', 'Team', 'Review'] as const
 
 interface DirUser { id: string; name: string; email: string; company: string | null }
+
+/**
+ * The wizard's own draft. The industry group and the service type start **empty**: the client's specification makes
+ * the service type mandatory ("enquiries may be Design only, BIM only, or both"), and a pre-selected industry would
+ * decide the whole template set for the person. Both are validated before Next lets the step pass.
+ */
+type Draft = Omit<Spec, 'industryGroup' | 'serviceType'> & { industryGroup: IndustryGroup | ''; serviceType: ServiceType | '' }
 
 /**
  * The draft survives a reload of the same tab. Without this, a reload (or anything that remounts the page, such as
@@ -22,11 +34,11 @@ interface DirUser { id: string; name: string; email: string; company: string | n
  * with the default country selected — which is what a tester reads as "my entries were lost".
  */
 const DRAFT_KEY = 'qualigrafo.newProject.draft'
-const readDraft = (): { step: number; f: Spec } | null => {
+const readDraft = (): { step: number; f: Draft } | null => {
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY)
     if (!raw) return null
-    const d = JSON.parse(raw) as { step?: number; f?: Spec }
+    const d = JSON.parse(raw) as { step?: number; f?: Draft }
     return d.f ? { step: Math.min(Math.max(d.step ?? 0, 0), STEPS.length - 1), f: d.f } : null
   } catch { return null /* storage blocked or unreadable draft */ }
 }
@@ -42,8 +54,10 @@ export default function NewProject() {
   const [extra, setExtra] = useState('')
   const [resumed, setResumed] = useState(!!saved)
   const { packs } = useLibraryPacks()
-  const [f, setF] = useState<Spec>(saved?.f ?? {
-    code: '', name: '', client: '', site: '', plantCountry: 'SA', markets: [], facility: 'Non-sterile formulation', scope: 'New plant', phase: 'Design', ownerStandards: '',
+  const { ref: industries, error: refError } = useIndustries()
+  const [f, setF] = useState<Draft>(saved?.f ?? {
+    code: '', name: '', client: '', site: '', projectCountry: 'SA', markets: [],
+    industryGroup: '', facilityType: '', serviceType: '', scope: 'New plant', projectStage: 'Concept', ownerStandards: '',
     disciplines: [...STANDARD_DISCIPLINES], companies: [],
     members: session ? [{ userId: session.id, role: 'Owner / QA', scope: null }] : [],
   })
@@ -53,6 +67,10 @@ export default function NewProject() {
   useEffect(() => {
     try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, f })) } catch { /* storage blocked: the wizard still works, a reload just starts over */ }
   }, [step, f])
+
+  // The BIM block is only shown, and only sent, when the service type includes BIM.
+  const bim: BimRequirement = f.bimRequirement ?? industries?.defaultBim ?? { lod: 'LOD 300', coordination: true, assetHandover: 'None' }
+  const setBim = (patch: Partial<BimRequirement>) => setF({ ...f, bimRequirement: { ...bim, ...patch } })
 
   const companyNames = useMemo(() => [f.client.trim(), ...f.companies.map((c) => c.name.trim())].filter(Boolean), [f.client, f.companies])
   /**
@@ -67,6 +85,12 @@ export default function NewProject() {
       if (f.client.trim().length < 2) p.client = 'Name the client that owns the plant.'
       if (f.site.trim().length < 2) p.site = 'Give the site or location.'
       if (f.code && !/^[A-Za-z0-9][A-Za-z0-9-]{2,19}$/.test(f.code.trim())) p.code = 'Project code: 3–20 letters, digits or dashes.'
+    }
+    if (step === 1) {
+      if (!f.industryGroup) p.industryGroup = 'Choose the industry group of this project.'
+      else if (!f.facilityType) p.facilityType = 'Choose the facility type.'
+      else if (f.facilityType === CUSTOM_FACILITY && (f.customFacilityType ?? '').trim().length < 3) p.customFacilityType = 'Name the custom facility type (at least 3 characters).'
+      if (!f.serviceType) p.serviceType = 'Choose the service type: Design only, BIM only, or Design + BIM.'
     }
     if (step === 2) {
       if (!f.disciplines.length) p.disciplines = 'Choose at least one discipline.'
@@ -87,11 +111,11 @@ export default function NewProject() {
   const toggleMarket = (k: MarketKey, on: boolean) => setF({ ...f, markets: on ? [...f.markets, k] : f.markets.filter((x) => x !== k) })
   const toggleDiscipline = (d: string, on: boolean) => setF({ ...f, disciplines: on ? [...f.disciplines, d] : f.disciplines.filter((x) => x !== d) })
   const allDisciplines = [...STANDARD_DISCIPLINES, ...f.disciplines.filter((d) => !STANDARD_DISCIPLINES.includes(d))]
-  const setMember = (i: number, patch: Partial<Spec['members'][number]>) => setF({ ...f, members: f.members.map((m, j) => (j === i ? { ...m, ...patch, ...(patch.role && patch.role !== 'Contractor' ? { scope: null } : {}) } : m)) })
+  const setMember = (i: number, patch: Partial<Draft['members'][number]>) => setF({ ...f, members: f.members.map((m, j) => (j === i ? { ...m, ...patch, ...(patch.role && patch.role !== 'Contractor' ? { scope: null } : {}) } : m)) })
 
   const submit = async () => {
     setBusy(true); setError(null)
-    const r = await createProject({ ...f, code: f.code?.trim() || undefined, markets: f.markets.filter((m) => m !== f.plantCountry) })
+    const r = await createProject({ ...(f as Spec), code: f.code?.trim() || undefined, markets: f.markets.filter((m) => m !== f.projectCountry) })
     setBusy(false)
     if (r.error) return setError(r.error)
     clearDraft()
@@ -102,7 +126,7 @@ export default function NewProject() {
 
   return (
     <>
-      <PageHead title="New project" sub="Set up a project in five steps. Everything except the project code can be changed later; facility, scope and markets changes create a new requirement baseline." actions={<button className="btn" onClick={cancel}>Cancel</button>} />
+      <PageHead title="New project" sub="Set up a project in five steps, for any industry. Everything except the project code can be changed later; industry group, facility type, scope and market changes create a new requirement baseline." actions={<button className="btn" onClick={cancel}>Cancel</button>} />
       {resumed && (
         <div className="notice info small" style={{ marginBottom: 12 }}>
           <b>Draft restored.</b> Your entries from before are still here, on the step you left.
@@ -122,31 +146,95 @@ export default function NewProject() {
               <div><label className="lab" style={{ marginTop: 0 }}>Project code (optional)</label><input className="input" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="Generated automatically, e.g. PRJ-004" />{fieldError('code')}</div>
               <div><label className="lab">Client (plant owner)</label><input className="input" value={f.client} onChange={(e) => setF({ ...f, client: e.target.value })} placeholder="Company that owns the plant" />{fieldError('client')}</div>
               <div><label className="lab">Site / location</label><input className="input" value={f.site} onChange={(e) => setF({ ...f, site: e.target.value })} placeholder="City, country" />{fieldError('site')}</div>
-              <div><label className="lab">Plant country</label><select className="input" value={f.plantCountry} onChange={(e) => setF({ ...f, plantCountry: e.target.value as MarketKey })}>{(Object.keys(markets) as MarketKey[]).map((k) => <option key={k} value={k}>{markets[k].name}</option>)}</select></div>
+              <div><label className="lab">Project country</label><select className="input" value={f.projectCountry} onChange={(e) => setF({ ...f, projectCountry: e.target.value as MarketKey })}>{(Object.keys(markets) as MarketKey[]).map((k) => <option key={k} value={k}>{markets[k].name}</option>)}</select></div>
             </div>
-            <p className="muted small">The plant country decides the local authority and is always in regulatory scope — on the next step it is ticked as a target market and cannot be unticked. The project code cannot be changed later.</p>
+            <p className="muted small">The project country decides the local authority and is always in regulatory scope — on the next step it is ticked as a target market and cannot be unticked. The project code cannot be changed later.</p>
           </>
         )}
 
         {step === 1 && (
           <>
-            <h2>Scope &amp; markets</h2>
+            <h2>Scope &amp; classification</h2>
+            <label className="lab" style={{ marginTop: 0 }}>Industry group</label>
+            <p className="muted small" style={{ margin: '0 0 8px' }}>Decides which facility types, registers and requirement packs this project is offered.</p>
+            <div className="pickers" role="group" aria-label="Industry group">
+              {(industries?.groups ?? []).map((g) => (
+                <button type="button" key={g.key} className={`picker ${f.industryGroup === g.key ? 'on' : ''}`} aria-pressed={f.industryGroup === g.key}
+                  onClick={() => setF({ ...f, industryGroup: g.key, facilityType: '', secondaryFacilityType: '', customFacilityType: '' })}>
+                  <b>{g.key}</b><span className="muted small">{g.summary}</span>
+                </button>
+              ))}
+              {!industries && <span className="muted small">Loading industry groups…</span>}
+            </div>
+            {fieldError('industryGroup')}
             <div className="grid g2">
               <div>
-                <label className="lab" style={{ marginTop: 0 }}>Facility type</label><select className="input" value={f.facility} onChange={(e) => setF({ ...f, facility: e.target.value as Facility })}>{FAC.map((x) => <option key={x}>{x}</option>)}</select>
-                <label className="lab">Project scope</label><select className="input" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value as Scope })}>{SCOPES.map((x) => <option key={x}>{x}</option>)}</select>
-                <label className="lab">Project phase</label><input className="input" value={f.phase} onChange={(e) => setF({ ...f, phase: e.target.value })} placeholder="e.g. Design, Construction, Commissioning & qualification" />
+                <label className="lab">Facility type (project sub-type)</label>
+                <select className="input" value={f.facilityType} disabled={!f.industryGroup} onChange={(e) => setF({ ...f, facilityType: e.target.value })}>
+                  <option value="">{f.industryGroup ? 'Choose…' : 'Choose an industry group first'}</option>
+                  {facilitiesOf(industries, f.industryGroup).map((x) => <option key={x}>{x}</option>)}
+                </select>
+                {fieldError('facilityType')}
+                {f.facilityType === CUSTOM_FACILITY && (
+                  <>
+                    <label className="lab">Name of the custom facility</label>
+                    <input className="input" value={f.customFacilityType ?? ''} onChange={(e) => setF({ ...f, customFacilityType: e.target.value })} placeholder="e.g. Vaccine fill-finish and inspection block" />
+                    {fieldError('customFacilityType')}
+                  </>
+                )}
+                <label className="lab">Secondary sub-type (optional)</label>
+                <select className="input" value={f.secondaryFacilityType ?? ''} disabled={!f.industryGroup} onChange={(e) => setF({ ...f, secondaryFacilityType: e.target.value })}>
+                  <option value="">None</option>
+                  {facilitiesOf(industries, f.industryGroup).filter((x) => x !== CUSTOM_FACILITY && x !== f.facilityType).map((x) => <option key={x}>{x}</option>)}
+                </select>
+                <label className="lab">Project scope</label><select className="input" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value as Scope })}>{(industries?.scopes ?? [f.scope]).map((x) => <option key={x}>{x}</option>)}</select>
+                <label className="lab">Project stage</label>
+                <select className="input" value={f.projectStage} onChange={(e) => setF({ ...f, projectStage: e.target.value })}>
+                  {[...(industries?.stages ?? []), ...(industries && industries.stages.includes(f.projectStage) ? [] : [f.projectStage])].filter(Boolean).map((x) => <option key={x}>{x}</option>)}
+                </select>
               </div>
               <div>
                 <label className="lab" style={{ marginTop: 0 }}>Target markets (where the product will be supplied)</label>
                 {(Object.keys(markets) as MarketKey[]).map((k) => (
                   <label key={k} className="row" style={{ padding: '4px 0', fontWeight: 500 }}>
-                    <input type="checkbox" checked={k === f.plantCountry || f.markets.includes(k)} disabled={k === f.plantCountry} onChange={(e) => toggleMarket(k, e.target.checked)} />
-                    <MarketChip m={k} /> {markets[k].name} <span className="muted small">{markets[k].authority}{k === f.plantCountry ? ' · plant country' : ''}</span>
+                    <input type="checkbox" checked={k === f.projectCountry || f.markets.includes(k)} disabled={k === f.projectCountry} onChange={(e) => toggleMarket(k, e.target.checked)} />
+                    <MarketChip m={k} /> {markets[k].name} <span className="muted small">{markets[k].authority}{k === f.projectCountry ? ' · project country' : ''}</span>
                   </label>
                 ))}
               </div>
             </div>
+            <label className="lab">Service type</label>
+            <p className="muted small" style={{ margin: '0 0 8px' }}>An enquiry can be design, BIM, or both — this decides which registers and deliverables the project gets, so there is no default.</p>
+            <div className="pickers" role="group" aria-label="Service type">
+              {(industries?.serviceTypes ?? []).map((t) => (
+                <button type="button" key={t} className={`picker ${f.serviceType === t ? 'on' : ''}`} aria-pressed={f.serviceType === t}
+                  onClick={() => setF({ ...f, serviceType: t, bimRequirement: includesBim(t) ? (f.bimRequirement ?? industries?.defaultBim) : undefined })}>
+                  <b>{t}</b><span className="muted small">{SERVICE_HINT[t]}</span>
+                </button>
+              ))}
+            </div>
+            {fieldError('serviceType')}
+
+            {includesBim(f.serviceType) && industries && (
+              <div className="subcard" style={{ marginTop: 12 }}>
+                <h3 style={{ marginTop: 0 }}>BIM requirement</h3>
+                <div className="grid g3">
+                  <div>
+                    <label className="lab" style={{ marginTop: 0 }}>Level of development</label>
+                    <select className="input" value={bim.lod} onChange={(e) => setBim({ lod: e.target.value })}>{industries.lodLevels.map((x) => <option key={x}>{x}</option>)}</select>
+                  </div>
+                  <div>
+                    <label className="lab" style={{ marginTop: 0 }}>Coordination / clash detection</label>
+                    <select className="input" value={bim.coordination ? 'Yes' : 'No'} onChange={(e) => setBim({ coordination: e.target.value === 'Yes' })}><option>Yes</option><option>No</option></select>
+                  </div>
+                  <div>
+                    <label className="lab" style={{ marginTop: 0 }}>Asset / handover deliverable</label>
+                    <select className="input" value={bim.assetHandover} onChange={(e) => setBim({ assetHandover: e.target.value })}>{industries.assetHandover.map((x) => <option key={x}>{x}</option>)}</select>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <label className="lab">Applicable owner standards and procedures (optional)</label>
             <textarea className="input" style={{ minHeight: 56 }} value={f.ownerStandards} onChange={(e) => setF({ ...f, ownerStandards: e.target.value })} placeholder="e.g. QMS-014 Engineering documentation procedure (rev 4)" />
           </>
@@ -206,20 +294,23 @@ export default function NewProject() {
             <div className="kv">
               <div><small>Project</small>{f.name} {f.code ? <Badge dot={false}>{f.code.toUpperCase()}</Badge> : <span className="muted small">(code generated)</span>}</div>
               <div><small>Client · site</small>{f.client} · {f.site}</div>
-              <div><small>Facility · scope · phase</small>{f.facility} · {f.scope} · {f.phase || 'Design'}</div>
-              <div><small>Markets</small><span className="row" style={{ gap: 4 }}>{[f.plantCountry, ...f.markets.filter((m) => m !== f.plantCountry)].map((m) => <MarketChip key={m} m={m} />)}</span></div>
+              <div style={{ gridColumn: '1 / -1' }}><small>Classification</small>{classificationText(f)}</div>
+              <div><small>Scope</small>{f.scope}</div>
+              {includesBim(f.serviceType) && <div><small>BIM requirement</small>{bim.lod} · coordination {bim.coordination ? 'yes' : 'no'} · handover {bim.assetHandover}</div>}
+              <div><small>Markets</small><span className="row" style={{ gap: 4 }}>{[f.projectCountry, ...f.markets.filter((m) => m !== f.projectCountry)].map((m) => <MarketChip key={m} m={m} />)}</span></div>
               <div><small>Disciplines</small>{f.disciplines.join(', ')}</div>
               <div><small>Companies</small>{companyNames.join(', ')}</div>
               <div style={{ gridColumn: '1 / -1' }}><small>Team</small>{f.members.map((m) => { const u = users.find((x) => x.id === m.userId); return `${u?.name ?? '?'} (${m.role}${m.scope ? `, only ${m.scope}` : ''})` }).join(' · ')}</div>
             </div>
             <h3>Requirements from the library</h3>
-            <div className="tablewrap"><table><tbody>{[f.plantCountry, ...f.markets.filter((m) => m !== f.plantCountry)].map((m) => { const a = approvedOf(packs?.find((p) => p.market === m)); return <tr key={m}><td><MarketChip m={m} /> {markets[m].name}</td><td>{!packs ? <span className="muted small">Loading…</span> : a ? <><Badge tone="green" dot={false}>v{a.version} approved</Badge> <span className="small">{a.items} item(s); those for {f.facility} are added{a.starter ? ' · unverified starter content' : ''}</span></> : <><Badge tone="amber" dot={false}>No approved pack</Badge> <span className="small muted">No requirements for this market until a library version is approved</span></>}</td></tr> })}</tbody></table></div>
+            <div className="tablewrap"><table><tbody>{[f.projectCountry, ...f.markets.filter((m) => m !== f.projectCountry)].map((m) => { const a = approvedOf(packs?.find((p) => p.market === m)); return <tr key={m}><td><MarketChip m={m} /> {markets[m].name}</td><td>{!packs ? <span className="muted small">Loading…</span> : a ? <><Badge tone="green" dot={false}>v{a.version} approved</Badge> <span className="small">{a.items} item(s); those for {f.customFacilityType || f.facilityType} are added{a.starter ? ' · unverified starter content' : ''}</span></> : <><Badge tone="amber" dot={false}>No approved pack</Badge> <span className="small muted">No requirements for this market until a library version is approved</span></>}</td></tr> })}</tbody></table></div>
             <div className="notice info small">The project starts at requirement baseline B1. Library requirements arrive as Assessment pending for the Consultant / Owner / QA to decide applicability. Next: add the system / equipment list, assign systems to requirements, then documents.</div>
             {error && <div className="notice err" role="alert" style={{ marginTop: 10 }}>{error}</div>}
           </>
         )}
 
         {problems.length > 0 && <div className="notice small" style={{ marginTop: 12 }}>Still needed: {problems.join(' · ')}</div>}
+        {refError && step === 1 && <div className="notice err small" style={{ marginTop: 12 }} role="alert">The industry groups could not be loaded: {refError}</div>}
         {error && step < 4 && <div className="notice err small" style={{ marginTop: 12 }}>{error}</div>}
         <div className="row sb" style={{ marginTop: 16 }}>
           <button type="button" className="btn" disabled={step === 0} onClick={() => setStep(step - 1)}><ArrowLeft size={13} /> Back</button>

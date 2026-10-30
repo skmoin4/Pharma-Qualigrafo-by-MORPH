@@ -77,10 +77,18 @@ model Project {
   name           String
   client         String
   site           String
-  facility       String
+  /// Phase 5 / step 1: classification. facilityType / projectStage / projectCountry are the renamed
+  /// facility / phase / plantCountry columns; industryGroup, serviceType and the BIM block are new.
+  industryGroup  String   @default("Pharma")
+  facilityType   String
+  secondaryFacilityType String?
+  customFacilityType    String?
+  serviceType    String   @default("Design only")
   scope          String
-  phase          String
-  plantCountry   String
+  projectStage   String
+  projectCountry String
+  /// { lod, coordination, assetHandover } — only set when the service type includes BIM.
+  bimRequirement Json?
   ownerStandards String
   markets        Json // MarketKey[]
   baseline       Int      @default(1)

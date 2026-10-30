@@ -2,7 +2,7 @@
 // item editing and CSV import on drafts, four-eyes approval, and fan-out of approved versions to projects.
 import { prisma } from '../db.ts'
 import type { Tx } from '../db.ts'
-import { FACILITIES, MARKETS } from '../domain/enums.ts'
+import { ALL_FACILITIES, MARKETS } from '../domain/enums.ts'
 import { markets as MARKET_INFO } from '../domain/reference.ts'
 import { STARTER_LIBRARY } from '../domain/starterLibrary.ts'
 import type { MarketKey } from '../domain/types.ts'
@@ -38,8 +38,8 @@ function normalise(i: ItemInput) {
   const discipline = clean(i.discipline)
   if (!discipline) throw rule(`${key}: a discipline is required.`)
   const facilities = [...new Set((i.facilities ?? []).map(clean).filter(Boolean))]
-  const bad = facilities.find((f) => !(FACILITIES as readonly string[]).includes(f))
-  if (bad) throw rule(`${key}: unknown facility type "${bad}". Use: ${FACILITIES.join(', ')} (or leave empty for all).`)
+  const bad = facilities.find((f) => !ALL_FACILITIES.includes(f))
+  if (bad) throw rule(`${key}: unknown facility type "${bad}". Use a facility type of one of the industry groups (or leave empty for all).`)
   const effective = clean(i.effective)
   if (effective && !/^\d{4}-\d{2}-\d{2}$/.test(effective)) throw rule(`${key}: effective date must be YYYY-MM-DD.`)
   return { key, title, topic: clean(i.topic), discipline, facilities, critical: !!i.critical, clause: clean(i.clause), sourceVersion: clean(i.sourceVersion), effective, guidance: (i.guidance ?? '').trim() }
@@ -270,7 +270,7 @@ export async function approveVersion(user: AuthUser, versionId: string, reason: 
         data: {
           projectId: p.id, code, market: v.pack.market, kind: 'Library', libraryVersionId: v.id,
           title: `Requirement library ${v.pack.market} v${v.version} approved`,
-          summary: `${d.added.length} new, ${d.changed.length} changed, ${d.removed.length} removed requirement(s) for this project (${p.facility}). Approval basis: ${reason.trim()}`,
+          summary: `${d.added.length} new, ${d.changed.length} changed, ${d.removed.length} removed requirement(s) for this project (${p.facilityType}). Approval basis: ${reason.trim()}`,
           reqs: [...d.changed.map((c) => c.req.code), ...d.removed.map((r) => r.code)],
         },
       })

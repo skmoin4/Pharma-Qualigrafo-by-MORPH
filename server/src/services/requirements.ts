@@ -1,6 +1,8 @@
 import { coverage, evidenceState } from '../domain/rules.ts'
 import { changeList } from '../lib/audit.ts'
-import type { Applicability, Facility, GapAction, MarketKey, Scope } from '../domain/types.ts'
+import type { Applicability, GapAction, MarketKey, Scope } from '../domain/types.ts'
+import type { BimRequirement, IndustryGroup, ServiceType } from '../domain/industries.ts'
+import { bimJson, checkClassification, classificationLine } from './projects.ts'
 import { forbidden, notFound, rule } from '../lib/http.ts'
 import { getDoc, getOr404, getReq, nextCode, codeKey } from './ctx.ts'
 import type { Ctx } from './ctx.ts'
@@ -10,28 +12,59 @@ import { applyLibraryVersion, instantiateMarket } from './libraryProjects.ts'
 import { requireDiscipline, requireSystem } from './registers.ts'
 import { loadProject } from './loadProject.ts'
 
-export async function saveProfile(c: Ctx, p: { facility: Facility; scope: Scope; phase: string; ownerStandards: string; markets: MarketKey[]; reason: string }) {
+/** The BIM block as audit text, so a change inside it is reported like any other field. */
+const bimText = (b: unknown) => {
+  const r = b as BimRequirement | null | undefined
+  return r ? `${r.lod}, coordination ${r.coordination ? 'yes' : 'no'}, handover ${r.assetHandover}` : 'none'
+}
+
+export async function saveProfile(c: Ctx, p: {
+  industryGroup: IndustryGroup
+  facilityType: string
+  secondaryFacilityType?: string
+  customFacilityType?: string
+  serviceType: ServiceType
+  scope: Scope
+  projectStage: string
+  bimRequirement?: BimRequirement
+  ownerStandards: string
+  markets: MarketKey[]
+  reason: string
+}) {
   if (c.role !== 'Owner / QA') throw forbidden('Owner / QA role required to change project scope.')
   if (!p.reason.trim()) throw rule('A change rationale is required.')
   if (!p.markets.length) throw rule('Select at least one target market.')
-  const material = p.facility !== c.project.facility || p.scope !== c.project.scope
+  const cls = checkClassification(p)
+  // A different facility type or scope changes which requirements apply; the industry group changes it even more.
+  const material = cls.facilityType !== c.project.facilityType || p.scope !== c.project.scope || cls.industryGroup !== c.project.industryGroup
   const v = c.project.baseline + 1
-  const markets = [...new Set([c.project.plantCountry, ...p.markets])]
-  const fields = changeList([['facility', c.project.facility, p.facility], ['scope', c.project.scope, p.scope], ['phase', c.project.phase, p.phase], ['owner standards', c.project.ownerStandards, p.ownerStandards], ['markets', c.project.markets as string[], markets]])
+  const markets = [...new Set([c.project.projectCountry, ...p.markets])]
+  const fields = changeList([
+    ['industry group', c.project.industryGroup, cls.industryGroup],
+    ['facility type', c.project.facilityType, cls.facilityType],
+    ['secondary facility type', c.project.secondaryFacilityType ?? '', cls.secondaryFacilityType ?? ''],
+    ['custom facility type', c.project.customFacilityType ?? '', cls.customFacilityType ?? ''],
+    ['service type', c.project.serviceType, cls.serviceType],
+    ['scope', c.project.scope, p.scope],
+    ['project stage', c.project.projectStage, cls.projectStage],
+    ['BIM requirement', bimText(c.project.bimRequirement), bimText(cls.bimRequirement)],
+    ['owner standards', c.project.ownerStandards, p.ownerStandards],
+    ['markets', c.project.markets as string[], markets],
+  ])
   await c.tx.project.update({
     where: { id: c.project.id },
-    data: { facility: p.facility, scope: p.scope, phase: p.phase, ownerStandards: p.ownerStandards, markets, baseline: v },
+    data: { ...cls, bimRequirement: bimJson(cls.bimRequirement), scope: p.scope, ownerStandards: p.ownerStandards, markets, baseline: v },
   })
   await c.tx.baseline.create({ data: { projectId: c.project.id, v, byRole: c.role, byUserId: c.user.id, reason: p.reason } })
   if (material) {
-    await c.tx.requirement.updateMany({ where: { projectId: c.project.id }, data: { applicability: 'Assessment pending', rationale: 'Facility type or scope changed; reassess applicability.' } })
+    await c.tx.requirement.updateMany({ where: { projectId: c.project.id }, data: { applicability: 'Assessment pending', rationale: 'Industry group, facility type or scope changed; reassess applicability.' } })
   }
-  await c.log(`Baseline B${v} created: ${fields.join('; ') || 'no profile field changed'}. Reason: ${p.reason}${material ? ' (applicability reset)' : ''}`)
+  await c.log(`Baseline B${v} created (${classificationLine(cls)}): ${fields.join('; ') || 'no profile field changed'}. Reason: ${p.reason}${material ? ' (applicability reset)' : ''}`)
   // A newly targeted market brings in its approved library requirements.
   const before = (c.project.markets as string[]) ?? []
-  const added = [...new Set([c.project.plantCountry, ...p.markets])].filter((m) => !before.includes(m))
+  const added = [...new Set([c.project.projectCountry, ...p.markets])].filter((m) => !before.includes(m))
   for (const m of added) {
-    const r = await instantiateMarket(c.tx, { id: c.project.id, facility: p.facility }, m)
+    const r = await instantiateMarket(c.tx, { id: c.project.id, facilityType: cls.facilityType }, m)
     if (r.version) await c.log(`${r.codes.length} requirement(s) added from library ${m} v${r.version.version}${r.disciplines.length ? `; disciplines added: ${r.disciplines.join(', ')}` : ''}`)
     else await c.log(`No approved library pack for ${m}: no requirements added`)
   }

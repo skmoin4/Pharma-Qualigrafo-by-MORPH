@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import { api, downloadAs, errorText, fetchBlob, setUnauthorizedHandler, tokenStore, uploadForm } from './api'
-import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, Facility, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Transmittal, Risk, Ncr, NcrSeverity, Rating, SessionUser, EmailPref, AccountFacts, MyMembership, ActivityItem, ProjectSummary, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
+import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, IndustryGroup, ServiceType, BimRequirement, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Transmittal, Risk, Ncr, NcrSeverity, Rating, SessionUser, EmailPref, AccountFacts, MyMembership, ActivityItem, ProjectSummary, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
 
 /** Working date (YYYY-MM-DD) for due / overdue logic. Starts as the browser's date; replaced by the server's (site time zone) after sign-in. */
 export let TODAY = new Date().toLocaleDateString('en-CA')
@@ -46,7 +46,7 @@ export interface ProjectData {
 }
 
 export const blankProject = (): ProjectData => ({
-  profile: { id: '', name: '', client: '', site: '', facility: 'API', scope: 'New plant', phase: '', plantCountry: 'SA', ownerStandards: '', status: 'Active' },
+  profile: { id: '', name: '', client: '', site: '', industryGroup: 'Pharma', facilityType: 'API', serviceType: 'Design only', scope: 'New plant', projectStage: '', projectCountry: 'SA', ownerStandards: '', status: 'Active' },
   markets: [], docs: [], reqs: [], pins: [], updates: [], actions: [], rfis: [], inspections: [], findings: [], changes: [], snapshots: [], baselines: [], audit: [],
   baseline: 1, revitMode: false, events: [], automation: { routing: true, reminders: true, autoIssue: true }, imports: [], issued: [], transmittals: [], risks: [], ncrs: [], companies: [], systems: [], disciplines: [], members: [], connector: { tokens: [], models: [] },
 })
@@ -91,7 +91,7 @@ interface State extends ProjectData {
   openProject: (id: string | null) => void
   toast: (text: string, tone?: 'ok' | 'warn') => void
   dismissToast: (id: number) => void
-  saveProfile: (p: { facility: Facility; scope: Scope; phase: string; ownerStandards: string; markets: MarketKey[]; reason: string }) => Result
+  saveProfile: (p: Classification & { scope: Scope; ownerStandards: string; markets: MarketKey[]; reason: string }) => Result
   submitDoc: (id: string, note: string) => Result
   createTransmittal: (t: { to: string; purpose: string; note: string; docs: string[] }) => Result
   acknowledgeTransmittal: (id: string, note: string) => Result
@@ -176,9 +176,19 @@ interface State extends ProjectData {
   setMember: (userId: string, role: Role, scope: string | null) => Result
   removeMember: (userId: string) => Result
 }
-export interface NewProject {
-  code?: string; name: string; client: string; site: string; plantCountry: MarketKey; markets: MarketKey[]
-  facility: Facility; scope: Scope; phase: string; ownerStandards: string; disciplines: string[]
+/** The classification fields the wizard collects and the set-up page edits (Phase 5 / step 1). */
+export interface Classification {
+  industryGroup: IndustryGroup
+  facilityType: string
+  secondaryFacilityType?: string
+  customFacilityType?: string
+  serviceType: ServiceType
+  projectStage: string
+  bimRequirement?: BimRequirement
+}
+export interface NewProject extends Classification {
+  code?: string; name: string; client: string; site: string; projectCountry: MarketKey; markets: MarketKey[]
+  scope: Scope; ownerStandards: string; disciplines: string[]
   companies: { name: string; kind: string }[]; members: { userId: string; role: Role; scope?: string | null }[]
 }
 /** A position on a drawing: 1-based page, normalised x / y (0..1). */

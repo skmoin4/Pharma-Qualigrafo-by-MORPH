@@ -1,9 +1,10 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { z } from 'zod'
+import { ASSET_HANDOVER, INDUSTRY_GROUPS, LOD_LEVELS, SERVICE_TYPES } from '../domain/industries.ts'
 import { prisma } from '../db.ts'
 import {
-  ACTION_STATUS, APPLICABILITY, AUTOMATION_KEYS, COMPANY_KINDS, MARKETS, zRole, FACILITIES, NCR_SEVERITY, PRIORITY, RISK_STATUS, SCOPES, zDate, zMarket, zRating, zText,
+  ACTION_STATUS, APPLICABILITY, AUTOMATION_KEYS, COMPANY_KINDS, MARKETS, zRole, NCR_SEVERITY, PRIORITY, RISK_STATUS, SCOPES, zDate, zMarket, zRating, zText,
 } from '../domain/enums.ts'
 import { currentUser, reauthenticate } from '../middleware/auth.ts'
 import { signatureHash } from '../lib/esign.ts'
@@ -37,8 +38,12 @@ projects.post('/', async (req, res) => {
   const b = z.object({
     code: z.string().max(20).optional(),
     name: z.string().max(160), client: z.string().max(160), site: z.string().max(160),
-    plantCountry: z.enum(MARKETS), markets: z.array(z.enum(MARKETS)).max(5),
-    facility: z.enum(FACILITIES), scope: z.enum(SCOPES), phase: z.string().max(120), ownerStandards: z.string().max(1000),
+    projectCountry: z.enum(MARKETS), markets: z.array(z.enum(MARKETS)).max(5),
+    industryGroup: z.enum(INDUSTRY_GROUPS), facilityType: z.string().max(120),
+    secondaryFacilityType: z.string().max(120).optional(), customFacilityType: z.string().max(120).optional(),
+    serviceType: z.enum(SERVICE_TYPES),
+    bimRequirement: z.object({ lod: z.enum(LOD_LEVELS), coordination: z.boolean(), assetHandover: z.enum(ASSET_HANDOVER) }).optional(),
+    scope: z.enum(SCOPES), projectStage: z.string().max(120), ownerStandards: z.string().max(1000),
     disciplines: z.array(z.string().max(80)).max(40),
     companies: z.array(z.object({ name: z.string().max(120), kind: z.enum(COMPANY_KINDS) })).max(200),
     members: z.array(z.object({ userId: z.string().min(1), role: zRole, scope: z.string().max(120).nullable().optional() })).min(1).max(500),
@@ -255,7 +260,13 @@ const none = z.object({}).strict()
 const reasonBody = z.object({ reason: zText })
 
 // project setup & settings
-act('put', '/profile', z.object({ facility: z.enum(FACILITIES), scope: z.enum(SCOPES), phase: z.string().max(200), ownerStandards: z.string().max(500), markets: z.array(zMarket).max(5), reason: zText }), (c, b) => R.saveProfile(c, b))
+act('put', '/profile', z.object({
+    industryGroup: z.enum(INDUSTRY_GROUPS), facilityType: z.string().max(120),
+    secondaryFacilityType: z.string().max(120).optional(), customFacilityType: z.string().max(120).optional(),
+    serviceType: z.enum(SERVICE_TYPES),
+    bimRequirement: z.object({ lod: z.enum(LOD_LEVELS), coordination: z.boolean(), assetHandover: z.enum(ASSET_HANDOVER) }).optional(),
+    scope: z.enum(SCOPES), projectStage: z.string().max(200), ownerStandards: z.string().max(500), markets: z.array(zMarket).max(5), reason: zText,
+}), (c, b) => R.saveProfile(c, b))
 act('put', '/settings/automation', z.object({ key: z.enum(AUTOMATION_KEYS), value: z.boolean() }), (c, b) => W.setAutomation(c, b.key, b.value))
 act('post', '/reminders/send', none, (c) => W.sendReminders(c))
 act('post', '/notices/read-all', none, (c) => W.markAllRead(c), { vendor: true, archived: true })

@@ -48,10 +48,10 @@ async function createRequirements(tx: Tx, projectId: string, market: string, ver
 }
 
 /** Add the approved library items of one market to a project. Returns the new requirement codes and any disciplines created. */
-export async function instantiateMarket(tx: Tx, project: { id: string; facility: string }, market: string) {
+export async function instantiateMarket(tx: Tx, project: { id: string; facilityType: string }, market: string) {
   const v = await approvedVersion(tx, market)
   if (!v) return { version: null, codes: [] as string[], disciplines: [] as string[] }
-  const items = forFacility(v.items, project.facility)
+  const items = forFacility(v.items, project.facilityType)
   const disciplines = await ensureDisciplines(tx, project.id, items.map((i) => i.discipline))
   const codes = await createRequirements(tx, project.id, market, v.id, items)
   return { version: v, codes, disciplines }
@@ -60,9 +60,9 @@ export async function instantiateMarket(tx: Tx, project: { id: string; facility:
 const CHANGE_FIELDS = ['title', 'topic', 'discipline', 'critical', 'clause', 'sourceVersion', 'effective'] as const
 
 /** Difference between a project's library requirements for a market and a library version (facility-filtered). */
-export async function diffForProject(tx: Tx, project: { id: string; facility: string }, market: string, versionId: string) {
+export async function diffForProject(tx: Tx, project: { id: string; facilityType: string }, market: string, versionId: string) {
   const v = await tx.libraryVersion.findUniqueOrThrow({ where: { id: versionId }, include: { items: { orderBy: { position: 'asc' } } } })
-  const items = forFacility(v.items, project.facility)
+  const items = forFacility(v.items, project.facilityType)
   const reqs = await tx.requirement.findMany({ where: { projectId: project.id, market, libraryKey: { not: null } } })
   const byKey = new Map(reqs.map((r) => [r.libraryKey!, r]))
   const added = items.filter((i) => !byKey.has(i.key))
@@ -74,7 +74,7 @@ export async function diffForProject(tx: Tx, project: { id: string; facility: st
 }
 
 /** Apply a library version to a project (called when Owner / QA judges the library update applicable). */
-export async function applyLibraryVersion(tx: Tx, project: { id: string; facility: string }, market: string, versionId: string) {
+export async function applyLibraryVersion(tx: Tx, project: { id: string; facilityType: string }, market: string, versionId: string) {
   const d = await diffForProject(tx, project, market, versionId)
   const disciplines = await ensureDisciplines(tx, project.id, [...d.added, ...d.changed.map((c) => c.item)].map((i) => i.discipline))
   const addedCodes = await createRequirements(tx, project.id, market, versionId, d.added)

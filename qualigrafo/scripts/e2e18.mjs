@@ -66,7 +66,17 @@ ok(!(await text()).includes('needs at least 3 characters'), 'step 1: the field m
 await shot('02-step1-client-configuration')
 
 await next().click(); await page.waitForTimeout(500)
-ok((await curStep()).includes('Scope & markets'), 'Next moves forward to step 2, never backwards')
+ok((await curStep()).includes('Scope & classification'), 'Next moves forward to step 2, never backwards')
+// Phase 5 / step 1: the industry group and the service type are a choice, so the step cannot pass without them.
+ok(await next().isDisabled(), 'step 2: Next is blocked until the project is classified')
+ok((await text()).includes('Choose the industry group'), 'step 2: and says that the industry group is what is missing')
+await page.getByRole('button', { name: /^Pharma/ }).click()
+await page.getByLabel('Facility type').selectOption('Non-sterile formulation')
+await page.waitForTimeout(250)
+ok((await text()).includes('Choose the service type'), 'step 2: with an industry chosen, the service type is named as the next thing needed')
+await page.getByRole('button', { name: /^Design only/ }).click()
+await page.waitForTimeout(250)
+ok(!(await next().isDisabled()), 'step 2: a complete classification opens the way forward')
 const marketRow = page.locator('label', { hasText: 'India' }).first()
 ok(await marketRow.locator('input[type=checkbox]').isChecked(), 'step 2: the plant country is already a target market')
 ok(await marketRow.locator('input[type=checkbox]').isDisabled(), 'step 2: and cannot be unticked, because it is always in scope')
@@ -74,7 +84,7 @@ ok(await marketRow.locator('input[type=checkbox]').isDisabled(), 'step 2: and ca
 // ---- 5. the draft survives a reload — the defect behind "my country reset and my entries were lost"
 await page.reload()
 await page.waitForTimeout(1500)
-ok((await curStep()).includes('Scope & markets'), 'reload: the wizard comes back on the step it was left on')
+ok((await curStep()).includes('Scope & classification'), 'reload: the wizard comes back on the step it was left on')
 ok((await text()).includes('Draft restored'), 'reload: the restored draft is announced')
 await page.getByRole('button', { name: /Back/ }).click()
 await page.waitForTimeout(500)
@@ -82,6 +92,7 @@ ok((await country()) === 'IN', 'reload: the chosen country is still India, not t
 ok((await page.getByPlaceholder('e.g. Riyadh Oral Solids Line 3').inputValue()) === 'Demo Project', 'reload: the typed project name is still there')
 await next().click()
 await page.waitForTimeout(500)
+ok((await page.getByLabel('Facility type').inputValue()) === 'Non-sterile formulation', 'reload: the classification survives too, not only the basics')
 await shot('03-draft-restored-after-reload')
 
 // ---- 6. walk to the end and create the project

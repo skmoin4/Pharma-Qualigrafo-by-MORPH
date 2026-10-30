@@ -17,7 +17,8 @@
     "validation:oq": "tsx scripts/validation-oq.ts",
     "validation:pack": "tsx scripts/validation-pack.ts",
     "backup:restore": "tsx scripts/backup-restore.ts",
-    "perf:portfolio": "tsx scripts/perf-portfolio.ts"
+    "perf:portfolio": "tsx scripts/perf-portfolio.ts",
+    "migration:check": "tsx scripts/migration-check.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

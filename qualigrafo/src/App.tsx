@@ -168,14 +168,14 @@ export default function App() {
       <aside className={`side ${menu ? 'open' : ''}`}>
         <div className="brand" onClick={() => home()} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && home()}>
           <div className="logo"><Boxes size={16} /></div>
-          <div><b>Qualigrafo</b><small>Pharma engineering evidence</small></div>
+          <div><b>Qualigrafo</b><small>Engineering · BIM · evidence</small></div>
         </div>
         {inProject ? (
           <>
             <div className="projbox">
               <small>Project · {profile.id}</small>
               <select aria-label="Switch project" value={profile.id} onChange={(e) => openProjectRoute(e.target.value, route.page)}>{projectList.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-              <span>{profile.facility} · {profile.scope}</span>
+              <span>{profile.customFacilityType || profile.facilityType} · {profile.serviceType}</span>
             </div>
             <nav className="nav">
               {GROUPS.filter((g) => g.keys.some(allowed)).map((g) => (
@@ -202,7 +202,7 @@ export default function App() {
             {all.map(({ meta, st }) => (
               <button key={meta.id} onClick={() => openProjectRoute(meta.id)}>
                 <span className={`hd ${st.attention ? 'bad' : 'ok'}`} title={st.attention ? 'Needs attention' : 'No flags'} />
-                <span style={{ minWidth: 0 }}><span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.name}</span><small className="sub">{meta.id} · {meta.phase}</small></span>
+                <span style={{ minWidth: 0 }}><span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.name}</span><small className="sub">{meta.id} · {meta.projectStage}</small></span>
               </button>
             ))}
           </nav>

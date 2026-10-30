@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { markets } from '../data/reference'
 import { useStore } from '../store'
-import type { Facility, MarketKey, Scope } from '../types'
+import type { BimRequirement, IndustryGroup, MarketKey, Scope, ServiceType } from '../types'
+import { CUSTOM_FACILITY, facilitiesOf, includesBim, useIndustries } from '../industries'
 import { Badge, MarketChip, PageHead, fmtDate, home } from '../components/ui'
 import { approvedOf, draftOf, useLibraryPacks } from '../library'
 
-const FAC: Facility[] = ['API', 'Non-sterile formulation', 'Sterile products', 'Biologics', 'Warehouse']
 const SCOPE: Scope[] = ['New plant', 'Expansion', 'Renovation', 'Equipment installation']
 
 /** Descriptive details (name, client, site) — no new baseline needed. */
@@ -110,55 +110,90 @@ function Integrations() {
 export default function Setup() {
   const { packs } = useLibraryPacks()
   const { profile, markets: sel, baseline, baselines, reqs, role, saveProfile, toast } = useStore()
-  const [facility, setFacility] = useState(profile.facility)
+  const { ref: industries } = useIndustries()
+  const [group, setGroup] = useState<IndustryGroup>(profile.industryGroup)
+  const [facility, setFacility] = useState(profile.facilityType)
+  const [secondary, setSecondary] = useState(profile.secondaryFacilityType ?? '')
+  const [custom, setCustom] = useState(profile.customFacilityType ?? '')
+  const [service, setService] = useState<ServiceType>(profile.serviceType)
+  const [bim, setBim] = useState<BimRequirement>(profile.bimRequirement ?? { lod: 'LOD 300', coordination: true, assetHandover: 'None' })
   const [scope, setScope] = useState(profile.scope)
-  const [phase, setPhase] = useState(profile.phase)
+  const [stage, setStage] = useState(profile.projectStage)
   const [std, setStd] = useState(profile.ownerStandards)
   const [mk, setMk] = useState<MarketKey[]>(sel)
   const [reason, setReason] = useState('')
   const admin = role === 'Owner / QA' && profile.status === 'Active'
-  const material = facility !== profile.facility || scope !== profile.scope
+  const material = facility !== profile.facilityType || scope !== profile.scope || group !== profile.industryGroup
 
   const submit = async () => {
-    const err = await saveProfile({ facility, scope, phase, ownerStandards: std, markets: mk, reason })
+    const err = await saveProfile({
+      industryGroup: group, facilityType: facility, secondaryFacilityType: secondary || undefined,
+      customFacilityType: facility === CUSTOM_FACILITY ? custom : undefined, serviceType: service,
+      bimRequirement: includesBim(service) ? bim : undefined, scope, projectStage: stage, ownerStandards: std, markets: mk, reason,
+    })
     if (err) toast(err, 'warn')
     else { toast('New baseline created; the previous baseline is preserved'); setReason('') }
   }
 
   return (
     <>
-      <PageHead title="Project setup & baseline" sub="Plant location and target markets are captured independently. Every scope change creates a new requirement baseline; earlier baselines and approvals are preserved." actions={<Badge tone="blue">Current baseline B{baseline}</Badge>} />
+      <PageHead title="Project setup & baseline" sub="Project location and target markets are captured independently. Every scope change creates a new requirement baseline; earlier baselines and approvals are preserved." actions={<Badge tone="blue">Current baseline B{baseline}</Badge>} />
       <Details />
       <div className="grid g21">
         <section className="card">
           <h2>Project profile</h2>
           <div className="grid g2">
             <div>
-              <label className="lab" style={{ marginTop: 0 }}>Plant location</label>
-              <input className="input" value={`${profile.site} (${markets[profile.plantCountry].name})`} disabled />
-              <label className="lab">Facility type</label>
-              <select className="input" value={facility} disabled={!admin} onChange={(e) => setFacility(e.target.value as Facility)}>{FAC.map((x) => <option key={x}>{x}</option>)}</select>
+              <label className="lab" style={{ marginTop: 0 }}>Project location</label>
+              <input className="input" value={`${profile.site} (${markets[profile.projectCountry].name})`} disabled />
+              <label className="lab">Industry group</label>
+              <select className="input" value={group} disabled={!admin} onChange={(e) => { setGroup(e.target.value as IndustryGroup); setFacility(''); setSecondary('') }}>{(industries?.groups ?? [{ key: group }]).map((g) => <option key={g.key}>{g.key}</option>)}</select>
+              <label className="lab">Facility type (project sub-type)</label>
+              <select className="input" value={facility} disabled={!admin} onChange={(e) => setFacility(e.target.value)}>
+                <option value="">Choose…</option>
+                {facilitiesOf(industries, group).map((x) => <option key={x}>{x}</option>)}
+              </select>
+              {facility === CUSTOM_FACILITY && (<><label className="lab">Name of the custom facility</label><input className="input" value={custom} disabled={!admin} onChange={(e) => setCustom(e.target.value)} /></>)}
+              <label className="lab">Secondary sub-type (optional)</label>
+              <select className="input" value={secondary} disabled={!admin} onChange={(e) => setSecondary(e.target.value)}>
+                <option value="">None</option>
+                {facilitiesOf(industries, group).filter((x) => x !== CUSTOM_FACILITY && x !== facility).map((x) => <option key={x}>{x}</option>)}
+              </select>
+              <label className="lab">Service type</label>
+              <select className="input" value={service} disabled={!admin} onChange={(e) => setService(e.target.value as ServiceType)}>{(industries?.serviceTypes ?? [service]).map((x) => <option key={x}>{x}</option>)}</select>
               <label className="lab">Project scope</label>
-              <select className="input" value={scope} disabled={!admin} onChange={(e) => setScope(e.target.value as Scope)}>{SCOPE.map((x) => <option key={x}>{x}</option>)}</select>
-              <label className="lab">Project phase</label>
-              <input className="input" value={phase} disabled={!admin} onChange={(e) => setPhase(e.target.value)} />
+              <select className="input" value={scope} disabled={!admin} onChange={(e) => setScope(e.target.value as Scope)}>{(industries?.scopes ?? SCOPE).map((x) => <option key={x}>{x}</option>)}</select>
+              <label className="lab">Project stage</label>
+              <select className="input" value={stage} disabled={!admin} onChange={(e) => setStage(e.target.value)}>
+                {[...(industries?.stages ?? []), ...(industries && industries.stages.includes(stage) ? [] : [stage])].filter(Boolean).map((x) => <option key={x}>{x}</option>)}
+              </select>
+              {includesBim(service) && industries && (
+                <div className="subcard" style={{ marginTop: 10 }}>
+                  <label className="lab" style={{ marginTop: 0 }}>BIM level of development</label>
+                  <select className="input" value={bim.lod} disabled={!admin} onChange={(e) => setBim({ ...bim, lod: e.target.value })}>{industries.lodLevels.map((x) => <option key={x}>{x}</option>)}</select>
+                  <label className="lab">Coordination / clash detection</label>
+                  <select className="input" value={bim.coordination ? 'Yes' : 'No'} disabled={!admin} onChange={(e) => setBim({ ...bim, coordination: e.target.value === 'Yes' })}><option>Yes</option><option>No</option></select>
+                  <label className="lab">Asset / handover deliverable</label>
+                  <select className="input" value={bim.assetHandover} disabled={!admin} onChange={(e) => setBim({ ...bim, assetHandover: e.target.value })}>{industries.assetHandover.map((x) => <option key={x}>{x}</option>)}</select>
+                </div>
+              )}
             </div>
             <div>
               <label className="lab" style={{ marginTop: 0 }}>Target markets (where product will be supplied)</label>
               {(Object.keys(markets) as MarketKey[]).map((k) => (
                 <label key={k} className="row" style={{ padding: '4px 0', fontWeight: 500 }}>
-                  <input type="checkbox" checked={mk.includes(k)} disabled={!admin || k === profile.plantCountry} onChange={(e) => setMk(e.target.checked ? [...mk, k] : mk.filter((x) => x !== k))} />
+                  <input type="checkbox" checked={mk.includes(k)} disabled={!admin || k === profile.projectCountry} onChange={(e) => setMk(e.target.checked ? [...mk, k] : mk.filter((x) => x !== k))} />
                   <MarketChip m={k} /> {markets[k].name} <span className="muted small">{(() => { const n = reqs.filter((r) => r.market === k).length, a = approvedOf(packs?.find((p) => p.market === k)); return n ? `${n} requirements` : a ? `library v${a.version} adds requirements` : 'no approved library pack' })()}</span>
                 </label>
               ))}
-              <p className="muted small" style={{ marginTop: 6 }}>The plant country always stays in scope. Adding a market brings in the approved library items for this facility type; a market without an approved pack shows explicit “no coverage”, never 100%.</p>
+              <p className="muted small" style={{ marginTop: 6 }}>The project country always stays in scope. Adding a market brings in the approved library items for this facility type; a market without an approved pack shows explicit “no coverage”, never 100%.</p>
             </div>
           </div>
           <label className="lab">Applicable owner standards and approved procedures</label>
           <textarea className="input" style={{ minHeight: 56 }} value={std} disabled={!admin} onChange={(e) => setStd(e.target.value)} />
           <label className="lab">Change rationale (required)</label>
           <textarea className="input" style={{ minHeight: 56 }} value={reason} disabled={!admin} onChange={(e) => setReason(e.target.value)} placeholder="Why is the project scope being configured or changed?" />
-          {material && <div className="notice" style={{ marginTop: 10 }}>Changing facility type or project scope resets all applicability decisions to “Assessment pending”. Historical baselines keep their original decisions.</div>}
+          {material && <div className="notice" style={{ marginTop: 10 }}>Changing the industry group, facility type or project scope resets all applicability decisions to “Assessment pending”. Historical baselines keep their original decisions.</div>}
           <div className="row" style={{ marginTop: 12 }}>
             <button className="btn pri" disabled={!admin} onClick={submit}>Save as new baseline B{baseline + 1}</button>
             {!admin && <span className="muted small">Owner / QA role required</span>}

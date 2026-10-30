@@ -28,8 +28,11 @@ engineering teams can run real projects on, and the order in which to build it.
 > every Linux installation was told its backup tools were too old. The ninth was `e2e16` asserting a development log
 > destination against a productive stack. Both fixed; the Linux proof is the next CI run (§7 items 1 and 3).
 >
-> **Next: Phase 5 step 1** — project classification and the unified wizard (§6.5 step 1), in progress since
-> 2026-10-30. Session guide: `CLAUDE.md`.
+> **Phase 5 / step 1 is done (2026-10-30)** — project classification and the unified wizard: four industry groups
+> with their own facility lists, mandatory service type, project stage, the BIM requirement block, a rename-only
+> migration with the backfill proven on old-shape rows (`npm run migration:check`), and portfolio filters (§6.7).
+>
+> **Next: Phase 5 step 2** — the template engine (§6.5 step 2). Session guide: `CLAUDE.md`.
 
 | Phase | Status |
 |---|---|
@@ -1001,6 +1004,64 @@ Two extra rules for this phase, because it touches shipped records:
 
 ### 6.7 Progress
 
+#### Phase 5 / step 1 — project classification + unified wizard (done 2026-10-30)
+
+The data model, the wizard and the portfolio become multi-industry. One wizard, one project table, five steps — the
+client's three rules (§6.2) are kept: the classification lives **inside the existing step 2**, which is renamed
+"Scope & classification"; there is no separate industry page and no second wizard.
+
+| Part | What was done |
+|---|---|
+| Reference data | `server/src/domain/industries.ts`: the four industry groups with their facility lists from the client's own specification (energy & high-tech 26, hospital 23, pharma 24, common buildings 39), each ending with **"Other / custom facility"**; the three service types with the client's one-line descriptions; the ten project stages; the scopes (the four that shipped plus Fit-out); LOD levels and asset-handover options. The **five pharma facility types that shipped stay at the head of the pharma list**, so a project created by the old wizard still holds a value that is offered (decision §6.4.7) |
+| One source of truth | The server owns the lists and validates every project against them, so they are served from **`GET /reference/industries`** rather than copied into the client. A second copy could offer a facility type the server rejects; this cannot. The client reads it through `useIndustries()` (`qualigrafo/src/industries.ts`) |
+| Data model | `Project` gains `industryGroup`, `secondaryFacilityType`, `customFacilityType`, `serviceType` and `bimRequirement` (JSON), and `facility` / `phase` / `plantCountry` are **renamed** to `facilityType` / `projectStage` / `projectCountry`. Migration `20261030090000_project_classification` is renames plus new columns — nothing dropped (§6.6) |
+| Backfill, proven | Decision §6.4.4: `industryGroup = 'Pharma'` for everything that exists, and `serviceType` from `revitMode` (`true` → Design + BIM, else Design only). Because that backfill can only be observed on **old-shape** rows, `npm run migration:check` (`server/scripts/migration-check.ts`) builds a scratch database with every migration except this one, inserts two legacy projects (Revit on and off), applies the migration and asserts that the renamed columns kept their values — including a stage (`Commissioning & qualification`) that is **not** in the new list — that the group and service type were filled in, that the new optional columns start empty, and that no other field moved |
+| Rules | `checkClassification()` in `services/projects.ts` is the one validator used by creation **and** by the profile edit: the facility type must belong to the chosen group, the custom entry requires a name, a secondary sub-type may not repeat the primary one or be the custom entry, and the **BIM block is only kept when the service type includes BIM** — a design-only project stores no BIM requirement even if one is sent |
+| Wizard | Step 2 asks for the industry group as four cards, then the facility type from that group (the list is disabled until a group is chosen and cleared when the group changes), the custom name when needed, the optional secondary sub-type, the scope, the stage, the service type as three cards, and — only for a BIM service — the BIM requirement. **Neither the industry group nor the service type has a default**: the client's specification makes the service type mandatory, and a pre-selected industry would silently decide the whole template set. Both block Next with their own named message, and the Review step shows the full classification |
+| Set-up page | The same classification is editable on `#/setup`, where it creates the next baseline. A changed industry group, facility type or scope resets applicability to "Assessment pending", as a changed facility type already did; every field is audited old → new, the BIM block as one readable value |
+| Portfolio | Filters for industry, facility, service, stage and country above the project table. A filter only offers values that occur in the portfolio, "All" is the default, the count says "n of m shown", and an empty result says **"No project matches these filters"** instead of looking like an empty portfolio. The project rows show the facility type, the service type and the scope; the "Phase" column is now "Stage" |
+| Generic copy | "Plant country" → "Project country", "Plant location" → "Project location", and the project header reads industry · facility · service · stage. Library applicability now accepts any industry group's facility type, so hospital and energy packs can be authored; offering them per industry is step 2 |
+
+**Deliberately left for later steps.** The classification is recorded and validated, but nothing is yet *generated*
+from it — registers, requirements, workflows and deliverables per industry are **step 2** (the template engine), and
+the per-industry applicability filter on library packs belongs there too. The requirement library still ships only
+pharma starter content.
+
+Tests: **API 634 checks** (was 610: OQ-API-35, the classification — reference data, every validation rule, a hospital
+project created through the same endpoint as a pharma one, the BIM block kept only for a BIM service, the baseline and
+the old → new audit of a classification change, and the migrated pharma fixtures), new browser suite **`e2e19.mjs`
+with 38 checks**, and **`e2e18` grew from 41 to 46** because the client's own test case now walks the classification
+step. Full OQ: **1305 of 1305 checks in 54 test cases** (634 API + 671 browser) — up from 1238, with no suite losing a
+check. `npm run migration:check`: 8 of 8. Every pharma suite passes **unedited** except the three that create a
+project through the wizard (`e2e4`, `e2e18`, `uat/stage1`), where only the two new required selections were added —
+no assertion was changed or removed.
+
+Gates of §6.6, as run on 2026-10-30:
+
+| Gate | Result |
+|---|---|
+| Regression | Full OQ 1305 / 1305 in 54 cases, up from 1238 / 1238 in 52. No case lost a check |
+| New step tests | OQ-API-35 and OQ-UI-19 registered in `catalogue.ts` under URS-39 with its risk assessment |
+| The client's own test case | `e2e18` still runs the client's exact configuration, now through the classification step: 46 checks |
+| Migration | `npm run migration:check` on old-shape rows (8 of 8), **and** `npm run backup:restore` of a **pre-migration** backup set (2026-10-29) into the new release: counts verified, the classification migration applied on top, and the three restored pharma projects came out as Pharma / their original facility type / Design only, keeping stages such as "Engineering & construction" that are not in the new list |
+| Scale | `fixtures:load -- --projects 100` then `perf:portfolio`: 103 projects, `GET /projects` median **84 ms / 452 kB** (the recorded baseline for this step was 102 ms / 447 kB) |
+| Visual | Wizard step 2 and the filtered portfolio reviewed from `e2e19`'s screenshots; the new `.picker` / `.subcard` / filter rules are layer **v12** at the end of `index.css`, brand blue only |
+| CI | Run 41013184077 / 41013199357 (2026-10-30): `checks`, `oq` **and** `deploy` all green for the first time |
+
+**The one gate not run: the per-industry UAT rehearsal.** §6.6 asks for the eleven-stage UAT walk
+(`qualigrafo/scripts/uat/stage1..11.mjs`) once per industry group with the result appended to `UAT_REPORT.md`. It was
+not run for this step: the walk goes all the way through library approval, evidence and handover, and until **step 2**
+generates per-industry registers and requirement packs, a hospital or solar walk would exercise pharma content under a
+different label and prove nothing about the industry. It belongs with step 2, where the templates it would rehearse
+actually exist.
+
+**Next: Phase 5 / step 2 — the template engine (§6.5 step 2).** Registers, requirements, workflows and deliverables
+generated from industry group + facility type + service type + discipline + stage + country, which is what turns the
+classification this step records into a project that is set up differently per industry. The per-industry
+applicability filter on library packs belongs to that step, and so do the starter packs for hospital, solar /
+renewable, semiconductor and common buildings — all shipped as **unverified starter templates** the customer's own
+quality unit approves (decision §6.4.3).
+
 #### Phase 5 / step 0 — first contact (done 2026-10-29)
 
 Investigated on the client's own deployment, then fixed. Evidence and the three defects: §6.5 step 0.
@@ -1036,9 +1097,7 @@ the sidebar label collision, and the administrator list that first showed projec
   warning so far.
 - SMTP on the trial instance, and raising `IDLE_TIMEOUT_MIN` there (Part A items 3).
 
-**Next: Phase 5 / step 1 — project classification + the unified wizard (§6.5 step 1).** Before it, push the branch so
-CI runs with the dependency fix: `checks` should go green for the first time, and the `oq` and `deploy` jobs will then
-run for the first time ever (§7 items 1–3).
+**Done next:** Phase 5 / step 1 (above). CI was pushed and is green on all three jobs since 2026-10-30 (§7 item 1).
 
 ---
 

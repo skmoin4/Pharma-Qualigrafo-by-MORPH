@@ -65,7 +65,7 @@ admin.get('/users', async (_req, res) => {
 admin.get('/projects', async (_req, res) => {
   const ps = await prisma.project.findMany({
     select: {
-      code: true, name: true, client: true, status: true, phase: true, facility: true, plantCountry: true, createdAt: true,
+      code: true, name: true, client: true, status: true, projectStage: true, industryGroup: true, facilityType: true, serviceType: true, projectCountry: true, createdAt: true,
       companies: { where: { active: true }, select: { name: true }, orderBy: { name: 'asc' } },
       memberships: { select: { userId: true, role: true } },
     },
@@ -73,8 +73,8 @@ admin.get('/projects', async (_req, res) => {
   })
   res.json({
     projects: ps.map((p) => ({
-      code: p.code, name: p.name, client: p.client, status: p.status, phase: p.phase, facility: p.facility,
-      plantCountry: p.plantCountry, createdAt: p.createdAt.toISOString(),
+      code: p.code, name: p.name, client: p.client, status: p.status, projectStage: p.projectStage, industryGroup: p.industryGroup, facilityType: p.facilityType, serviceType: p.serviceType,
+      projectCountry: p.projectCountry, createdAt: p.createdAt.toISOString(),
       companies: p.companies.map((c) => c.name),
       members: p.memberships.length,
       myRole: p.memberships.find((m) => m.userId === currentUser(_req).id)?.role ?? null,

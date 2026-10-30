@@ -143,7 +143,8 @@ const marketName = (m: string) => MARKETS[m as MarketKey]?.name ?? m
 const projectRows = (p: ProjectData): [string, string][] => [
   ['Project', `${p.profile.name} (${p.profile.id})`],
   ['Client · site', `${p.profile.client} · ${p.profile.site}`],
-  ['Facility · scope · phase', `${p.profile.facility} · ${p.profile.scope} · ${p.profile.phase}`],
+  ['Industry · facility · service', `${p.profile.industryGroup} · ${p.profile.customFacilityType ?? p.profile.facilityType} · ${p.profile.serviceType}`],
+  ['Scope · stage', `${p.profile.scope} · ${p.profile.projectStage}`],
   ['Target markets', p.markets.map(marketName).join(', ')],
   ['Requirement baseline', `B${p.baseline}`],
 ]
@@ -322,7 +323,7 @@ export async function validationPackPdf(o: { oq: OqResults; iq: IqResult; by: st
   rep.notice('Purpose and limits: this pack is the supplier documentation (requirements, risk assessment, installation and operational test results, traceability) that supports the customer validation of Qualigrafo as a GxP computerised system (GAMP 5 risk-based approach). It does not replace that validation: the customer approves the URS for their intended use, decides the GAMP category (proposed: Category 4, configured product), executes IQ on their installation (Administration → System & validation), may repeat OQ in their validation environment, and performs PQ / user acceptance under their own procedures. Regulatory references show which clause a requirement relates to; they are not a statement of compliance.')
 
   rep.h2('1. System description')
-  rep.p('Qualigrafo manages engineering evidence for pharmaceutical facility projects: document register with two-stage electronic sign-off, requirement library and project requirements, evidence links, site records (RFIs, inspections, NCRs, risks, change impact), reports and handover. Server: Node.js + Express + PostgreSQL; browser client: React. Users and roles are managed in the application (one installation per customer). Electronic records: audit trail, security log, signatures, files with SHA-256.')
+  rep.p('Qualigrafo manages engineering evidence for facility and building projects — pharma, hospital / healthcare, energy & high-tech and common buildings: document register with two-stage electronic sign-off, requirement library and project requirements, evidence links, site records (RFIs, inspections, NCRs, risks, change impact), reports and handover. Server: Node.js + Express + PostgreSQL; browser client: React. Users and roles are managed in the application (one installation per customer). Electronic records: audit trail, security log, signatures, files with SHA-256.')
   rep.kv(Object.entries(oq.environment))
 
   rep.h2('2. User requirements (URS)')

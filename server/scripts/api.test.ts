@@ -26,6 +26,13 @@ let fail = 0
 const section = (id: string) => { const c = oqCase(id); if (!c) throw new Error(`Unknown OQ test case ${id}`); console.log(`SECTION ${id}  ${c.title}`) }
 const ok = (c: boolean, m: string) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++ }
 
+/** Echoes a project's current classification, so a profile PUT only changes the field a test is about. */
+const classificationOf = (p: ProjectData['profile']) => ({
+  industryGroup: p.industryGroup, facilityType: p.facilityType, secondaryFacilityType: p.secondaryFacilityType,
+  customFacilityType: p.customFacilityType, serviceType: p.serviceType, projectStage: p.projectStage,
+  bimRequirement: p.bimRequirement,
+})
+
 async function call(method: string, path: string, body?: unknown, token?: string) {
   const r = await fetch(base + path, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })
   const text = await r.text()
@@ -463,8 +470,8 @@ try {
   ok((await get('/directory/users', tokens.Consultant)).status === 403 && (await get('/directory/users', QA)).json.users.length >= 4, 'user directory only for project creators')
 
   const spec = {
-    name: 'Riyadh Oral Solids Line 3', client: 'Nova Pharma Ltd', site: 'Riyadh 2nd Industrial City', plantCountry: 'SA', markets: ['EU'],
-    facility: 'Non-sterile formulation', scope: 'Expansion', phase: 'Design', ownerStandards: 'NPL-QMS-014 rev 5',
+    name: 'Riyadh Oral Solids Line 3', client: 'Nova Pharma Ltd', site: 'Riyadh 2nd Industrial City', projectCountry: 'SA', markets: ['EU'],
+    industryGroup: 'Pharma', facilityType: 'Non-sterile formulation', serviceType: 'Design only', scope: 'Expansion', projectStage: 'Detailed design', ownerStandards: 'NPL-QMS-014 rev 5',
     disciplines: ['Process Equipment', 'HVAC', 'Electrical', 'CQV'],
     companies: [{ name: 'AirCo', kind: 'Vendor / supplier' }, { name: 'BuildCo', kind: 'Main contractor' }],
     members: [
@@ -485,7 +492,7 @@ try {
   const NP = `/projects/${made.json.code}`
   const np2 = (await get(NP, QA)).json.project as ProjectData
   ok(np2.profile.status === 'Active' && np2.baseline === 1 && np2.baselines[0].reason === 'Project created', 'new project starts active at baseline B1')
-  ok(np2.markets.join() === 'SA,EU' && np2.docs.length === 0 && np2.reqs.length === 0, 'plant country kept in scope; starts with no records')
+  ok(np2.markets.join() === 'SA,EU' && np2.docs.length === 0 && np2.reqs.length === 0, 'project country kept in scope; starts with no records')
   ok(np2.disciplines.map((d) => d.name).join('|') === 'Process Equipment|HVAC|Electrical|CQV', 'chosen disciplines in chosen order')
   ok(np2.companies.some((c) => c.name === 'Nova Pharma Ltd' && c.kind === 'Owner') && np2.companies.length === 3, 'client registered as Owner plus the listed companies')
   ok(np2.members.length === 4 && np2.members.some((m) => m.scope === 'AirCo'), 'team created with roles and vendor scope')
@@ -636,7 +643,7 @@ try {
   ok(fromLib.length === 17 && fromLib.every((r) => r.applicability === 'Assessment pending' && r.libraryVersion === 1) && p26.baseline === base26 + 1, '17 SA library requirements added as "Assessment pending" with a new baseline')
 
   // a new project gets the approved library automatically
-  const mk = await call('POST', '/projects', { ...spec, name: 'Library Test Plant', code: 'LIB-001', markets: [], plantCountry: 'SA', facility: 'Non-sterile formulation', members: [spec.members[0], spec.members[1]] }, QA)
+  const mk = await call('POST', '/projects', { ...spec, name: 'Library Test Plant', code: 'LIB-001', markets: [], projectCountry: 'SA', facilityType: 'Non-sterile formulation', members: [spec.members[0], spec.members[1]] }, QA)
   ok(mk.status === 201, 'project created after the library approval')
   const LP = '/projects/LIB-001'
   let lp = (await get(LP, QA)).json.project as ProjectData
@@ -670,7 +677,7 @@ try {
   // adding a market in Setup brings its library
   ok((await lib(RV, 'POST', `/versions/${vid('IN')}/approve`, { reason: 'Accepted as starting scope', password: 'Reviewer-2026-lib' })).status === 200, 'IN pack approved')
   const before = lp.reqs.length
-  lp = (await call('PUT', `${LP}/profile`, { facility: lp.profile.facility, scope: lp.profile.scope, phase: lp.profile.phase, ownerStandards: '', markets: ['SA', 'IN'], reason: 'Product will also be supplied to India' }, QA)).json.project
+  lp = (await call('PUT', `${LP}/profile`, { ...classificationOf(lp.profile), scope: lp.profile.scope, ownerStandards: '', markets: ['SA', 'IN'], reason: 'Product will also be supplied to India' }, QA)).json.project
   ok(lp.reqs.length === before + 9 && lp.reqs.filter((r) => r.market === 'IN').every((r) => r.libraryKey), 'new target market adds its approved library requirements')
 
   // project-specific requirements and requirement details
@@ -948,8 +955,8 @@ try {
 
     // profile (new baseline)
     const prof = pd.profile
-    await call('PUT', `${P}/profile`, { facility: prof.facility, scope: prof.scope, phase: 'Commissioning', ownerStandards: prof.ownerStandards, markets: pd.markets, reason: 'Moved into commissioning' }, QA)
-    ok((await audit()).includes(`phase "${prof.phase}" -> "Commissioning". Reason: Moved into commissioning`), 'profile change logged old -> new on the new baseline')
+    await call('PUT', `${P}/profile`, { ...classificationOf(prof), projectStage: 'Commissioning', scope: prof.scope, ownerStandards: prof.ownerStandards, markets: pd.markets, reason: 'Moved into commissioning' }, QA)
+    ok((await audit()).includes(`project stage "${prof.projectStage}" -> "Commissioning". Reason: Moved into commissioning`), 'profile change logged old -> new on the new baseline')
 
     // statuses
     pd = (await call('GET', P, undefined, QA)).json.project
@@ -1286,7 +1293,7 @@ try {
     const C = tokens.Consultant
     // catalogue: every requirement traced, every test case verifies something, risk method as specified
     ok(catalogueProblems().length === 0, `validation catalogue consistent${catalogueProblems().length ? ': ' + catalogueProblems().join('; ') : ''}`)
-    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 34, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
+    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 35, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
     ok(riskPriority('High', 'High', 'Low') === 'High' && riskPriority('High', 'Medium', 'Medium') === 'High' && riskPriority('Medium', 'Medium', 'High') === 'Low' && riskPriority('Low', 'Low', 'Low') === 'Medium', 'GAMP 5 risk priority: class from severity x probability, priority from class x detectability')
     const t = traceability(null)
     ok(t.every((u) => u.verdict === 'Not executed' || u.verdict === 'Procedural') && t.length === URS.length, 'traceability without results: Not executed / Procedural, never Pass')
@@ -1618,6 +1625,63 @@ try {
     ok((await call('GET', '/projects/ADM-001', undefined, tokens.Consultant)).status === 403, 'listing a project is not access to it: opening it is still refused')
     ok((await call('PATCH', `/admin/users/${cons.id}`, { isAdmin: false }, QA)).status === 200, 'administrator rights can be withdrawn again')
     ok((await call('GET', '/admin/projects', undefined, tokens.Consultant)).status === 403, 'after the withdrawal the list is refused again')
+  }
+
+  // ---------------------------------------------------------------- project classification (Phase 5 / step 1)
+  section('OQ-API-35')
+  {
+    resetApiRate()
+    const ref = (await call('GET', '/reference/industries', undefined, QA)).json
+    ok(ref.groups.length === 4 && ref.groups.map((g: any) => g.key).join(' | ') === 'Energy & High-Tech | Hospital / Healthcare | Pharma | Common buildings', 'the four industry groups are served from the server')
+    ok(ref.groups.every((g: any) => g.facilities.at(-1) === 'Other / custom facility'), 'every group ends with "Other / custom facility"')
+    const pharma = ref.groups.find((g: any) => g.key === 'Pharma').facilities
+    ok(['API', 'Non-sterile formulation', 'Sterile products', 'Biologics', 'Warehouse'].every((f) => pharma.includes(f)), 'the pharma facility types the product shipped with are still offered')
+    ok(ref.serviceTypes.join() === 'Design only,BIM only,Design + BIM' && ref.stages.includes('GFC / IFC'), 'service types and project stages are served too')
+    ok((await call('GET', '/reference/industries')).status === 200, 'the lists are reference data, served without a session like the market list')
+
+    const base = {
+      client: 'Noor Healthcare Trust', site: 'Pune, India', projectCountry: 'IN', markets: [],
+      industryGroup: 'Hospital / Healthcare', facilityType: 'Multi-speciality hospital', serviceType: 'Design + BIM',
+      scope: 'New plant', projectStage: 'Detailed design', ownerStandards: '',
+      bimRequirement: { lod: 'LOD 400', coordination: true, assetHandover: 'COBie + as-built' },
+      disciplines: ['HVAC', 'Electrical'], companies: [],
+      members: [{ userId: ids['Owner / QA'], role: 'Owner / QA' }],
+    }
+    const mk = (patch: Record<string, unknown>) => call('POST', '/projects', { ...base, ...patch }, QA)
+
+    ok((await mk({ name: 'Bad Industry Plant', industryGroup: 'Shipbuilding' })).status === 400, 'an unknown industry group is rejected by the schema')
+    ok((await mk({ name: 'No Service Plant', serviceType: '' })).status === 400, 'the service type is mandatory')
+    ok((await mk({ name: 'Wrong Facility Plant', facilityType: 'API' })).json.error?.includes('is not a facility type of Hospital / Healthcare') === true, 'a facility type has to belong to the chosen industry group')
+    ok((await mk({ name: 'Unnamed Custom Plant', facilityType: 'Other / custom facility' })).json.error?.includes('Name the custom facility type') === true, 'the custom facility entry requires a name')
+    ok((await mk({ name: 'Repeated Subtype Plant', secondaryFacilityType: 'Multi-speciality hospital' })).json.error?.includes('has to differ') === true, 'the secondary sub-type cannot repeat the primary one')
+    ok((await mk({ name: 'Custom Secondary Plant', secondaryFacilityType: 'Other / custom facility' })).json.error?.includes('cannot be the custom entry') === true, 'the custom entry is not a secondary sub-type')
+
+    const made = await mk({ name: 'Noor Hospital Block C', code: 'HOS-001', secondaryFacilityType: 'Diagnostic / imaging centre' })
+    ok(made.status === 201, 'a hospital project is created through the same endpoint as a pharma one')
+    const hp = (await get('/projects/HOS-001', QA)).json.project as ProjectData
+    ok(hp.profile.industryGroup === 'Hospital / Healthcare' && hp.profile.facilityType === 'Multi-speciality hospital' && hp.profile.secondaryFacilityType === 'Diagnostic / imaging centre', 'the classification is stored and returned')
+    ok(hp.profile.serviceType === 'Design + BIM' && hp.profile.bimRequirement?.lod === 'LOD 400' && hp.profile.bimRequirement?.assetHandover === 'COBie + as-built', 'the BIM requirement is stored for a BIM service')
+    ok(hp.profile.customFacilityType === undefined && hp.profile.projectStage === 'Detailed design', 'no custom name is kept when the facility type is a listed one')
+    ok(hp.audit.some((a) => a.text.includes('Hospital / Healthcare · Multi-speciality hospital · Diagnostic / imaging centre · Design + BIM · Detailed design')), 'the classification is in the creation audit entry')
+
+    const design = await mk({ name: 'Design Only Clinic', code: 'HOS-002', facilityType: 'Clinic / polyclinic', serviceType: 'Design only' })
+    ok(design.status === 201, 'a design-only project is created')
+    const dp = (await get('/projects/HOS-002', QA)).json.project as ProjectData
+    ok(dp.profile.bimRequirement === undefined, 'a design-only project stores no BIM requirement, even when one is sent')
+
+    // changing the classification is a new baseline, and a material change resets applicability
+    const before = dp.baseline
+    const up = await call('PUT', '/projects/HOS-002/profile', { ...classificationOf(dp.profile), projectStage: 'Tender', scope: dp.profile.scope, ownerStandards: '', markets: ['IN'], reason: 'Issued for tender' }, QA)
+    ok(up.status === 200 && (up.json.project as ProjectData).baseline === before + 1, 'a classification change creates the next baseline')
+    ok((up.json.project as ProjectData).audit.some((a) => a.text.includes('project stage "Detailed design" -> "Tender"')), 'the change is logged old -> new')
+    const toBim = await call('PUT', '/projects/HOS-002/profile', { ...classificationOf(dp.profile), serviceType: 'Design + BIM', projectStage: 'Tender', scope: dp.profile.scope, ownerStandards: '', markets: ['IN'], reason: 'BIM added to the commission' }, QA)
+    ok((toBim.json.project as ProjectData).profile.bimRequirement?.lod === 'LOD 300', 'adding BIM to the service brings the BIM requirement with its defaults')
+    ok((toBim.json.project as ProjectData).audit.some((a) => a.text.includes('BIM requirement "none" -> "LOD 300')), 'and that is audited as a field change like any other')
+
+    // the pharma projects the fixtures hold are untouched by the migration
+    const nova = (await get('/projects/PRJ-026', QA)).json.project as ProjectData
+    ok(nova.profile.industryGroup === 'Pharma' && nova.profile.facilityType === 'Non-sterile formulation', 'an existing pharma project keeps its facility type as the pharma group facility type')
+    ok(nova.profile.projectCountry === 'SA' && !!nova.profile.projectStage, 'the renamed country and stage columns carry their original values')
   }
 } finally {
   server.close()

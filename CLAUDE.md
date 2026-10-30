@@ -80,9 +80,22 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
   existing step 2, no separate industry page), **one project table** (industry = templates, not separate apps).
   Plan, gap analysis, decisions, step order and the testing gate: **`PRODUCTION_PLAN.md` §6 (Phase 5)**.
   Phase 5 runs **before** the remaining Phase 3 steps; Phase 4 (Revit add-in) merges into Phase 5 step 7.
-- **Phase 5 / step 0 is done (2026-10-29). Next: Phase 5 / step 1 — project classification + the unified wizard**
-  (`PRODUCTION_PLAN.md` §6.5 step 1). Before it, **push the branch**: CI then runs with the dependency fix, `checks`
-  should pass for the first time, and `oq` / `deploy` run for the first time ever (§7). Still open from step 0: the
+- **Phase 5 / steps 0 and 1 are done. Next: Phase 5 / step 2 — the template engine** (`PRODUCTION_PLAN.md` §6.5
+  step 2): registers, requirements, workflows and deliverables generated from industry + facility + service +
+  discipline + stage + country, plus the per-industry applicability filter on library packs and starter packs for the
+  three non-pharma groups (unverified starter content, §6.4.3).
+- **Step 1 (2026-10-30) changed the project data model — read this before touching a project field.** `Project.facility`
+  → **`facilityType`**, `phase` → **`projectStage`**, `plantCountry` → **`projectCountry`** (renames, one migration
+  `project_classification`), plus new `industryGroup`, `secondaryFacilityType`, `customFacilityType`, `serviceType`
+  and `bimRequirement` (JSON, only set when the service type includes BIM). The lists live **only** in
+  `server/src/domain/industries.ts` and are served by `GET /reference/industries` — do not copy them into the client;
+  it reads them with `useIndustries()` (`qualigrafo/src/industries.ts`). One validator, `checkClassification()` in
+  `server/src/services/projects.ts`, is used by creation and by the profile edit. Migration backfill (industry group
+  Pharma, service type from `revitMode`) is proven on old-shape rows by **`npm run migration:check`** — run it after
+  any further migration that touches `Project`. Test hooks kept: the wizard label is **`Facility type (project
+  sub-type)`** so `getByLabel('Facility type')` still matches, and the secondary field is deliberately called
+  **`Secondary sub-type`** so it does not match that same locator.
+- Still open from step 0: the
   client's QA has to approve the India library version (two people, four-eyes — the drafts are prepared and the Admin
   account is their author), the in-product warning that files are not durable on the trial instance needs a setting,
   and the trial instance still has no SMTP.
@@ -123,7 +136,12 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
   for this combined single-service deploy (free tier); needs the branch pushed to GitHub and the Neon secrets
   filled in on Render's dashboard before first deploy.
 - New requirement or test? Add it to `server/src/validation/catalogue.ts` (URS + risk + OQ case); API blocks start with
-  `section('OQ-API-nn')`, a new browser suite gets an OQ-UI case. The API suite fails if the catalogue is inconsistent.
+  `section('OQ-API-nn')`, a new browser suite gets an OQ-UI case. The API suite fails if the catalogue is inconsistent,
+  and `OQ_CASES` is what the OQ runner iterates — a suite that is not registered there simply never runs.
+- **A suite that throws stops early, and the OQ total then only looks smaller.** CI once reported 1226 checks against
+  1238 locally because `e2e14` aborted after 4 of 16. Compare the **per-case** counts in `oq-results.json`, not the
+  total. Also: never rebuild `qualigrafo/dist` while a suite or the OQ is running — the preview server serves that
+  folder and the asset names change.
   After Phase 2: Phase 3 (platform: P1–P7) and Phase 5 (multi-industry; absorbs Phase 4's Revit add-in) — see
   `PRODUCTION_PLAN.md` §2–3 and §6.
 - Every step is delivered the same way: backend + UI + API tests + a browser suite + screenshots checked + both docs
@@ -176,16 +194,16 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
 
 ```bash
 # API suite (in-process, needs a fresh DB each run)
-cd server && npm run fixtures:load && npm test            # currently 610 checks, all passing
+cd server && npm run fixtures:load && npm test            # currently 634 checks, all passing
 
 # Browser suites: each suite needs freshly loaded fixtures; use separate ports so nothing clashes
 cd qualigrafo && npm run build
 PORT=4100 npx tsx src/index.ts                             # from server/, background
 API_URL=http://localhost:4100 npx vite preview --port 8082 --strictPort   # from qualigrafo/, background
-for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
+for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18 e2e19; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
 ```
 
-- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 41 (e2e18) = 628 checks, all passing. Full OQ: 1238 of 1238 in 52 test cases.
+- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 46 (e2e18) + 38 (e2e19) = 671 checks, all passing. Full OQ: 1305 of 1305 in 54 test cases.
 - **Each suite needs its own freshly loaded fixtures, and nothing else may touch the test database while a suite or
   the API suite runs** — a second API server on the same database writes monitoring rows and job heartbeats and makes
   the OQ-API-33 figures fail at random. Stop your debug servers before running `npm test` or `validation:oq`.

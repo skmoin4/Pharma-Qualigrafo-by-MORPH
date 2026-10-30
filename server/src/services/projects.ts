@@ -1,7 +1,10 @@
 // Project lifecycle: create (wizard), edit details, archive / restore.
+import { Prisma } from '../generated/prisma/client.ts'
 import { prisma } from '../db.ts'
 import { disciplines as STANDARD_DISCIPLINES } from '../domain/reference.ts'
-import type { Facility, MarketKey, Role, Scope } from '../domain/types.ts'
+import { CUSTOM_FACILITY, DEFAULT_BIM_REQUIREMENT, facilitiesFor, includesBim, isIndustryGroup, isServiceType } from '../domain/industries.ts'
+import type { BimRequirement, IndustryGroup, ServiceType } from '../domain/industries.ts'
+import type { MarketKey, Role, Scope } from '../domain/types.ts'
 import { forbidden, rule } from '../lib/http.ts'
 import { securityLog } from '../lib/security.ts'
 import type { AuthUser } from '../middleware/auth.ts'
@@ -19,11 +22,16 @@ export interface CreateProject {
   name: string
   client: string
   site: string
-  plantCountry: MarketKey
+  projectCountry: MarketKey
   markets: MarketKey[]
-  facility: Facility
+  industryGroup: IndustryGroup
+  facilityType: string
+  secondaryFacilityType?: string
+  customFacilityType?: string
+  serviceType: ServiceType
   scope: Scope
-  phase: string
+  projectStage: string
+  bimRequirement?: BimRequirement
   ownerStandards: string
   disciplines: string[]
   companies: { name: string; kind: string }[]
@@ -31,6 +39,54 @@ export interface CreateProject {
 }
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ')
+
+/** Prisma's Json input needs an index signature, and clearing a nullable Json column needs `DbNull`, not `null`. */
+export const bimJson = (b: BimRequirement | null | undefined) => (b ? ({ ...b } as unknown as Prisma.InputJsonObject) : Prisma.DbNull)
+
+/**
+ * Validates the classification and returns exactly what is stored: the facility type has to come from the chosen
+ * industry group's list, "Other / custom facility" requires the custom name, a secondary facility type may not repeat
+ * the primary one, and the BIM block is only kept when the service type includes BIM (decision §6.4.6).
+ */
+export function checkClassification(b: {
+  industryGroup: string
+  facilityType: string
+  secondaryFacilityType?: string
+  customFacilityType?: string
+  serviceType: string
+  projectStage: string
+  bimRequirement?: BimRequirement
+}) {
+  if (!isIndustryGroup(b.industryGroup)) throw rule('Choose the industry group of this project.')
+  if (!isServiceType(b.serviceType)) throw rule('Choose the service type: Design only, BIM only, or Design + BIM.')
+  const group = b.industryGroup
+  const facilities = facilitiesFor(group)
+  const facilityType = clean(b.facilityType)
+  if (!facilityType) throw rule('Choose the facility type (project sub-type).')
+  if (!facilities.includes(facilityType)) throw rule(`${facilityType} is not a facility type of ${group}.`)
+  const custom = clean(b.customFacilityType ?? '')
+  if (facilityType === CUSTOM_FACILITY && custom.length < 3) throw rule('Name the custom facility type (at least 3 characters).')
+  const secondary = clean(b.secondaryFacilityType ?? '')
+  if (secondary) {
+    if (secondary === CUSTOM_FACILITY) throw rule('A secondary facility type cannot be the custom entry.')
+    if (!facilities.includes(secondary)) throw rule(`${secondary} is not a facility type of ${group}.`)
+    if (secondary === facilityType) throw rule('The secondary facility type has to differ from the primary one.')
+  }
+  const bim = includesBim(b.serviceType) ? { ...DEFAULT_BIM_REQUIREMENT, ...(b.bimRequirement ?? {}) } : null
+  return {
+    industryGroup: group,
+    facilityType,
+    secondaryFacilityType: secondary || null,
+    customFacilityType: facilityType === CUSTOM_FACILITY ? custom : null,
+    serviceType: b.serviceType,
+    projectStage: clean(b.projectStage) || 'Concept',
+    bimRequirement: bim,
+  }
+}
+
+/** The classification as one line of audit text, e.g. "Pharma · Sterile products · Design + BIM · Detailed design". */
+export const classificationLine = (c: ReturnType<typeof checkClassification>) =>
+  [c.industryGroup, c.customFacilityType ?? c.facilityType, c.secondaryFacilityType, c.serviceType, c.projectStage].filter(Boolean).join(' · ')
 
 export async function createProject(user: AuthUser, b: CreateProject, requestId: string): Promise<string> {
   if (!(await canCreateProjects(user))) throw forbidden('Only administrators and Owner / QA users can create projects.')
@@ -40,6 +96,7 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
   if (name.length < 3) throw rule('Project name is required (at least 3 characters).')
   if (client.length < 2) throw rule('Client is required.')
   if (site.length < 2) throw rule('Site / location is required.')
+  const cls = checkClassification(b)
 
   const disciplines = [...new Set(b.disciplines.map(clean).filter(Boolean))]
   if (!disciplines.length) throw rule('Choose at least one discipline.')
@@ -67,7 +124,7 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
     if (!u.active) throw rule(`${u.name} is disabled and cannot join the project.`)
   }
 
-  const markets = [...new Set([b.plantCountry, ...b.markets])]
+  const markets = [...new Set([b.projectCountry, ...b.markets])]
   const code = await prisma.$transaction(async (tx) => {
     // Serialise project creation so generated codes cannot collide.
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('qualigrafo:project-codes'))::text AS locked`
@@ -81,7 +138,7 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
       code = `PRJ-${String(max + 1).padStart(3, '0')}`
     }
     const p = await tx.project.create({
-      data: { code, name, client, site, plantCountry: b.plantCountry, markets, facility: b.facility, scope: b.scope, phase: clean(b.phase) || 'Design', ownerStandards: b.ownerStandards.trim(), baseline: 1, createdByUserId: user.id },
+      data: { code, name, client, site, projectCountry: b.projectCountry, markets, ...cls, bimRequirement: bimJson(cls.bimRequirement), scope: b.scope, ownerStandards: b.ownerStandards.trim(), baseline: 1, createdByUserId: user.id },
     })
     await tx.baseline.create({ data: { projectId: p.id, v: 1, byRole: 'Owner / QA', byUserId: user.id, reason: 'Project created' } })
     await tx.discipline.createMany({ data: disciplines.map((n, i) => ({ projectId: p.id, name: n, position: i + 1 })) })
@@ -91,12 +148,12 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
     // Approved library requirements for every target market (filtered by facility type), all "Assessment pending".
     const libraryLines: string[] = []
     for (const m of markets) {
-      const r = await instantiateMarket(tx, { id: p.id, facility: b.facility }, m)
+      const r = await instantiateMarket(tx, { id: p.id, facilityType: cls.facilityType }, m)
       libraryLines.push(r.version ? `${r.codes.length} requirement(s) from library ${m} v${r.version.version}${r.disciplines.length ? ` (disciplines added: ${r.disciplines.join(', ')})` : ''}` : `no approved library pack for ${m}`)
     }
     await tx.auditEvent.createMany({
       data: [
-        audit(`Project ${code} created: ${name} (${client}, ${site}); markets ${markets.join(', ')}; ${b.facility} · ${b.scope}`),
+        audit(`Project ${code} created: ${name} (${client}, ${site}); markets ${markets.join(', ')}; ${classificationLine(cls)} · ${b.scope}`),
         ...b.members.map((m) => { const u = users.find((x) => x.id === m.userId)!; return audit(`Team: ${u.name} <${u.email}> added as ${m.role}${m.scope ? ` limited to ${m.scope}` : ''}`) }),
         audit(`Requirements: ${libraryLines.join('; ')}`),
       ],
@@ -116,7 +173,7 @@ const ownerQa = (c: Ctx) => {
   if (c.role !== 'Owner / QA') throw forbidden('Only Owner / QA can change project details.')
 }
 
-/** Name, client and site are descriptive; plant country, markets, facility and scope change through a new baseline (Setup). */
+/** Name, client and site are descriptive; country, markets, classification and scope change through a new baseline (Setup). */
 export async function updateDetails(c: Ctx, b: { name: string; client: string; site: string }) {
   ownerQa(c)
   const name = clean(b.name), client = clean(b.client), site = clean(b.site)

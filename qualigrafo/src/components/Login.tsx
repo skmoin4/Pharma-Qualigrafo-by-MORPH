@@ -23,7 +23,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
         <i className="auth-layer l3" aria-hidden="true" />
         <div className="auth-mark">
           <span className="logo"><Boxes size={17} /></span>
-          <span><b>Qualigrafo</b><small>Pharma engineering evidence</small></span>
+          <span><b>Qualigrafo</b><small>Engineering · BIM · evidence</small></span>
         </div>
         <div className="auth-copy">
           <h1>Engineering evidence an inspector can follow.</h1>

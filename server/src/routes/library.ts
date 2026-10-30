@@ -2,7 +2,7 @@
 // changes are for library editors (administrators and Owner / QA users), approval follows the four-eyes rule.
 import { Router } from 'express'
 import { z } from 'zod'
-import { FACILITIES, MARKETS } from '../domain/enums.ts'
+import { ALL_FACILITIES, MARKETS } from '../domain/enums.ts'
 import { currentUser, reauthenticate } from '../middleware/auth.ts'
 import { securityLog } from '../lib/security.ts'
 import * as L from '../services/library.ts'
@@ -11,7 +11,7 @@ export const library = Router()
 
 const zItem = z.object({
   key: z.string().max(40), title: z.string().max(300), topic: z.string().max(500).optional(), discipline: z.string().max(80),
-  facilities: z.array(z.string().max(60)).max(FACILITIES.length).optional(), critical: z.boolean().optional(),
+  facilities: z.array(z.string().max(80)).max(ALL_FACILITIES.length).optional(), critical: z.boolean().optional(),
   clause: z.string().max(300).optional(), sourceVersion: z.string().max(200).optional(), effective: z.string().max(10).optional(), guidance: z.string().max(4000).optional(),
 })
 

@@ -43,7 +43,7 @@ async function leanProjects(ids: string[]) {
   const out = new Map<string, { data: ProjectData; recent: AuditEvent[] }>()
   for (const p of projects) {
     const data = {
-      profile: { id: p.code, name: p.name, client: p.client, site: p.site, facility: p.facility, scope: p.scope, phase: p.phase, plantCountry: p.plantCountry, ownerStandards: p.ownerStandards, status: p.status, archivedAt: p.archivedAt?.toISOString(), archivedReason: p.archivedReason ?? undefined },
+      profile: { id: p.code, name: p.name, client: p.client, site: p.site, industryGroup: p.industryGroup, facilityType: p.facilityType, secondaryFacilityType: p.secondaryFacilityType ?? undefined, customFacilityType: p.customFacilityType ?? undefined, serviceType: p.serviceType, scope: p.scope, projectStage: p.projectStage, bimRequirement: p.bimRequirement ?? undefined, projectCountry: p.projectCountry, ownerStandards: p.ownerStandards, status: p.status, archivedAt: p.archivedAt?.toISOString(), archivedReason: p.archivedReason ?? undefined },
       markets: p.markets as MarketKey[], baseline: p.baseline,
       docs: byCode(g.docs(p.id)).map((d) => ({ id: d.code, title: d.title, rev: d.rev, status: d.status as Doc['status'], owner: d.owner, due: day(d.due), critical: d.critical, signStage: d.signStage as Doc['signStage'] })),
       reqs: byCode(g.reqs(p.id)).map((r) => ({ id: r.code, market: r.market, applicability: r.applicability, critical: r.critical, evidence: r.evidence.map((e) => ({ doc: e.document.code, rev: e.rev, decision: e.decision })) })),

@@ -4,12 +4,13 @@ import { api, errorText } from '../api'
 import { approvedOf, draftOf, useLibraryPacks } from '../library'
 import type { LibItem, LibPack, LibVersion } from '../library'
 import { useStore } from '../store'
-import type { Facility } from '../types'
 import { markets } from '../data/reference'
 import { Badge, Empty, MarketChip, PageHead, fmtDate } from '../components/ui'
 import { parseCsv } from './Registers'
 
-const FAC: Facility[] = ['API', 'Non-sterile formulation', 'Sterile products', 'Biologics', 'Warehouse']
+// The facility types library items are authored against today. The server accepts any industry group's facility
+// type, so hospital and energy packs can be authored; offering them per industry here is Phase 5 step 2.
+const FAC: string[] = ['API', 'Non-sterile formulation', 'Sterile products', 'Biologics', 'Warehouse']
 type ItemForm = { key: string; title: string; topic: string; discipline: string; facilities: string[]; critical: boolean; clause: string; sourceVersion: string; effective: string; guidance: string }
 const EMPTY: ItemForm = { key: '', title: '', topic: '', discipline: '', facilities: [], critical: false, clause: '', sourceVersion: '', effective: '', guidance: '' }
 const tone = (s: string) => (s === 'Approved' ? 'green' : s === 'Draft' ? 'amber' : '')

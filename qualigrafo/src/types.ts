@@ -198,18 +198,45 @@ export type EvidenceState =
   | 'Evidence accepted'
   | 'Under assessment'
 
-export type Facility = 'API' | 'Non-sterile formulation' | 'Sterile products' | 'Biologics' | 'Warehouse'
-export type Scope = 'New plant' | 'Expansion' | 'Renovation' | 'Equipment installation'
+// Project classification (Phase 5 / step 1). The facility type and the project stage are reference data the server
+// owns and serves from GET /reference/industries, not unions: the four industry groups have their own lists and each
+// ends with "Other / custom facility". The pharma values the product shipped with are the pharma group's list.
+export type IndustryGroup = 'Energy & High-Tech' | 'Hospital / Healthcare' | 'Pharma' | 'Common buildings'
+export type ServiceType = 'Design only' | 'BIM only' | 'Design + BIM'
+export type Scope = 'New plant' | 'Expansion' | 'Renovation' | 'Equipment installation' | 'Fit-out'
+
+export interface BimRequirement {
+  lod: string
+  coordination: boolean
+  assetHandover: string
+}
+
+/** What GET /reference/industries returns: every list the wizard and the set-up page offer. */
+export interface IndustryReference {
+  groups: { key: IndustryGroup; summary: string; facilities: string[] }[]
+  serviceTypes: ServiceType[]
+  stages: string[]
+  scopes: Scope[]
+  lodLevels: string[]
+  assetHandover: string[]
+  defaultBim: BimRequirement
+}
 
 export interface Profile {
   id: string
   name: string
   client: string
   site: string
-  facility: Facility
+  industryGroup: IndustryGroup
+  facilityType: string
+  secondaryFacilityType?: string
+  customFacilityType?: string
+  serviceType: ServiceType
   scope: Scope
-  phase: string
-  plantCountry: MarketKey
+  projectStage: string
+  /** Only set when the service type includes BIM. */
+  bimRequirement?: BimRequirement
+  projectCountry: MarketKey
   ownerStandards: string
   status: 'Active' | 'Archived'
   archivedAt?: string

@@ -17,6 +17,7 @@ import { connector } from './routes/connector.ts'
 import { library } from './routes/library.ts'
 import { apiRateLimit } from './lib/security.ts'
 import { markets } from './domain/reference.ts'
+import { ASSET_HANDOVER, DEFAULT_BIM_REQUIREMENT, INDUSTRY_GROUP_INFO, LOD_LEVELS, PROJECT_SCOPES, PROJECT_STAGES, SERVICE_TYPES } from './domain/industries.ts'
 import { today } from './domain/rules.ts'
 import { FILE_TYPES, MAX_UPLOAD_BYTES } from './services/storage.ts'
 import { APP_VERSION } from './services/iq.ts'
@@ -52,6 +53,15 @@ app.get('/api/metrics', async (req, res) => {
   res.type('text/plain; version=0.0.4').send(await metricsText())
 })
 app.get('/api/reference/markets', (_req, res) => res.json({ markets }))
+/**
+ * Project classification reference data (Phase 5 / step 1): the four industry groups with their facility lists, the
+ * service types, stages, scopes and BIM options. The server owns these lists because it validates every project
+ * against them, so the client reads them from here instead of keeping a second copy that could drift.
+ */
+app.get('/api/reference/industries', (_req, res) => res.json({
+  groups: INDUSTRY_GROUP_INFO, serviceTypes: SERVICE_TYPES, stages: PROJECT_STAGES, scopes: PROJECT_SCOPES,
+  lodLevels: LOD_LEVELS, assetHandover: ASSET_HANDOVER, defaultBim: DEFAULT_BIM_REQUIREMENT,
+}))
 /** Values the UI must share with the server: the working date for due/overdue logic and the upload policy. */
 app.get('/api/reference/config', (_req, res) => res.json({ today: today(), idleMinutes: config.IDLE_TIMEOUT_MIN, upload: { maxBytes: MAX_UPLOAD_BYTES, extensions: Object.keys(FILE_TYPES) } }))
 

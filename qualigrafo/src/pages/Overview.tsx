@@ -43,7 +43,7 @@ export default function Overview() {
 
   return (
     <>
-      <PageHead title={profile.name} sub={`${profile.client} · ${profile.site} · ${profile.facility} · ${profile.scope} · ${profile.phase}`} actions={<><Badge tone="blue">Baseline B{baseline}</Badge><button className="btn" onClick={() => go('handover')}>Handover readiness</button><button className="btn pri" onClick={() => go('inspector')}>Inspector Mode</button></>} />
+      <PageHead title={profile.name} sub={`${profile.client} · ${profile.site} · ${profile.industryGroup} · ${profile.customFacilityType || profile.facilityType} · ${profile.serviceType} · ${profile.projectStage}`} actions={<><Badge tone="blue">Baseline B{baseline}</Badge><button className="btn" onClick={() => go('handover')}>Handover readiness</button><button className="btn pri" onClick={() => go('inspector')}>Inspector Mode</button></>} />
 
       {role !== 'Contractor' && !!todo.length && (
         <section className="card setup" aria-label="Project set-up">

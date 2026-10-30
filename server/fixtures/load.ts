@@ -7,7 +7,7 @@ import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import bcrypt from 'bcryptjs'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { PrismaClient } from '../src/generated/prisma/client.ts'
+import { Prisma, PrismaClient } from '../src/generated/prisma/client.ts'
 import type { ProjectData, Role } from '../src/domain/types.ts'
 import { disciplines as DISCIPLINES } from '../src/domain/reference.ts'
 import { projectIndex, projectMarkets, seedActions, seedChanges, seedDocs, seedFindings, seedInspections, seedNcrs, seedPins, seedReqs, seedRfis, seedRisks, seedUpdates } from './data.ts'
@@ -92,8 +92,11 @@ async function writeProject(p: ProjectData, userIds: Record<string, string>) {
   await prisma.$transaction(async (tx) => {
     await tx.project.create({
       data: {
-        id: projectId, code: p.profile.id, name: p.profile.name, client: p.profile.client, site: p.profile.site, facility: p.profile.facility, scope: p.profile.scope, phase: p.profile.phase,
-        plantCountry: p.profile.plantCountry, ownerStandards: p.profile.ownerStandards, markets: p.markets, baseline: p.baseline, revitMode: p.revitMode,
+        id: projectId, code: p.profile.id, name: p.profile.name, client: p.profile.client, site: p.profile.site,
+        industryGroup: p.profile.industryGroup, facilityType: p.profile.facilityType, secondaryFacilityType: p.profile.secondaryFacilityType ?? null,
+        customFacilityType: p.profile.customFacilityType ?? null, serviceType: p.profile.serviceType, bimRequirement: (p.profile.bimRequirement as unknown as Prisma.InputJsonObject | undefined),
+        scope: p.profile.scope, projectStage: p.profile.projectStage,
+        projectCountry: p.profile.projectCountry, ownerStandards: p.profile.ownerStandards, markets: p.markets, baseline: p.baseline, revitMode: p.revitMode,
         autoRouting: p.automation.routing, autoReminders: p.automation.reminders, autoIssue: p.automation.autoIssue,
       },
     })

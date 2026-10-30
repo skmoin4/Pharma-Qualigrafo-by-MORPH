@@ -99,9 +99,9 @@ export const seedActions: GapAction[] = [
 import type { Change, Finding, Inspection, Profile, Rfi } from '../src/domain/types.ts'
 
 export const projectIndex: Profile[] = [
-  { id: 'PRJ-026', name: 'Nova Pharma Expansion', client: 'Nova Pharma Ltd', site: 'Riyadh, Saudi Arabia', facility: 'Non-sterile formulation', scope: 'Expansion', phase: 'Engineering & construction', plantCountry: 'SA', ownerStandards: 'NPL-QMS-014 Engineering documentation procedure (rev 4)', status: 'Active' },
-  { id: 'PRJ-031', name: 'Al Noor API Plant', client: 'Al Noor Chemicals', site: 'Jubail, Saudi Arabia', facility: 'API', scope: 'New plant', phase: 'Design', plantCountry: 'SA', ownerStandards: 'ANC-ENG-002 Project documentation standard', status: 'Active' },
-  { id: 'PRJ-018', name: 'Hyderabad Sterile Block', client: 'Deccan Life Sciences', site: 'Hyderabad, India', facility: 'Sterile products', scope: 'Renovation', phase: 'Commissioning & qualification', plantCountry: 'IN', ownerStandards: 'DLS-VMP-009 Validation master plan', status: 'Active' },
+  { id: 'PRJ-026', name: 'Nova Pharma Expansion', client: 'Nova Pharma Ltd', site: 'Riyadh, Saudi Arabia', industryGroup: 'Pharma', facilityType: 'Non-sterile formulation', serviceType: 'Design only', scope: 'Expansion', projectStage: 'Construction', projectCountry: 'SA', ownerStandards: 'NPL-QMS-014 Engineering documentation procedure (rev 4)', status: 'Active' },
+  { id: 'PRJ-031', name: 'Al Noor API Plant', client: 'Al Noor Chemicals', site: 'Jubail, Saudi Arabia', industryGroup: 'Pharma', facilityType: 'API', serviceType: 'Design + BIM', bimRequirement: { lod: 'LOD 350', coordination: true, assetHandover: 'COBie' }, scope: 'New plant', projectStage: 'Detailed design', projectCountry: 'SA', ownerStandards: 'ANC-ENG-002 Project documentation standard', status: 'Active' },
+  { id: 'PRJ-018', name: 'Hyderabad Sterile Block', client: 'Deccan Life Sciences', site: 'Hyderabad, India', industryGroup: 'Pharma', facilityType: 'Sterile products', serviceType: 'Design only', scope: 'Renovation', projectStage: 'Commissioning', projectCountry: 'IN', ownerStandards: 'DLS-VMP-009 Validation master plan', status: 'Active' },
 ]
 export const projectMarkets: Record<string, MarketKey[]> = { 'PRJ-026': ['SA', 'EU', 'IN'], 'PRJ-031': ['SA'], 'PRJ-018': ['IN', 'EU'] }
 

@@ -5,12 +5,12 @@ import { api, errorText } from '../api'
 import { TODAY, useStore } from '../store'
 import { Badge, Empty, MarketChip, PageHead, Stat, fmtDate, openProjectRoute } from '../components/ui'
 import type { PageKey } from '../components/ui'
-import type { MarketKey, WorkItem } from '../types'
+import type { MarketKey, Profile, WorkItem } from '../types'
 
 /** One row of `GET /admin/projects`: every project on the installation, with the reader's own role if they have one. */
 interface AdminProject {
   code: string; name: string; client: string; status: string; phase: string; facility: string
-  plantCountry: string; createdAt: string; companies: string[]; members: number; myRole: string | null
+  projectCountry: string; createdAt: string; companies: string[]; members: number; myRole: string | null
 }
 
 /**
@@ -34,12 +34,33 @@ function WorkRow({ w, name }: { w: WorkItem; name: string }) {
   )
 }
 
+/** The classification fields the portfolio can be filtered by, in the order they are shown. */
+const FILTERS = [
+  ['industryGroup', 'Industry'],
+  ['facilityType', 'Facility'],
+  ['serviceType', 'Service'],
+  ['projectStage', 'Stage'],
+  ['projectCountry', 'Country'],
+] as const
+type FilterKey = (typeof FILTERS)[number][0]
+/** The custom facility name is what the user typed, so it is what a facility filter has to match on. */
+const filterValue = (p: Profile, k: FilterKey) => (k === 'facilityType' ? p.customFacilityType || p.facilityType : p[k])
+
 export default function Portfolio() {
   const everything = useAll(true)
   const all = everything.filter((a) => a.meta.status !== 'Archived')
   const archived = everything.filter((a) => a.meta.status === 'Archived')
   const [showArchived, setShowArchived] = useState(false)
-  const rows = showArchived ? archived : all
+  /**
+   * Portfolio filters (Phase 5 / step 1). One installation now holds projects from four industries, so the list is
+   * filterable by every classification field. A filter only offers values that actually occur in the portfolio, and
+   * "All" is the default, so the list never hides a project the user did not ask to hide.
+   */
+  const [filters, setFilters] = useState<Record<FilterKey, string>>({ industryGroup: '', facilityType: '', serviceType: '', projectStage: '', projectCountry: '' })
+  const pool = showArchived ? archived : all
+  const optionsOf = (k: FilterKey) => [...new Set(pool.map((a) => filterValue(a.meta, k)).filter(Boolean))].sort()
+  const rows = pool.filter((a) => FILTERS.every(([k]) => !filters[k] || filterValue(a.meta, k) === filters[k]))
+  const filtered = FILTERS.some(([k]) => filters[k])
   const role = useStore((s) => s.role)
   const session = useStore((s) => s.session)
   const canCreate = !!session?.canCreateProjects
@@ -79,10 +100,27 @@ export default function Portfolio() {
 
       <section className="card flush mt">
         <h2>Projects <span className="muted small" style={{ fontWeight: 400 }}>click a project to open its workspace</span></h2>
+        <div className="row wrap filterbar" style={{ padding: '0 18px 12px', gap: 8 }}>
+          {FILTERS.map(([k, label]) => {
+            const opts = optionsOf(k)
+            return (
+              <label key={k} className="row small" style={{ gap: 5 }}>
+                <span className="muted">{label}</span>
+                <select className="input compact" aria-label={label} value={filters[k]} disabled={!opts.length} onChange={(e) => setFilters({ ...filters, [k]: e.target.value })}>
+                  <option value="">All</option>
+                  {opts.map((o) => <option key={o} value={o}>{k === 'projectCountry' ? (markets[o as MarketKey]?.name ?? o) : o}</option>)}
+                </select>
+              </label>
+            )
+          })}
+          {filtered && <button className="link small" onClick={() => setFilters({ industryGroup: '', facilityType: '', serviceType: '', projectStage: '', projectCountry: '' })}>Clear filters</button>}
+          {filtered && <span className="muted small">{rows.length} of {pool.length} shown</span>}
+        </div>
         <div className="tablewrap" style={{ border: 0, borderRadius: 0 }}>
           <table>
-            <thead><tr><th>Project</th><th>Phase</th><th style={{ width: 200 }}>Evidence accepted</th><th>Handover gates</th><th>Next due</th><th>Attention</th><th /></tr></thead>
+            <thead><tr><th>Project</th><th>Stage</th><th style={{ width: 200 }}>Evidence accepted</th><th>Handover gates</th><th>Next due</th><th>Attention</th><th /></tr></thead>
             <tbody>
+              {!rows.length && filtered && <tr><td colSpan={7}><Empty title="No project matches these filters">Clear a filter to widen the list; {pool.length} project{pool.length === 1 ? '' : 's'} {pool.length === 1 ? 'is' : 'are'} hidden.</Empty></td></tr>}
               {rows.map(({ meta, s, st }) => {
                 const pct = st.required ? (100 * st.accepted) / st.required : 0
                 return (
@@ -90,9 +128,9 @@ export default function Portfolio() {
                     <td>
                       <b style={{ color: 'var(--teal-d)', fontSize: 14 }}>{meta.name}</b>{meta.status === 'Archived' && <> <Badge dot={false}>Archived</Badge></>}
                       <small>{meta.id} · {meta.client} · {meta.site}</small>
-                      <div className="row wrap" style={{ gap: 5, marginTop: 5 }}><Badge tone="blue" dot={false}>{meta.facility}</Badge><Badge dot={false}>{meta.scope}</Badge>{s.markets.map((m) => <span key={m} title={markets[m].name}><MarketChip m={m} /></span>)}</div>
+                      <div className="row wrap" style={{ gap: 5, marginTop: 5 }}><Badge tone="blue" dot={false}>{meta.customFacilityType || meta.facilityType}</Badge><Badge dot={false}>{meta.serviceType}</Badge><Badge dot={false}>{meta.scope}</Badge>{s.markets.map((m) => <span key={m} title={markets[m].name}><MarketChip m={m} /></span>)}</div>
                     </td>
-                    <td>{meta.phase}<small>Baseline B{s.baseline}</small></td>
+                    <td>{meta.projectStage}<small>Baseline B{s.baseline}</small></td>
                     <td><div className="row sb small"><b>{st.accepted}</b><span className="muted">of {st.required} required</span></div><div className="bar" style={{ marginTop: 5 }}><i style={{ width: `${pct}%` }} /></div></td>
                     <td><div className="pips" title="Document-gate conditions">{st.gates.map((g) => <i key={g.key} className={g.n === 0 ? 'ok' : 'open'} title={`${g.label}: ${g.n === 0 ? 'clear' : g.n + ' open'}`} />)}</div><small>{st.gates.filter((g) => g.n === 0).length} of {st.gates.length} clear</small></td>
                     <td style={{ whiteSpace: 'nowrap' }}>{st.upcoming ?? <span className="muted">—</span>}{st.upcoming && st.upcoming < TODAY && <small style={{ color: 'var(--red)' }}>Overdue</small>}</td>
@@ -178,7 +216,7 @@ function AllProjects({ mine, showArchived }: { mine: Set<string>; showArchived: 
                 <span>{p.name}</span>
                 <small>{p.code} · {p.client} · {p.phase}{p.status !== 'Active' ? ` · ${p.status}` : ''}</small>
               </td>
-              <td className="small">{p.facility}<small><MarketChip m={p.plantCountry as MarketKey} /> {markets[p.plantCountry as MarketKey]?.name ?? p.plantCountry}</small></td>
+              <td className="small">{p.facility}<small><MarketChip m={p.projectCountry as MarketKey} /> {markets[p.projectCountry as MarketKey]?.name ?? p.projectCountry}</small></td>
               <td className="small">{p.members} {p.members === 1 ? 'person' : 'people'}</td>
               <td><span className="row" style={{ gap: 6 }}><Badge tone="amber">No membership</Badge><button className="link small" onClick={() => { window.location.hash = '#/admin' }}>Give yourself a role →</button></span></td>
             </tr>

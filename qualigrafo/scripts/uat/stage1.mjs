@@ -77,15 +77,17 @@ ok(await vis(page.getByRole('heading', { name: 'New project' })), 'wizard: step 
 await page.getByLabel('Project name').fill('Riyadh Oral Solids Line 3')
 await page.getByLabel('Client (plant owner)').fill('Nova Pharma Ltd')
 await page.getByLabel('Site / location').fill('Riyadh, Saudi Arabia')
-await page.getByLabel('Plant country').selectOption({ index: 0 })
+await page.getByLabel('Project country').selectOption({ index: 0 })
 await shot('04-wizard-1')
 await page.getByRole('button', { name: /^Next/ }).click()
 await page.waitForTimeout(400)
 
-// step 2: facility, scope, markets
+// step 2: industry group, facility, service type, scope, markets
+await page.getByRole('button', { name: /^Pharma/ }).click()
 await page.getByLabel('Facility type').selectOption({ index: 1 })
+await page.getByRole('button', { name: /^Design only/ }).click()
 await page.getByLabel('Project scope').selectOption({ index: 0 })
-await page.getByLabel('Project phase').fill('Design')
+await page.getByLabel('Project stage').selectOption('Detailed design')
 const marketBoxes = page.locator('.card').first().locator('input[type=checkbox]')
 const nMarkets = await marketBoxes.count()
 for (let i = 0; i < Math.min(2, nMarkets); i++) await marketBoxes.nth(i).check()
