@@ -51,7 +51,8 @@ export interface Doc {
   /** Set when the document is Void or Superseded. */
   voided?: { reason: string; at: string; by: string; supersededBy?: string }
   signatures: Signature[]
-  history: { rev: number; status: DocStatus; at: string; by: Role; note?: string }[]
+  history: { rev: number; status: DocStatus; at: string; by: Role; note?: string }[]  /** Formal revisions, oldest first (Phase 5 / step 3). Working versions do not appear here. */
+  revisions: DocRevisionRec[]
 }
 
 export interface EvidenceLink {
@@ -169,6 +170,23 @@ export interface Profile {
   status: 'Active' | 'Archived'
   archivedAt?: string
   archivedReason?: string
+}
+
+/** One formal revision of a document (Phase 5 / step 3): what was issued, for what, by whom. */
+export interface DocRevisionRec {
+  rev: number
+  state: 'Under review' | 'Returned' | 'Issued' | 'Superseded'
+  suitability: string
+  reasonForIssue: string
+  changeSummary: string
+  preparedBy: string
+  preparedAt: string
+  checkedBy?: string
+  checkedAt?: string
+  approvedBy?: string
+  approvedAt?: string
+  supersededAt?: string
+  checksum?: string
 }
 
 export interface Rfi {
@@ -346,7 +364,8 @@ export interface ProjectData {
   systems: SystemRec[]
   disciplines: DisciplineRec[]
   members: Member[]
-  connector: ConnectorState
+  connector: ConnectorState  /** The project's suitability / status codes for revisions. */
+  suitabilityCodes: { code: string; label: string; kind: string }[]
 }
 
 export interface Company {

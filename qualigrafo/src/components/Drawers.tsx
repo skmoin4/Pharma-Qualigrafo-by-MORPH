@@ -4,6 +4,7 @@ import { markets } from '../data/reference'
 import { evidenceState, hasCurrentSource, isActiveDoc, plusDays, useStore } from '../store'
 import { SourceSection } from './Files'
 import { api, errorText } from '../api'
+import type { Doc } from '../types'
 
 /** Meaning of each sign-off stage (same text the server records with the signature). */
 const SIGNATURE_MEANING = ['Reviewed — technically acceptable', 'Approved for use']
@@ -11,13 +12,74 @@ import { CompanySelect, DisciplineSelect, SystemSelect } from './Pickers'
 import type { Applicability } from '../types'
 import { Applic, Badge, DocBadge, Drawer, MarketChip, R, StateBadge, fmtDate, go, useUI } from './ui'
 
+
+/**
+ * The formal revision register of one document (Phase 5 / step 3). A **version** is a working iteration — it
+ * appears under version history; a **revision** is what was formally offered and issued, and it is never
+ * overwritten: a superseded revision keeps its own row, its own content checksum and the reason it was issued.
+ */
+function RevisionRegister({ doc }: { doc: Doc }) {
+  const [compare, setCompare] = useState<number[]>([])
+  const revs = [...doc.revisions].sort((a, b) => b.rev - a.rev)
+  const current = revs.find((r) => r.state === 'Issued')
+  const picked = compare.length === 2 ? revs.filter((r) => compare.includes(r.rev)).sort((a, b) => a.rev - b.rev) : []
+  const toggle = (rev: number) => setCompare(compare.includes(rev) ? compare.filter((x) => x !== rev) : [...compare, rev].slice(-2))
+  const tone = (s: string) => (s === 'Issued' ? 'green' : s === 'Superseded' ? '' : s === 'Returned' ? 'amber' : 'blue')
+
+  if (!revs.length) {
+    return (
+      <>
+        <h3>Revisions</h3>
+        <p className="muted small">No formal revision yet. A revision opens when this document is submitted for review — until then its file is a working version.</p>
+      </>
+    )
+  }
+  return (
+    <>
+      <h3>Revisions <span className="muted small" style={{ fontWeight: 400 }}>{current ? `current: ${R(current.rev)}${current.suitability ? ` · ${current.suitability}` : ''}` : 'none issued yet'}</span></h3>
+      <div className="tablewrap">
+        <table>
+          <thead><tr><th>Rev</th><th>Issued for</th><th>Prepared · checked · approved</th><th>Compare</th></tr></thead>
+          <tbody>
+            {revs.map((r) => (
+              <tr key={r.rev} className={r.state === 'Superseded' ? 'muted' : undefined}>
+                <td><span className="rev">{R(r.rev)}</span><small><Badge tone={tone(r.state)} dot={false}>{r.state}</Badge></small></td>
+                <td>{r.suitability ? <><b>{r.suitability}</b> · </> : null}{r.reasonForIssue || <span className="muted">—</span>}{r.changeSummary && <small>{r.changeSummary}</small>}</td>
+                <td className="small">
+                  {r.preparedBy || '—'}<small>{r.checkedBy ? `checked ${r.checkedBy}` : 'not checked yet'}{r.approvedBy ? ` · approved ${r.approvedBy}${r.approvedAt ? ` (${fmtDate(r.approvedAt)})` : ''}` : ''}</small>
+                </td>
+                <td><input type="checkbox" aria-label={`Compare R${r.rev}`} checked={compare.includes(r.rev)} onChange={() => toggle(r.rev)} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {picked.length === 2 && (
+        <div className="subcard" style={{ marginTop: 8 }}>
+          <b className="small">{R(picked[0].rev)} → {R(picked[1].rev)}</b>
+          <div className="tablewrap" style={{ marginTop: 6 }}><table><tbody>
+            {([['Suitability', 'suitability'], ['Issued for', 'reasonForIssue'], ['Change summary', 'changeSummary'], ['Prepared by', 'preparedBy'], ['Checked by', 'checkedBy'], ['Approved by', 'approvedBy'], ['Content checksum', 'checksum']] as const).map(([label, key]) => {
+              const a = (picked[0][key] ?? '') as string, b = (picked[1][key] ?? '') as string
+              const short = (v: string) => (key === 'checksum' ? v.slice(0, 12) : v) || '—'
+              return <tr key={key}><td className="small muted" style={{ width: 150 }}>{label}</td><td className="small">{a === b ? <span className="muted">unchanged · {short(a)}</span> : <>{short(a)} <b>→</b> {short(b)}</>}</td></tr>
+            })}
+          </tbody></table></div>
+        </div>
+      )}
+      {compare.length === 1 && <p className="muted small" style={{ marginTop: 6 }}>Tick a second revision to compare.</p>}
+    </>
+  )
+}
+
 function useAct() {
   const toast = useStore((s) => s.toast)
   return async (err: string | null | Promise<string | null>, ok: string) => { const e = await err; if (e) toast(e, 'warn'); else if (ok) toast(ok); return e }
 }
 
 export function DocDrawer({ id }: { id: string }) {
-  const { docs, role, submitDoc, signDoc, returnDoc, newRevision, reqs, current } = useStore()
+  const { docs, role, submitDoc, signDoc, returnDoc, newRevision, reqs, current, suitabilityCodes } = useStore()
+  const [suitability, setSuitability] = useState('')
+  const [changeSummary, setChangeSummary] = useState('')
   const open = useUI((s) => s.open)
   const act = useAct()
   const session = useStore((s) => s.session)
@@ -58,13 +120,28 @@ export function DocDrawer({ id }: { id: string }) {
 
       <label className="lab">Note / decision reason (required for every action)</label>
       <textarea className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Record the submission note or decision reason…" />
+      {role === 'Contractor' && ['Missing', 'Draft', 'Changes requested'].includes(doc.status) && (
+        <div className="grid g2" style={{ marginTop: 8 }}>
+          <div>
+            <label className="lab" style={{ marginTop: 0 }}>Issued for (suitability)</label>
+            <select className="input" value={suitability} onChange={(e) => setSuitability(e.target.value)} aria-label="Suitability">
+              <option value="">Not stated</option>
+              {suitabilityCodes.map((x) => <option key={x.code} value={x.code}>{x.code} — {x.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="lab" style={{ marginTop: 0 }}>What changed (optional)</label>
+            <input className="input" value={changeSummary} onChange={(e) => setChangeSummary(e.target.value)} placeholder="e.g. Pump schedule corrected after RFI-004" aria-label="Change summary" />
+          </div>
+        </div>
+      )}
       {doc.status === 'Under review' && role === expected && (<>
         <div className="notice info small" style={{ marginTop: 10 }}>Electronic signature. Meaning: <b>{SIGNATURE_MEANING[doc.signStage]}</b>. It is bound to {doc.id} {R(doc.rev)}{doc.file ? <> (SHA-256 <code>{doc.file.sha256.slice(0, 12)}…</code>)</> : ''} and recorded with your name, e-mail and the time.</div>
         <div className="grid g2"><div><label className="lab">Signing as</label><input className="input" value={signer} disabled /></div><div><label className="lab">Password (re-enter to sign)</label><input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="Signature password" /></div></div>
         <label className="row" style={{ marginTop: 10, alignItems: 'flex-start' }}><input type="checkbox" checked={intent} onChange={(e) => setIntent(e.target.checked)} style={{ marginTop: 3 }} /><span className="small">I have reviewed <b>{doc.id} {R(doc.rev)}</b> and sign it as <b>{SIGNATURE_MEANING[doc.signStage]}</b>.</span></label>
       </>)}
       <div className="row wrap" style={{ marginTop: 12 }}>
-        {role === 'Contractor' && ['Missing', 'Draft', 'Changes requested'].includes(doc.status) && <button className="btn pri" disabled={!sourced} title={sourced ? undefined : `Attach the source file for ${R(doc.rev)} first`} onClick={() => act(submitDoc(id, note), 'Submitted for review')}>Submit {R(doc.rev)} for review</button>}
+        {role === 'Contractor' && ['Missing', 'Draft', 'Changes requested'].includes(doc.status) && <button className="btn pri" disabled={!sourced} title={sourced ? undefined : `Attach the source file for ${R(doc.rev)} first`} onClick={() => act(submitDoc(id, note, { suitability, changeSummary }), 'Submitted for review')}>Submit {R(doc.rev)} for review</button>}
         {role === 'Contractor' && doc.status === 'Accepted' && <button className="btn" onClick={() => act(newRevision(id), 'New revision started. Linked evidence now needs reassessment.')}>Start new revision</button>}
         {doc.status === 'Under review' && (
           <>
@@ -96,7 +173,10 @@ export function DocDrawer({ id }: { id: string }) {
         {!linked.length && <p className="muted">Not linked to any requirement.</p>}
       </div>
 
-      <h3>Revision history</h3>
+      <RevisionRegister doc={doc} />
+
+      <h3>Version history</h3>
+      <p className="muted small" style={{ margin: '0 0 6px' }}>Every working step, including the ones that never became a formal revision.</p>
       <div className="tablewrap"><table><tbody>{[...doc.history].reverse().map((h, i) => <tr key={i}><td><span className="rev">{R(h.rev)}</span></td><td>{h.status}{h.note && <small>{h.note}</small>}</td><td>{h.by}<small>{fmtDate(h.at)}</small></td></tr>)}</tbody></table></div>
       <p style={{ marginTop: 10 }}><button className="link small" onClick={() => go('comments')}>View technical comments →</button></p>
     </Drawer>

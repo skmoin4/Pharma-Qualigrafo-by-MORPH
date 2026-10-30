@@ -80,10 +80,17 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
   existing step 2, no separate industry page), **one project table** (industry = templates, not separate apps).
   Plan, gap analysis, decisions, step order and the testing gate: **`PRODUCTION_PLAN.md` §6 (Phase 5)**.
   Phase 5 runs **before** the remaining Phase 3 steps; Phase 4 (Revit add-in) merges into Phase 5 step 7.
-- **Phase 5 / steps 0, 1, 2 and 2b are done. Next: Phase 5 / step 3 — document control** (`PRODUCTION_PLAN.md`
-  §6.5 step 3): `DocRevision` records with previous-revision link, reason for issue, suitability, prepared /
-  checked / approved / issued, superseded retained and searchable, revision compare and tree, automatic revision
-  register, and per-project configurable status / suitability codes.
+- **Phase 5 / steps 0, 1, 2, 2b and 3 are done. Next: P4 — object storage + virus scan** (§7 item 4; decision
+  §6.4.11 puts it right after step 3, because controlled revisions are now what gets uploaded and the hosted trial
+  loses files on every restart), then **Phase 5 step 4** (task engine).
+- **Step 3 (2026-10-30): version ≠ revision.** Attaching a file changes the **working version**; submitting opens a
+  **formal revision** (`DocRevision`, `server/src/services/revisions.ts`) that records the reason for issue, the
+  suitability code, who prepared it and the content checksum. Sign-off stage 1 fills `checkedBy`, stage 2 fills
+  `approvedBy` and issues it; acceptance supersedes earlier revisions **without deleting them**. A returned revision
+  is marked `Returned` and loses its reviewers, because a re-submission is different content. Suitability codes are
+  **per project** (`Project.suitabilityCodes`, ISO 19650 as the default only) — removing one never rewrites the
+  revisions already issued under it. The drawer shows **Revisions** and **Version history** separately; keep them
+  separate.
 - **Step 2b (2026-10-30): starter requirement content for all four industry groups.** `domain/starterLibrary.ts`
   is keyed by industry and market: `starterFor(industry, market)`. **The pharma per-market sets must stay exactly as
   they are** (SA 17, IN 9, EU 7, US 3 — asserted in OQ-API-37), because pharma installations have already approved
@@ -216,16 +223,16 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
 
 ```bash
 # API suite (in-process, needs a fresh DB each run)
-cd server && npm run fixtures:load && npm test            # currently 682 checks, all passing
+cd server && npm run fixtures:load && npm test            # currently 704 checks, all passing
 
 # Browser suites: each suite needs freshly loaded fixtures; use separate ports so nothing clashes
 cd qualigrafo && npm run build
 PORT=4100 npx tsx src/index.ts                             # from server/, background
 API_URL=http://localhost:4100 npx vite preview --port 8082 --strictPort   # from qualigrafo/, background
-for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18 e2e19 e2e20; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
+for s in e2e e2e2 e2e3 e2e4 e2e5 e2e6 e2e7 e2e8 e2e9 e2e10 e2e11 e2e12 e2e13 e2e14 e2e16 e2e17 e2e18 e2e19 e2e20 e2e21; do   # e2e15 needs: fixtures:load -- --projects 100 (cd ../server && npm run fixtures:load >/dev/null); BASE=http://localhost:8082/ node scripts/$s.mjs; done
 ```
 
-- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 46 (e2e18) + 38 (e2e19) + 31 (e2e20) = 702 checks, all passing. Full OQ: 1384 of 1384 in 57 test cases.
+- Current browser totals: 197 + 62 + 20 + 23 + 19 + 33 + 26 + 20 + 22 + 19 + 29 + 23 + 16 + 16 + 18 (e2e15, 100 load-test projects) + 23 (e2e16) + 21 (e2e17) + 46 (e2e18) + 38 (e2e19) + 31 (e2e20) + 22 (e2e21) = 724 checks, all passing. Full OQ: 1428 of 1428 in 59 test cases.
 - **Each suite needs its own freshly loaded fixtures, and nothing else may touch the test database while a suite or
   the API suite runs** — a second API server on the same database writes monitoring rows and job heartbeats and makes
   the OQ-API-33 figures fail at random. Stop your debug servers before running `npm test` or `validation:oq`.

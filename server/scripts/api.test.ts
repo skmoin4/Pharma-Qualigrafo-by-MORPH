@@ -162,6 +162,9 @@ try {
   ok(await act('/docs/DOC-007/submit', { note: '' }) !== null, 'submit needs a note')
   ok(await act('/docs/DOC-007/submit', { note: 'Ready' }) === null, 'contractor submits DOC-007')
   ok(doc('DOC-007').status === 'Under review', 'status -> Under review')
+  // Phase 5 / step 3: submitting opens the formal revision. A working version does not have one.
+  ok(doc('DOC-007').revisions.length === 1 && doc('DOC-007').revisions[0].state === 'Under review' && doc('DOC-007').revisions[0].preparedBy === 'Demo Contractor', 'submitting opens a formal revision, prepared by the submitter')
+  ok(doc('DOC-007').revisions[0].reasonForIssue === 'Ready', 'the submission note is kept as the reason for issue when nothing more is stated')
   ok(last.events[0].category === 'Routing' && last.events[0].forRole === 'Consultant', 'routing event to Consultant created automatically')
   ok(await act('/docs/DOC-007/submit', { note: 'again' }) !== null, 'cannot resubmit a document already under review')
 
@@ -171,6 +174,7 @@ try {
   ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: false, password: PASSWORD }) !== null, 'sign blocked without explicit intent confirmation')
   ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true, password: PASSWORD }) === null, 'Consultant signs stage 1')
   ok(doc('DOC-007').signStage === 1 && doc('DOC-007').status === 'Under review', 'auto-advanced to stage 2, still under review')
+  ok(doc('DOC-007').revisions[0].checkedBy === 'Demo Consultant' && !doc('DOC-007').revisions[0].approvedBy, 'stage 1 records who checked the revision, not who approved it')
   ok(doc('DOC-007').signatures[0].name === 'Demo Consultant', 'signer name comes from the authenticated account')
   ok(last.events.some((e) => e.category === 'Routing' && e.forRole === 'Owner / QA' && e.doc === 'DOC-007'), 'auto-routed to Owner / QA')
   const issuedBefore = last.issued.length
@@ -178,6 +182,8 @@ try {
   ok(await act('/docs/DOC-007/sign', { reason: 'ok', intent: true, password: PASSWORD }) === null, 'Owner/QA signs stage 2')
   ok(doc('DOC-007').status === 'Accepted', 'revision accepted after both stages')
   ok(last.issued.length === issuedBefore + 1 && last.issued[0].doc === 'DOC-007', 'controlled issue manifest generated')
+  ok(doc('DOC-007').revisions[0].state === 'Issued' && doc('DOC-007').revisions[0].approvedBy === 'Demo Owner / QA' && !!doc('DOC-007').revisions[0].approvedAt, 'stage 2 issues the revision and records who approved it')
+  ok(!!doc('DOC-007').revisions[0].checksum, 'the revision keeps the checksum of the content that was approved')
 
   // ---- fresh revision = fresh approval
   section('OQ-API-04')
@@ -187,6 +193,7 @@ try {
   ok(await act('/docs/DOC-007/revisions') === null, 'contractor starts a new revision')
   ok(doc('DOC-007').rev === 1 && doc('DOC-007').status === 'Draft' && doc('DOC-007').signStage === 0, 'new revision starts as Draft at stage 0')
   ok(doc('DOC-007').signatures.every((s) => s.rev === 0), 'old signatures stay bound to R00 only')
+  ok(doc('DOC-007').revisions.length === 1 && doc('DOC-007').revisions[0].rev === 0 && doc('DOC-007').revisions[0].state === 'Issued', 'starting a working version does not open a revision, and R00 stays issued until a new one is')
   ok(last.events[0].category === 'Revision', 'revision event logged')
 
   // ---- stale evidence after revision
@@ -1365,7 +1372,7 @@ try {
     const C = tokens.Consultant
     // catalogue: every requirement traced, every test case verifies something, risk method as specified
     ok(catalogueProblems().length === 0, `validation catalogue consistent${catalogueProblems().length ? ': ' + catalogueProblems().join('; ') : ''}`)
-    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 37, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
+    ok(URS.every((u) => u.tests.length || u.procedural) && OQ_CASES.filter((c) => c.suite === 'api').length === 38, `${URS.length} requirements, ${OQ_CASES.length} OQ test cases`)
     ok(riskPriority('High', 'High', 'Low') === 'High' && riskPriority('High', 'Medium', 'Medium') === 'High' && riskPriority('Medium', 'Medium', 'High') === 'Low' && riskPriority('Low', 'Low', 'Low') === 'Medium', 'GAMP 5 risk priority: class from severity x probability, priority from class x detectability')
     const t = traceability(null)
     ok(t.every((u) => u.verdict === 'Not executed' || u.verdict === 'Procedural') && t.length === URS.length, 'traceability without results: Not executed / Procedural, never Pass')
@@ -1828,6 +1835,45 @@ try {
     const sp3 = (await get('/projects/SOL-003', QA)).json.project as ProjectData
     ok(designOnly.status === 201 && !sp3.docs.some((d) => /model/i.test(d.title)), 'a design-only project registers no model deliverable')
     ok(sp3.revitMode === false, 'and it starts standalone, without the Revit connector')
+  }
+
+  // ---------------------------------------------------------------- formal revisions (Phase 5 / step 3)
+  section('OQ-API-38')
+  {
+    resetApiRate()
+    const PR = '/projects/PRJ-026'
+    const pdata = async () => (await get(PR, QA)).json.project as ProjectData
+    const codes = (await pdata()).suitabilityCodes
+    ok(codes.length > 0 && codes.some((c) => c.code === 'S2') && codes.some((c) => c.code === 'A1'), `a project starts from the ISO 19650 suitability set (${codes.length} codes)`)
+    ok(codes.every((c) => ['WIP', 'Shared', 'Published', 'Archived'].includes(c.kind)), 'every code says which part of the flow it belongs to')
+
+    // only Owner / QA edits the set, and the change is audited
+    ok((await call('PUT', `${PR}/suitability`, { codes, reason: 'x' }, tokens.Contractor)).status === 403, 'a contractor cannot change the suitability codes')
+    ok((await call('PUT', `${PR}/suitability`, { codes, reason: '' }, QA)).status === 422, 'the change needs a reason')
+    ok((await call('PUT', `${PR}/suitability`, { codes: [], reason: 'none' }, QA)).status === 422, 'a project needs at least one code')
+    ok((await call('PUT', `${PR}/suitability`, { codes: [{ code: 'S1', label: 'a', kind: 'Shared' }, { code: 'S1', label: 'b', kind: 'Shared' }], reason: 'dup' }, QA)).json.error?.includes('unique') === true, 'codes must be unique')
+    ok((await call('PUT', `${PR}/suitability`, { codes: [{ code: 'XX', label: 'Something', kind: 'Nowhere' }], reason: 'bad kind' }, QA)).json.error?.includes('unknown kind') === true, 'a code belongs to a known part of the flow')
+    const trimmed = [...codes.filter((c) => ['S2', 'A1', 'CR'].includes(c.code)), { code: 'IFT', label: 'Issued for tender', kind: 'Published' }]
+    ok((await call('PUT', `${PR}/suitability`, { codes: trimmed, reason: 'Contract uses a shorter set plus IFT' }, QA)).status === 200, 'Owner / QA replaces the set with the contract one')
+    ok((await pdata()).suitabilityCodes.map((c) => c.code).join() === 'S2,A1,CR,IFT', 'the project now offers exactly those codes')
+    ok((await pdata()).audit.some((a) => a.text.includes('Suitability codes changed') && a.text.includes('-> "S2, A1, CR, IFT"')), 'the change is audited old -> new')
+
+    // a revision is issued for a purpose, and the code has to be one of the project's
+    const D = 'DOC-011'
+    const sub = (body: Record<string, unknown>) => call('POST', `${PR}/docs/${D}/submit`, body, tokens.Contractor)
+    ok((await sub({ note: 'Issuing for tender', suitability: 'S9' })).json.error?.includes("not one of this project's suitability codes") === true, 'an unknown suitability code is refused')
+    ok((await sub({ note: 'Issuing for tender', suitability: 'IFT', changeSummary: 'Pump schedule corrected after RFI-004' })).status === 200, 'the contractor submits a revision issued for tender')
+    // DOC-011 has been through the register earlier in this suite, so take the revision of its *current* rev
+    // rather than the first row.
+    let pd = await pdata()
+    const current = () => { const d = pd.docs.find((x) => x.id === D)!; return d.revisions.find((r) => r.rev === d.rev)! }
+    ok(!!current() && current().suitability === 'IFT' && current().reasonForIssue === 'Issuing for tender' && current().changeSummary.includes('RFI-004'), 'the revision records the code, the purpose and what changed')
+
+    // returned, then offered again: the same revision, and the earlier reviewers do not carry over
+    ok((await call('POST', `${PR}/docs/${D}/return`, { reason: 'Schedule still disagrees with the layout' }, tokens.Consultant)).status === 200, 'the consultant returns it')
+    pd = await pdata()
+    ok(current().state === 'Returned', 'the revision says it was returned, not issued')
+    ok((await call('POST', `${PR}/docs/${D}/sign`, { reason: 'ok', intent: true, password: PASSWORD }, tokens.Consultant)).status === 422, 'a returned revision cannot be signed')
   }
 } finally {
   server.close()

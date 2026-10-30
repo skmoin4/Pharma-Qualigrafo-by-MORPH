@@ -5,12 +5,14 @@ import type { Role } from '../domain/types.ts'
 import { forbidden, notFound, rule } from '../lib/http.ts'
 import { getDoc, nextCode } from './ctx.ts'
 import { assertActive } from './docRegister.ts'
+import { markReturned, openForReview, recordSignature, supersedeEarlier } from './revisions.ts'
+export { setSuitability } from './revisions.ts'
 import type { Ctx } from './ctx.ts'
 
 export const toDate = (d: string) => new Date(`${d}T00:00:00Z`)
 const SUBMITTABLE = ['Missing', 'Draft', 'Changes requested']
 
-export async function submitDoc(c: Ctx, code: string, note: string) {
+export async function submitDoc(c: Ctx, code: string, note: string, issue: { reasonForIssue?: string; changeSummary?: string; suitability?: string } = {}) {
   const d = await getDoc(c, code)
   if (c.role !== 'Contractor') throw forbidden('Only the Contractor submits documents for review.')
   assertActive(d)
@@ -19,7 +21,14 @@ export async function submitDoc(c: Ctx, code: string, note: string) {
   if (!note.trim()) throw rule('Add a submission note.')
   await c.tx.document.update({ where: { id: d.id }, data: { status: 'Under review', signStage: 0 } })
   await c.tx.docHistory.create({ data: { documentId: d.id, rev: d.rev, status: 'Under review', byRole: c.role, byUserId: c.user.id, note } })
-  await c.log(`${d.code} R${d.rev} submitted for review`)
+  // Submitting opens the formal revision: a working version becomes something offered for a stated purpose.
+  // The submission note is the default reason for issue, so a project that states nothing more still records why.
+  await openForReview(c, d, {
+    reasonForIssue: issue.reasonForIssue?.trim() || note.trim(),
+    changeSummary: issue.changeSummary ?? '',
+    suitability: issue.suitability ?? '',
+  })
+  await c.log(`${d.code} R${d.rev} submitted for review${issue.suitability ? ` (suitability ${issue.suitability.trim()})` : ''}`)
   if (c.project.autoRouting) await c.notify('Routing', `${d.code} R${d.rev} submitted. Signature request routed to Consultant.`, d.code, 'Consultant')
 }
 
@@ -39,6 +48,8 @@ export async function signDoc(c: Ctx, code: string, reason: string, intent: bool
   const sigHash = signatureHash({ doc: d.code, rev: d.rev, checksum: d.checksum!, userId: c.user.id, email: c.user.email, name: c.user.name, role: c.role, meaning, reason, at })
   await c.tx.docSignature.create({ data: { documentId: d.id, role: c.role, name: c.user.name, userId: c.user.id, email: c.user.email, rev: d.rev, reason, meaning, checksum: d.checksum, sigHash, at } })
   await c.tx.document.update({ where: { id: d.id }, data: { signStage: stage, status: done ? 'Accepted' : d.status } })
+  await recordSignature(c, d.id, d.rev, stage)
+  if (done) await supersedeEarlier(c, d.id, d.rev)
   if (done) await c.tx.docHistory.create({ data: { documentId: d.id, rev: d.rev, status: 'Accepted', byRole: c.role, byUserId: c.user.id, note: reason } })
   await c.log(`${d.code} R${d.rev} sign-off by ${c.role}${done ? ' - revision accepted' : ''} (e-signature: ${c.user.name}, "${meaning}", content ${d.checksum!.slice(0, 12)}…)`)
 
@@ -65,6 +76,7 @@ export async function returnDoc(c: Ctx, code: string, reason: string) {
   if (!reason.trim()) throw rule('Explain the required changes.')
   await c.tx.document.update({ where: { id: d.id }, data: { status: 'Changes requested', signStage: 0 } })
   await c.tx.docHistory.create({ data: { documentId: d.id, rev: d.rev, status: 'Changes requested', byRole: c.role, byUserId: c.user.id, note: reason } })
+  await markReturned(c, d.id, d.rev)
   await c.log(`${d.code} R${d.rev} returned for changes (status "Under review" -> "Changes requested"): ${reason.trim()}`)
   await c.notify('Issue status', `${d.code} returned for changes: approval route cancelled. Earlier sign-offs are kept as history only.`, d.code, 'Contractor')
 }

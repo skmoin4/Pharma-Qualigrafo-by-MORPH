@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import { api, downloadAs, errorText, fetchBlob, setUnauthorizedHandler, tokenStore, uploadForm } from './api'
-import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, IndustryGroup, ServiceType, BimRequirement, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Transmittal, Risk, Ncr, NcrSeverity, Rating, SessionUser, EmailPref, AccountFacts, MyMembership, ActivityItem, ProjectSummary, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
+import type { Applicability, AuditEvent, BaselineRec, Change, Doc, EvidenceState, Finding, GapAction, Inspection, MarketKey, Pin, Profile, RegUpdate, Requirement, Rfi, Role, Scope, IndustryGroup, ServiceType, BimRequirement, SuitabilityCode, Snapshot, ToastMsg, Notice, Automation, ImportBatch, IssuedPackage, Transmittal, Risk, Ncr, NcrSeverity, Rating, SessionUser, EmailPref, AccountFacts, MyMembership, ActivityItem, ProjectSummary, Company, SystemRec, DisciplineRec, Member, ConnectorState } from './types'
 
 /** Working date (YYYY-MM-DD) for due / overdue logic. Starts as the browser's date; replaced by the server's (site time zone) after sign-in. */
 export let TODAY = new Date().toLocaleDateString('en-CA')
@@ -42,13 +42,14 @@ export interface ProjectData {
   systems: SystemRec[]
   disciplines: DisciplineRec[]
   members: Member[]
-  connector: ConnectorState
+  connector: ConnectorState  /** The project's suitability / status codes for document revisions. */
+  suitabilityCodes: SuitabilityCode[]
 }
 
 export const blankProject = (): ProjectData => ({
   profile: { id: '', name: '', client: '', site: '', industryGroup: 'Pharma', facilityType: 'API', serviceType: 'Design only', scope: 'New plant', projectStage: '', projectCountry: 'SA', ownerStandards: '', status: 'Active' },
   markets: [], docs: [], reqs: [], pins: [], updates: [], actions: [], rfis: [], inspections: [], findings: [], changes: [], snapshots: [], baselines: [], audit: [],
-  baseline: 1, revitMode: false, events: [], automation: { routing: true, reminders: true, autoIssue: true }, imports: [], issued: [], transmittals: [], risks: [], ncrs: [], companies: [], systems: [], disciplines: [], members: [], connector: { tokens: [], models: [] },
+  suitabilityCodes: [], baseline: 1, revitMode: false, events: [], automation: { routing: true, reminders: true, autoIssue: true }, imports: [], issued: [], transmittals: [], risks: [], ncrs: [], companies: [], systems: [], disciplines: [], members: [], connector: { tokens: [], models: [] },
 })
 
 /** Every action resolves to an error message, or null on success (same contract the pages already use). */
@@ -92,7 +93,7 @@ interface State extends ProjectData {
   toast: (text: string, tone?: 'ok' | 'warn') => void
   dismissToast: (id: number) => void
   saveProfile: (p: Classification & { scope: Scope; ownerStandards: string; markets: MarketKey[]; reason: string }) => Result
-  submitDoc: (id: string, note: string) => Result
+  submitDoc: (id: string, note: string, issue?: { reasonForIssue?: string; changeSummary?: string; suitability?: string }) => Result
   createTransmittal: (t: { to: string; purpose: string; note: string; docs: string[] }) => Result
   acknowledgeTransmittal: (id: string, note: string) => Result
   /** Downloads a server-generated PDF report of the open project (path below /projects/:code). */
@@ -173,6 +174,7 @@ interface State extends ProjectData {
   updateDetails: (b: { name: string; client: string; site: string }) => Result
   archiveProject: (reason: string) => Result
   restoreProject: (reason: string) => Result
+  setSuitability: (codes: SuitabilityCode[], reason: string) => Result
   setMember: (userId: string, role: Role, scope: string | null) => Result
   removeMember: (userId: string) => Result
 }
@@ -368,7 +370,7 @@ export const useStore = create<State>()((set, get) => {
     sendReminders: () => post('/reminders/send'),
     markAllRead: () => post('/notices/read-all'),
 
-    submitDoc: (id, note) => post(`/docs/${enc(id)}/submit`, { note }),
+    submitDoc: (id, note, issue) => post(`/docs/${enc(id)}/submit`, { note, ...(issue ?? {}) }),
     createTransmittal: (t) => post('/transmittals', t),
     acknowledgeTransmittal: (id, note) => post(`/transmittals/${enc(id)}/acknowledge`, { note }),
     downloadReport: async (path, name) => {
@@ -512,6 +514,7 @@ export const useStore = create<State>()((set, get) => {
     updateDetails: (b) => put('/details', b),
     archiveProject: (reason) => post('/archive', { reason }),
     restoreProject: (reason) => post('/restore', { reason }),
+    setSuitability: (codes, reason) => put('/suitability', { codes, reason }),
     setMember: (userId, role, scope) => put(`/members/${enc(userId)}`, { role, scope }),
     removeMember: (userId) => del(`/members/${enc(userId)}`),
   }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { markets } from '../data/reference'
 import { useStore } from '../store'
-import type { BimRequirement, IndustryGroup, MarketKey, Scope, ServiceType } from '../types'
+import type { BimRequirement, IndustryGroup, MarketKey, Scope, ServiceType, SuitabilityCode } from '../types'
 import { CUSTOM_FACILITY, authorityFor, facilitiesOf, includesBim, referenceBaseFor, useIndustries } from '../industries'
 import { Badge, MarketChip, PageHead, fmtDate, home } from '../components/ui'
 import { approvedOf, draftOf, useLibraryPacks } from '../library'
@@ -54,6 +54,61 @@ function Lifecycle() {
 }
 
 /** Revit add-in connection: input mode, connector tokens (Owner / QA), published models. */
+/**
+ * The project's suitability / status codes (Phase 5 / step 3). ISO 19650 is only the starting set: naming and the
+ * permitted codes come from the contract, the country and sometimes the client's own CDE, so every project edits
+ * its own. Removing a code does not rewrite history — revisions already issued under it keep it.
+ */
+function SuitabilityCodes() {
+  const { suitabilityCodes, setSuitability, role, profile, toast } = useStore()
+  const [codes, setCodes] = useState<SuitabilityCode[]>(suitabilityCodes)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const admin = role === 'Owner / QA' && profile.status === 'Active'
+  const set = (i: number, patch: Partial<SuitabilityCode>) => setCodes(codes.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+  const save = async () => {
+    setBusy(true)
+    const er = await setSuitability(codes, reason)
+    setBusy(false)
+    if (er) toast(er, 'warn')
+    else { toast('Suitability codes saved'); setReason('') }
+  }
+  return (
+    <section className="card" style={{ marginTop: 14 }}>
+      <h2>Revision suitability codes</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>A revision is issued <b>for a purpose</b>, and the code says which. The project starts from ISO 19650; change it to match the contract. Codes already used by an issued revision stay on that revision.</p>
+      <div className="tablewrap">
+        <table>
+          <thead><tr><th style={{ width: 90 }}>Code</th><th>Meaning</th><th style={{ width: 150 }}>Stage</th><th style={{ width: 40 }}></th></tr></thead>
+          <tbody>
+            {codes.map((c, i) => (
+              <tr key={i}>
+                <td><input className="input" value={c.code} disabled={!admin} onChange={(e) => set(i, { code: e.target.value })} aria-label={`Suitability code ${i + 1}`} /></td>
+                <td><input className="input" value={c.label} disabled={!admin} onChange={(e) => set(i, { label: e.target.value })} aria-label={`Suitability label ${i + 1}`} /></td>
+                <td>
+                  <select className="input" value={c.kind} disabled={!admin} onChange={(e) => set(i, { kind: e.target.value })} aria-label={`Suitability stage ${i + 1}`}>
+                    {['WIP', 'Shared', 'Published', 'Archived'].map((k) => <option key={k}>{k}</option>)}
+                  </select>
+                </td>
+                <td><button className="iconbtn" disabled={!admin} onClick={() => setCodes(codes.filter((_, j) => j !== i))} aria-label={`Remove suitability code ${i + 1}`}><Trash2 size={13} /></button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button className="btn" style={{ marginTop: 8 }} disabled={!admin} onClick={() => setCodes([...codes, { code: '', label: '', kind: 'Shared' }])}><Plus size={13} /> Add code</button>
+      {/* Deliberately not called "Change rationale": the baseline form above owns that name, and two fields with
+          one name are ambiguous for anyone reading the page, and for anything driving it. */}
+      <label className="lab">Reason for the suitability change (required)</label>
+      <textarea className="input" style={{ minHeight: 48 }} value={reason} disabled={!admin} onChange={(e) => setReason(e.target.value)} placeholder="Why is the suitability set being changed?" />
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="btn pri" disabled={!admin || busy} onClick={save}>Save suitability codes</button>
+        {!admin && <span className="muted small">Owner / QA role required</span>}
+      </div>
+    </section>
+  )
+}
+
 function Integrations() {
   const { revitMode, setRevit, connector, role, createToken, revokeToken, toast, profile } = useStore()
   const [name, setName] = useState('')
@@ -230,6 +285,7 @@ export default function Setup() {
           </table>
         </div>
       </section>
+      <SuitabilityCodes />
       <Integrations />
       <Lifecycle />
     </>

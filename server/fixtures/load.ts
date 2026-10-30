@@ -10,6 +10,7 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import { Prisma, PrismaClient } from '../src/generated/prisma/client.ts'
 import type { ProjectData, Role } from '../src/domain/types.ts'
 import { disciplines as DISCIPLINES } from '../src/domain/reference.ts'
+import { defaultSuitability } from '../src/domain/suitability.ts'
 import { projectIndex, projectMarkets, seedActions, seedChanges, seedDocs, seedFindings, seedInspections, seedNcrs, seedPins, seedReqs, seedRfis, seedRisks, seedUpdates } from './data.ts'
 
 if (process.env.NODE_ENV === 'production') throw new Error('Refusing to load test fixtures in production.')
@@ -34,6 +35,7 @@ function makeProject(id: string): ProjectData {
   const base: ProjectData = {
     profile,
     markets: [...(projectMarkets[id] ?? ['SA'])],
+    suitabilityCodes: defaultSuitability(),
     docs: clone(seedDocs), reqs: clone(seedReqs), pins: clone(seedPins), updates: clone(seedUpdates), actions: clone(seedActions),
     rfis: clone(seedRfis), inspections: clone(seedInspections), findings: clone(seedFindings), changes: clone(seedChanges),
     snapshots: [], baselines: [{ v: 1, at: '2026-09-01T09:00:00Z', by: 'Owner / QA', reason: 'Initial requirement baseline' }],

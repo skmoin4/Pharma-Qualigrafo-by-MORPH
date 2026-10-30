@@ -1,7 +1,8 @@
 // Reads one project from the database and returns it in the exact ProjectData shape the frontend store uses.
 import { prisma } from '../db.ts'
+import { suitabilityOf } from './revisions.ts'
 import type {
-  FileMeta, AuditEvent, Company, SystemRec, DisciplineRec, Member, ElementChange, NavStatus, Change, Doc, GapAction, ImportBatch, Inspection, IssuedPackage, MarketKey, Ncr, Notice, Pin, ProjectData, RegUpdate, Requirement, Rfi, Risk, Role, Snapshot,
+  DocRevisionRec, FileMeta, AuditEvent, Company, SystemRec, DisciplineRec, Member, ElementChange, NavStatus, Change, Doc, GapAction, ImportBatch, Inspection, IssuedPackage, MarketKey, Ncr, Notice, Pin, ProjectData, RegUpdate, Requirement, Rfi, Risk, Role, Snapshot,
 } from '../domain/types.ts'
 
 export const AUDIT_LIMIT = 300
@@ -25,7 +26,7 @@ export async function loadProject(projectId: string, userId: string, scope: stri
   const docRef = { select: { code: true } } as const
   const [p, docs, reqs, pins, updates, actions, rfis, inspections, findings, changes, snapshots, baselines, audit, notices, imports, issued, risks, ncrs, companies, systems, disciplines, members, tokens, models, transmittals] = await Promise.all([
     prisma.project.findUniqueOrThrow({ where: { id: projectId } }),
-    prisma.document.findMany({ where: { projectId }, include: { file: true, signatures: { orderBy: { at: 'asc' } }, history: { orderBy: { at: 'asc' } } } }),
+    prisma.document.findMany({ where: { projectId }, include: { file: true, signatures: { orderBy: { at: 'asc' } }, history: { orderBy: { at: 'asc' } }, revisions: { orderBy: { rev: 'asc' } } } }),
     prisma.requirement.findMany({ where: { projectId }, include: { evidence: { orderBy: { position: 'asc' }, include: { document: docRef } } } }),
     prisma.pin.findMany({ where: { projectId }, include: { document: docRef, replies: { orderBy: { at: 'asc' } }, navigation: { orderBy: { createdAt: 'desc' }, take: 1 } } }),
     prisma.regUpdate.findMany({ where: { projectId } }),
@@ -58,6 +59,7 @@ export async function loadProject(projectId: string, userId: string, scope: stri
     baseline: p.baseline,
     revitMode: p.revitMode,
     automation: { routing: p.autoRouting, reminders: p.autoReminders, autoIssue: p.autoIssue },
+    suitabilityCodes: suitabilityOf(p),
 
     docs: byCode(docs).map((d): Doc => ({
       id: d.code, title: d.title, discipline: d.discipline, system: d.system, rev: d.rev, status: d.status as Doc['status'], owner: d.owner, due: day(d.due), critical: d.critical,
@@ -65,6 +67,14 @@ export async function loadProject(projectId: string, userId: string, scope: stri
       voided: d.voidedAt ? { reason: d.voidReason ?? '', at: iso(d.voidedAt), by: d.voidedBy ?? '', supersededBy: opt(d.supersededBy) } : undefined,
       signatures: d.signatures.map((s) => ({ role: s.role as Role, name: s.name, at: iso(s.at), rev: s.rev, reason: s.reason, meaning: s.meaning || undefined, email: opt(s.email), checksum: opt(s.checksum), sigHash: opt(s.sigHash) })),
       history: d.history.map((h) => ({ rev: h.rev, status: h.status as Doc['status'], at: iso(h.at), by: h.byRole as Role, note: opt(h.note) })),
+      // Formal revisions (Phase 5 / step 3): the issue record of each one, superseded ones included.
+      revisions: d.revisions.map((r): DocRevisionRec => ({
+        rev: r.rev, state: r.state as DocRevisionRec['state'], suitability: r.suitability, reasonForIssue: r.reasonForIssue,
+        changeSummary: r.changeSummary, preparedBy: r.preparedBy, preparedAt: iso(r.preparedAt),
+        checkedBy: r.checkedBy || undefined, checkedAt: r.checkedAt ? iso(r.checkedAt) : undefined,
+        approvedBy: r.approvedBy || undefined, approvedAt: r.approvedAt ? iso(r.approvedAt) : undefined,
+        supersededAt: r.supersededAt ? iso(r.supersededAt) : undefined, checksum: opt(r.checksum),
+      })),
     })),
 
     reqs: byCode(reqs).map((r): Requirement => ({

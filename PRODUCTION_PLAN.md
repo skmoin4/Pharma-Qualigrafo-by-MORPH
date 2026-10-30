@@ -40,7 +40,12 @@ engineering teams can run real projects on, and the order in which to build it.
 > buildings, loaded per industry by choice, with the pharma sets unchanged and the authority label no longer naming a
 > medicines regulator on a non-pharma project (§6.7).
 >
-> **Next: Phase 5 step 3** — document control: version vs formal revision (§6.5 step 3). Session guide: `CLAUDE.md`.
+> **Phase 5 / step 3 is done (2026-10-30)** — document control: formal revisions distinct from working versions,
+> with reason for issue, suitability, prepared / checked / approved, a revision tree, comparison, and superseded
+> revisions kept (§6.7).
+>
+> **Next: P4 — object storage and virus scan** (§7 item 4), which decision §6.4.11 places right after step 3 now
+> that controlled revisions are what gets uploaded; then Phase 5 step 4 (task engine). Session guide: `CLAUDE.md`.
 
 | Phase | Status |
 |---|---|
@@ -1011,6 +1016,42 @@ Two extra rules for this phase, because it touches shipped records:
   before. The existing pharma browser suites are the proof and must not be edited to accommodate new behaviour.
 
 ### 6.7 Progress
+
+#### Phase 5 / step 3 — document control: version against formal revision (done 2026-10-30)
+
+The client's third P0. Their words were "clear difference between file version and formal revision, with status,
+reason, reviewer and superseded record" — and "never overwrite".
+
+| Part | What was done |
+|---|---|
+| The distinction, in the data | A **version** is a working iteration: attaching a file to a draft replaces what is there and always did. A **revision** is formal, and now has its own record (`DocRevision`). Submitting a document opens one; it stores why it is being issued, under which suitability code, who prepared it, and the checksum of the content it carries |
+| Who did what | Stage 1 of the existing sign-off records **checked by**, stage 2 records **approved by** and issues the revision. Nothing about the two-stage e-signature changed — the revision record is written alongside it, from the same actions |
+| Never overwritten | Acceptance supersedes every earlier issued revision of that document instead of replacing it. A superseded revision keeps its row, its suitability, its reason for issue and its own checksum, and the register shows it as Superseded |
+| Returned means returned | A revision sent back for changes is marked `Returned`, and re-submitting it clears the earlier checker and approver — they have not seen the new content. A returned revision cannot be signed |
+| The revision tree | Each revision links to the one it supersedes (`previousId`), so the register is the tree. The drawer shows the register with the revision in force named at the top, and any two revisions can be compared field by field, including the content checksum |
+| Suitability codes | Per project, starting from the **ISO 19650** set (S0–S7, A1, B1, CR, AB) and freely editable under Setup — the open question in §6.4 is answered that way: default, not a rule, because naming and the permitted set come from the contract, the country and sometimes the client's own CDE. Removing a code does **not** rewrite the revisions already issued under it, and the audit entry says so |
+| Separate views | The drawer now has **Revisions** and, below it, **Version history**. A working iteration can no longer be read as an issue |
+
+**Additive by construction.** `DocRevision` is a new table and `Project.suitabilityCodes` a new nullable column;
+not one existing column changed, so every document keeps its revision number, its history and its signatures. A
+project created before this step has no stored codes and falls back to the ISO 19650 default.
+
+**A label collision this step caused, caught by the OQ.** The suitability editor was given a rationale field also
+called "Change rationale", which the baseline form on the same page already uses. `e2e19` drives that page and
+crashed on the ambiguity — two controls with one name are ambiguous for anything driving the page and for anyone
+reading it. The new field is now "Reason for the suitability change". Per-case counts showed it: `e2e19` reported
+31 of 32 where it had been 38 of 38.
+
+Tests: **API 704 checks** (was 682: OQ-API-38 for the suitability set and the revision lifecycle, plus assertions
+added to the existing document flow so the real sign-off is what proves the records). New browser suite
+**`e2e21.mjs` with 22 checks**, walking a document from working version to issued revision to superseded, comparing
+two revisions and editing the project's codes. Full OQ: **1428 of 1428 in 59 test cases** (704 API + 724 browser),
+up from 1384 in 57, with no case losing a check.
+
+**What is deliberately not here.** Markups on a revision, downloading the issue history as a pack, and restoring a
+prior working version with permission are in the client's list but belong with the transmittal and file work — and
+the file side is **P4 (object storage)**, which decision §6.4.11 places immediately after this step, because from
+here on controlled revisions are what gets uploaded. P4 is therefore next, before Phase 5 step 4.
 
 #### Phase 5 — fix: project creation failed on the hosted database (2026-10-30)
 

@@ -11,6 +11,7 @@ import type { AuthUser } from '../middleware/auth.ts'
 import type { Ctx } from './ctx.ts'
 import { instantiateMarket } from './libraryProjects.ts'
 import { generateDeliverables } from './templates.ts'
+import { defaultSuitability } from '../domain/suitability.ts'
 import { templateFor } from '../domain/templates.ts'
 
 /** Administrators, and anyone who is Owner / QA on at least one project, may create projects. */
@@ -144,7 +145,9 @@ export async function createProject(user: AuthUser, b: CreateProject, requestId:
     const p = await tx.project.create({
       data: { code, name, client, site, projectCountry: b.projectCountry, markets, ...cls, bimRequirement: bimJson(cls.bimRequirement), scope: b.scope,
         // The Revit connector belongs to a BIM commission; a design-only project starts standalone.
-        revitMode: includesBim(cls.serviceType), ownerStandards: b.ownerStandards.trim(), baseline: 1, createdByUserId: user.id },
+        revitMode: includesBim(cls.serviceType), ownerStandards: b.ownerStandards.trim(), baseline: 1, createdByUserId: user.id,
+        // The ISO 19650 set to start from; a project edits it under Setup (decision: default, not a rule).
+        suitabilityCodes: defaultSuitability() },
     })
     await tx.baseline.create({ data: { projectId: p.id, v: 1, byRole: 'Owner / QA', byUserId: user.id, reason: 'Project created' } })
     await tx.discipline.createMany({ data: disciplines.map((n, i) => ({ projectId: p.id, name: n, position: i + 1 })) })

@@ -260,6 +260,7 @@ const none = z.object({}).strict()
 const reasonBody = z.object({ reason: zText })
 
 // project setup & settings
+act('put', '/suitability', z.object({ codes: z.array(z.object({ code: z.string().max(10), label: z.string().max(120), kind: z.string().max(20) })).max(40), reason: zText }), (c, b) => D.setSuitability(c, b.codes, b.reason))
 act('put', '/profile', z.object({
     industryGroup: z.enum(INDUSTRY_GROUPS), facilityType: z.string().max(120),
     secondaryFacilityType: z.string().max(120).optional(), customFacilityType: z.string().max(120).optional(),
@@ -296,7 +297,8 @@ act('post', '/docs/import', zRegisterImport, (c, b) => Reg.importRegister(c, b.r
 act('put', '/docs/:id/details', zDocFields.extend({ reason: zText }), (c, b, p) => Reg.updateDocument(c, p.id, b))
 act('post', '/docs/:id/void', z.object({ reason: zText, supersededBy: z.string().max(40).optional() }), (c, b, p) => Reg.voidDocument(c, p.id, b))
 act('post', '/docs/:id/reinstate', reasonBody, (c, b, p) => Reg.reinstateDocument(c, p.id, b.reason))
-act('post', '/docs/:id/submit', z.object({ note: zText }), (c, b, p) => D.submitDoc(c, p.id, b.note), V)
+act('post', '/docs/:id/submit', z.object({ note: zText, reasonForIssue: z.string().max(500).optional(), changeSummary: z.string().max(1000).optional(), suitability: z.string().max(10).optional() }),
+  (c, b, p) => D.submitDoc(c, p.id, b.note, b), V)
 act('post', '/docs/:id/sign', z.object({ reason: zText, intent: z.boolean(), password: z.string().max(200) }), (c, b, p) => D.signDoc(c, p.id, b.reason, b.intent), { reauth: 'document sign-off' })
 act('post', '/docs/:id/return', reasonBody, (c, b, p) => D.returnDoc(c, p.id, b.reason))
 act('post', '/docs/:id/revisions', none, (c, _b, p) => D.newRevision(c, p.id), V)

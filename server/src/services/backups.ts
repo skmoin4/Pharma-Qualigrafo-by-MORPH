@@ -277,6 +277,9 @@ export async function verifyBackup(id: string, by?: string) {
     await admin.query(`CREATE DATABASE "${temp}"`)
     const res = await restoreAndCompare(dir, m, libpqUrl(config.DATABASE_URL, temp), false)
     const detail = `Test restore into a temporary database: ${Object.entries(res.counts).map(([k, v]) => `${k} ${v}`).join(', ')}; ${m.migrations.length} migrations; ${m.files.count} files, every SHA-256 checked; ${res.files} file reference(s) resolved.${by ? ` Run by ${by}.` : ''}`
+    // Drop the temporary database *before* recording the result: a verification that reads as finished while its
+    // scratch database is still on the server is not finished, and anything watching would see both at once.
+    await admin.query(`DROP DATABASE IF EXISTS "${temp}" WITH (FORCE)`).catch(() => undefined)
     return await prisma.backupRun.update({ where: { id }, data: { verifyStatus: 'Verified', verifiedAt: new Date(), verifyDetail: detail } })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

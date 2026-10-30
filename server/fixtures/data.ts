@@ -11,6 +11,8 @@ const d = (id: string, title: string, discipline: string, system: string, rev: n
       ]
     : [],
   history: [{ rev, status, at: '2026-10-12T00:00:00Z', by: 'Contractor' }],
+  // Fixture documents carry no formal revision history; the suites create the revisions they need.
+  revisions: [],
 })
 
 export const seedDocs: Doc[] = [
