@@ -32,7 +32,9 @@ const health = page.locator('section', { has: page.getByRole('heading', { name: 
 ok(await vis(health.getByText(/Qualigrafo \d+\.\d+\.\d+ · Node \d+/)), 'health card shows the application version and the Node.js runtime')
 ok(await vis(health.getByText(/answers in \d+ ms/)) && await vis(health.getByText(/median \d+ ms · 95th percentile \d+ ms/)), 'database round trip and response times shown')
 ok(await vis(health.getByText(/\d+ \(\d+ 2xx/)), 'requests since start counted by status class')
-ok(await vis(health.getByText(/level info, format text, console only/)), 'log destination shown (console only without LOG_DIR)')
+// Development logs to the console; a productive installation (the CI Docker stack) sets LOG_FORMAT=json and LOG_DIR,
+// so the card names the log file instead. Either destination has to be reported.
+ok(await vis(health.getByText(/level \w+, format (text|json), (console only|.+kept \d+ days)/)), 'log destination shown (console, or the log file when LOG_DIR is set)')
 ok(await vis(health.getByText(/off — set METRICS_TOKEN/)), 'metrics endpoint reported as switched off')
 
 // background jobs

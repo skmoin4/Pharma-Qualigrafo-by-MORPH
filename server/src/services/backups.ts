@@ -84,8 +84,10 @@ export async function toolsInfo() {
     info.pgRestore = (await exec(pgTool('pg_restore'), ['--version'])).trim()
     const [{ v }] = await prisma.$queryRaw<{ v: string }[]>`SELECT current_setting('server_version') AS v`
     info.server = v
+    // Debian / Ubuntu builds append their own package version: "pg_dump (PostgreSQL) 18.6 (Debian 18.6-1.pgdg12+2)".
+    // Read the first number in the output rather than the text after the last ")", which is empty on those builds.
     const major = (s: string) => Number(/(\d+)/.exec(s.replace(/^[^\d]*/, ''))?.[1] ?? 0)
-    info.ok = major(info.pgDump.split(')').pop() ?? '') >= major(v)
+    info.ok = major(info.pgDump) >= major(v)
     if (!info.ok) info.problem = `pg_dump ${info.pgDump} is older than the database server ${v}.`
   } catch (e) {
     info.problem = e instanceof Error ? e.message : String(e)

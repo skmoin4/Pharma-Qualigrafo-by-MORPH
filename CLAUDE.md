@@ -8,12 +8,21 @@ common buildings). **Read this first, then `PRODUCTION_PLAN.md` §6 (Phase 5 pla
 
 ## Where the work stands (resume here)
 
-- ⚠️ **CI is red (checked 2026-10-29).** The branch is pushed and CI has run **7 times, all failures**: each stops in
-  `checks` at `npm audit --omit=dev --audit-level=high`, so `oq` and `deploy` are **skipped** — OQ and Docker are
-  *still* unverified in CI. `server/` ships **two high-severity DoS advisories** (body-parser, multer) + one moderate
-  (fast-uri); `npm audit fix` covers all three, the frontend is clean. **Fix this before Phase 5 step 1**, then read
-  the first green run's `oq` / `deploy` jobs and fix the Linux / Docker issues there. Full list of what is still owed
-  from earlier phases: `PRODUCTION_PLAN.md` §7.
+- **CI: the first `oq` / `deploy` failures are found and fixed (run 40835673708 → fix pushed 2026-10-30).**
+  One bug caused eight of the nine failing checks: `toolsInfo()` in `server/src/services/backups.ts` read the pg_dump
+  version as *the text after the last `)`*, which is empty on Debian / Ubuntu builds — they print
+  `pg_dump (PostgreSQL) 18.6 (Debian 18.6-1.pgdg12+2)`, so the major version parsed as 0 and every Linux installation
+  was told its backup tools were older than the database. Windows prints `pg_dump (PostgreSQL) 18.0`, which is why it
+  never showed up locally. That one failure cascaded: `e2e14` lost 2 checks and then aborted (12 more), `e2e13`'s
+  "only IQ-13 may fail" assertion broke, and in the Docker job the backup verify, the installation check and the
+  restart stage all failed. The ninth check was a genuine environment mismatch: `e2e16` asserted
+  `format text, console only`, but a productive stack sets `LOG_FORMAT=json` and `LOG_DIR` — it now accepts either
+  destination. **`gh` is installed and authenticated on this machine** (`/c/Program Files/GitHub CLI/gh.exe`, not on
+  the Git Bash PATH — call it by full path), so read CI yourself with `gh run view <id> --log-failed` instead of
+  asking. Step-level conclusions are also public without auth:
+  `curl -s https://api.github.com/repos/skmoin4/Pharma-Qualigrafo-by-MORPH/actions/runs/<id>/jobs`.
+  **Note the blind spot this exposed:** a suite that throws stops early, so CI reported 1226 checks against 1238
+  locally — the "never fewer checks" gate does not catch a suite that aborts. Compare per-case counts, not the total.
 
 - Branch: **`production-backend`**, kept in sync with `main` (user asked to push everything to `main` on
   2026-10-26; fast-forwarded, both branches now point at the same history). Commit only when the user asks; end
